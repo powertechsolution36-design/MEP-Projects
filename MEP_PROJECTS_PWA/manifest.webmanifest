@@ -1,0 +1,28 @@
+{
+  "name": "MEP PROJECTS — Total project management",
+  "short_name": "MEP PROJECTS",
+  "description": "Total project management for MEP contracting companies — sales, HVAC/Solar/MEP projects, service, AMC and finance.",
+  "id": "/mep-projects/",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#16202e",
+  "theme_color": "#d92b2b",
+  "lang": "en-IN",
+  "dir": "ltr",
+  "categories": ["business", "productivity", "utilities"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/apple-touch-icon.png", "sizes": "180x180", "type": "image/png", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "Projects", "short_name": "Projects", "url": "./index.html#projects", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Service Calls", "short_name": "Service", "url": "./index.html#service", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Pending Payments", "short_name": "Payments", "url": "./index.html#payments", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}
