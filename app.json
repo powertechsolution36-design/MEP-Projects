@@ -1,24 +1,33 @@
 {
   "expo": {
-    "name": "MEP_PROJECTS_EXPO",
-    "slug": "MEP_PROJECTS_EXPO",
+    "name": "MEP PROJECTS",
+    "slug": "mep-projects",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#d92b2b",
+      "resizeMode": "contain"
+    },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.mepprojects.app",
+      "backgroundColor": "#16202e"
     },
     "android": {
+      "package": "com.mepprojects.app",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#d92b2b",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       }
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
     }
   }
 }
