@@ -81,3 +81,5 @@ Installed devices detect the new version and show a "Reload now" prompt. Saved d
 Data is stored **in each device's browser storage**, so devices do not share data yet, and passwords live inside `index.html`. That is fine for demos, training and finalising the workflow with your team.
 
 For live multi-user use the app needs a backend: shared database, real logins, actual SMS/email delivery, scheduled delay alerts and file/photo storage. Every screen and rule in this app then becomes the specification for that build — nothing has to be redesigned.
+
+Webhook deployment test.
