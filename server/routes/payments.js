@@ -2,6 +2,12 @@ const router = require('express').Router();
 const auth = require('../middleware/auth');
 const Payment = require('../models/Payment');
 
+function coFilter(req, id) {
+  const f = { _id: id };
+  if (req.user.role !== 'super') f.co = req.user.co;
+  return f;
+}
+
 // GET all
 router.get('/', auth, async (req, res) => {
   try {
@@ -15,7 +21,7 @@ router.get('/', auth, async (req, res) => {
 // GET single
 router.get('/:id', auth, async (req, res) => {
   try {
-    const doc = await Payment.findById(req.params.id);
+    const doc = await Payment.findOne(coFilter(req, req.params.id));
     if (!doc) return res.status(404).json({ error: 'Not found' });
     res.json(doc);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -33,7 +39,7 @@ router.post('/', auth, async (req, res) => {
 // PUT update
 router.put('/:id', auth, async (req, res) => {
   try {
-    const doc = await Payment.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const doc = await Payment.findOneAndUpdate(coFilter(req, req.params.id), req.body, { new: true });
     if (!doc) return res.status(404).json({ error: 'Not found' });
     res.json(doc);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -42,8 +48,8 @@ router.put('/:id', auth, async (req, res) => {
 // PUT add partial payment
 router.put('/:id/paid', auth, async (req, res) => {
   try {
-    const doc = await Payment.findByIdAndUpdate(
-      req.params.id,
+    const doc = await Payment.findOneAndUpdate(
+      coFilter(req, req.params.id),
       { $push: { paid: req.body } },
       { new: true }
     );
@@ -55,7 +61,7 @@ router.put('/:id/paid', auth, async (req, res) => {
 // DELETE
 router.delete('/:id', auth, async (req, res) => {
   try {
-    await Payment.findByIdAndDelete(req.params.id);
+    await Payment.findOneAndDelete(coFilter(req, req.params.id));
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

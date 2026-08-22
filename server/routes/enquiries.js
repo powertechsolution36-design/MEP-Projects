@@ -1,7 +1,12 @@
 const router = require('express').Router();
 const auth = require('../middleware/auth');
 const Enquiry = require('../models/Enquiry');
-const Sequence = require('../models/Sequence');
+
+function coFilter(req, id) {
+  const f = { _id: id };
+  if (req.user.role !== 'super') f.co = req.user.co;
+  return f;
+}
 
 // GET all enquiries for company
 router.get('/', auth, async (req, res) => {
@@ -16,7 +21,7 @@ router.get('/', auth, async (req, res) => {
 // GET single
 router.get('/:id', auth, async (req, res) => {
   try {
-    const doc = await Enquiry.findById(req.params.id);
+    const doc = await Enquiry.findOne(coFilter(req, req.params.id));
     if (!doc) return res.status(404).json({ error: 'Not found' });
     res.json(doc);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -34,7 +39,7 @@ router.post('/', auth, async (req, res) => {
 // PUT update
 router.put('/:id', auth, async (req, res) => {
   try {
-    const doc = await Enquiry.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const doc = await Enquiry.findOneAndUpdate(coFilter(req, req.params.id), req.body, { new: true });
     if (!doc) return res.status(404).json({ error: 'Not found' });
     res.json(doc);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -43,8 +48,8 @@ router.put('/:id', auth, async (req, res) => {
 // PUT add log entry
 router.put('/:id/log', auth, async (req, res) => {
   try {
-    const doc = await Enquiry.findByIdAndUpdate(
-      req.params.id,
+    const doc = await Enquiry.findOneAndUpdate(
+      coFilter(req, req.params.id),
       { $push: { log: req.body } },
       { new: true }
     );
@@ -56,7 +61,7 @@ router.put('/:id/log', auth, async (req, res) => {
 // DELETE
 router.delete('/:id', auth, async (req, res) => {
   try {
-    await Enquiry.findByIdAndDelete(req.params.id);
+    await Enquiry.findOneAndDelete(coFilter(req, req.params.id));
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

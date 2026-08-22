@@ -2,6 +2,12 @@ const router = require('express').Router();
 const auth = require('../middleware/auth');
 const User = require('../models/User');
 
+function coFilter(req, id) {
+  const f = { _id: id };
+  if (req.user.role !== 'super') f.co = req.user.co;
+  return f;
+}
+
 // GET users for company
 router.get('/', auth, async (req, res) => {
   try {
@@ -35,7 +41,7 @@ router.put('/:id', auth, async (req, res) => {
     const update = { ...req.body };
     // If password is being updated, let the pre-save hook hash it
     if (update.pw) {
-      const user = await User.findById(req.params.id);
+      const user = await User.findOne(coFilter(req, req.params.id));
       if (!user) return res.status(404).json({ error: 'Not found' });
       Object.assign(user, update);
       await user.save();
@@ -43,7 +49,7 @@ router.put('/:id', auth, async (req, res) => {
       delete u.pw;
       return res.json(u);
     }
-    const user = await User.findByIdAndUpdate(req.params.id, update, { new: true }).select('-pw');
+    const user = await User.findOneAndUpdate(coFilter(req, req.params.id), update, { new: true }).select('-pw');
     if (!user) return res.status(404).json({ error: 'Not found' });
     res.json(user);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -55,7 +61,7 @@ router.delete('/:id', auth, async (req, res) => {
     if (req.user.role !== 'admin' && req.user.role !== 'super') {
       return res.status(403).json({ error: 'Forbidden' });
     }
-    await User.findByIdAndDelete(req.params.id);
+    await User.findOneAndDelete(coFilter(req, req.params.id));
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

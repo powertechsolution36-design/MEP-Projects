@@ -2,6 +2,12 @@ const router = require('express').Router();
 const auth = require('../middleware/auth');
 const Project = require('../models/Project');
 
+function coFilter(req, id) {
+  const f = { _id: id };
+  if (req.user.role !== 'super') f.co = req.user.co;
+  return f;
+}
+
 // GET all
 router.get('/', auth, async (req, res) => {
   try {
@@ -23,7 +29,7 @@ router.get('/', auth, async (req, res) => {
 // GET single
 router.get('/:id', auth, async (req, res) => {
   try {
-    const doc = await Project.findById(req.params.id);
+    const doc = await Project.findOne(coFilter(req, req.params.id));
     if (!doc) return res.status(404).json({ error: 'Not found' });
     res.json(doc);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -41,7 +47,7 @@ router.post('/', auth, async (req, res) => {
 // PUT update
 router.put('/:id', auth, async (req, res) => {
   try {
-    const doc = await Project.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const doc = await Project.findOneAndUpdate(coFilter(req, req.params.id), req.body, { new: true });
     if (!doc) return res.status(404).json({ error: 'Not found' });
     res.json(doc);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -50,7 +56,7 @@ router.put('/:id', auth, async (req, res) => {
 // PUT update checklist item
 router.put('/:id/chk/:idx', auth, async (req, res) => {
   try {
-    const proj = await Project.findById(req.params.id);
+    const proj = await Project.findOne(coFilter(req, req.params.id));
     if (!proj) return res.status(404).json({ error: 'Not found' });
     const idx = parseInt(req.params.idx);
     if (idx < 0 || idx >= proj.chk.length) return res.status(400).json({ error: 'Invalid index' });
@@ -63,8 +69,8 @@ router.put('/:id/chk/:idx', auth, async (req, res) => {
 // PUT add update entry
 router.put('/:id/updates', auth, async (req, res) => {
   try {
-    const doc = await Project.findByIdAndUpdate(
-      req.params.id,
+    const doc = await Project.findOneAndUpdate(
+      coFilter(req, req.params.id),
       { $push: { updates: req.body } },
       { new: true }
     );
@@ -76,8 +82,8 @@ router.put('/:id/updates', auth, async (req, res) => {
 // PUT add DC item
 router.put('/:id/dc', auth, async (req, res) => {
   try {
-    const doc = await Project.findByIdAndUpdate(
-      req.params.id,
+    const doc = await Project.findOneAndUpdate(
+      coFilter(req, req.params.id),
       { $push: { dc: req.body } },
       { new: true }
     );
@@ -89,7 +95,7 @@ router.put('/:id/dc', auth, async (req, res) => {
 // DELETE
 router.delete('/:id', auth, async (req, res) => {
   try {
-    await Project.findByIdAndDelete(req.params.id);
+    await Project.findOneAndDelete(coFilter(req, req.params.id));
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

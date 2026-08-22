@@ -22,11 +22,11 @@ router.post('/', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// PUT mark as read
+// PUT mark as read — scoped to user's company
 router.put('/:id/read', auth, async (req, res) => {
   try {
-    const doc = await Notification.findByIdAndUpdate(
-      req.params.id,
+    const doc = await Notification.findOneAndUpdate(
+      { _id: req.params.id, co: req.user.co },
       { $addToSet: { read: req.user.id } },
       { new: true }
     );

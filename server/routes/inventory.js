@@ -6,6 +6,12 @@ const InvItem = require('../models/InvItem');
 const InvIssue = require('../models/InvIssue');
 const InvTransaction = require('../models/InvTransaction');
 
+function coFilter(req, id) {
+  const f = { _id: id };
+  if (req.user.role !== 'super') f.co = req.user.co;
+  return f;
+}
+
 /* ---- Categories ---- */
 router.get('/categories', auth, async (req, res) => {
   try {
@@ -23,7 +29,7 @@ router.post('/categories', auth, async (req, res) => {
 
 router.put('/categories/:id', auth, async (req, res) => {
   try {
-    const doc = await InvCategory.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const doc = await InvCategory.findOneAndUpdate(coFilter(req, req.params.id), req.body, { new: true });
     if (!doc) return res.status(404).json({ error: 'Not found' });
     res.json(doc);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -31,7 +37,7 @@ router.put('/categories/:id', auth, async (req, res) => {
 
 router.delete('/categories/:id', auth, async (req, res) => {
   try {
-    await InvCategory.findByIdAndDelete(req.params.id);
+    await InvCategory.findOneAndDelete(coFilter(req, req.params.id));
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -53,7 +59,7 @@ router.post('/locations', auth, async (req, res) => {
 
 router.put('/locations/:id', auth, async (req, res) => {
   try {
-    const doc = await InvLocation.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const doc = await InvLocation.findOneAndUpdate(coFilter(req, req.params.id), req.body, { new: true });
     if (!doc) return res.status(404).json({ error: 'Not found' });
     res.json(doc);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -61,7 +67,7 @@ router.put('/locations/:id', auth, async (req, res) => {
 
 router.delete('/locations/:id', auth, async (req, res) => {
   try {
-    await InvLocation.findByIdAndDelete(req.params.id);
+    await InvLocation.findOneAndDelete(coFilter(req, req.params.id));
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -77,7 +83,7 @@ router.get('/items', auth, async (req, res) => {
 
 router.get('/items/:id', auth, async (req, res) => {
   try {
-    const doc = await InvItem.findById(req.params.id);
+    const doc = await InvItem.findOne(coFilter(req, req.params.id));
     if (!doc) return res.status(404).json({ error: 'Not found' });
     res.json(doc);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -92,7 +98,7 @@ router.post('/items', auth, async (req, res) => {
 
 router.put('/items/:id', auth, async (req, res) => {
   try {
-    const doc = await InvItem.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const doc = await InvItem.findOneAndUpdate(coFilter(req, req.params.id), req.body, { new: true });
     if (!doc) return res.status(404).json({ error: 'Not found' });
     res.json(doc);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -100,7 +106,7 @@ router.put('/items/:id', auth, async (req, res) => {
 
 router.delete('/items/:id', auth, async (req, res) => {
   try {
-    await InvItem.findByIdAndDelete(req.params.id);
+    await InvItem.findOneAndDelete(coFilter(req, req.params.id));
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -117,7 +123,7 @@ router.get('/issues', auth, async (req, res) => {
 
 router.get('/issues/:id', auth, async (req, res) => {
   try {
-    const doc = await InvIssue.findById(req.params.id);
+    const doc = await InvIssue.findOne(coFilter(req, req.params.id));
     if (!doc) return res.status(404).json({ error: 'Not found' });
     res.json(doc);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -132,7 +138,7 @@ router.post('/issues', auth, async (req, res) => {
 
 router.put('/issues/:id', auth, async (req, res) => {
   try {
-    const doc = await InvIssue.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const doc = await InvIssue.findOneAndUpdate(coFilter(req, req.params.id), req.body, { new: true });
     if (!doc) return res.status(404).json({ error: 'Not found' });
     res.json(doc);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -140,7 +146,7 @@ router.put('/issues/:id', auth, async (req, res) => {
 
 router.delete('/issues/:id', auth, async (req, res) => {
   try {
-    await InvIssue.findByIdAndDelete(req.params.id);
+    await InvIssue.findOneAndDelete(coFilter(req, req.params.id));
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

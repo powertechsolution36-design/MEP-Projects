@@ -493,7 +493,7 @@ function loadFromAPI(){
     // Map MongoDB _id to id for compatibility with all view code
     function mapIds(arr){
       if(!arr)return[];
-      return arr.map(function(x){var o=Object.assign({},x);o.id=o._id;return o});
+      return arr.map(function(x){var o=Object.assign({},x);o.id=o._id;delete o._id;return o});
     }
     DB.companies=mapIds(d.companies);
     DB.users=mapIds(d.users);
@@ -504,7 +504,7 @@ function loadFromAPI(){
     DB.contracts=mapIds(d.contracts);
     DB.payments=mapIds(d.payments);
     DB.notifs=mapIds(d.notifs);
-    DB.checklists=mapIds(d.checklists||[]);
+    DB.chklists=mapIds(d.checklists||[]);
     DB.invCats=mapIds(d.invCats||[]);
     DB.invLocs=mapIds(d.invLocs||[]);
     DB.invItems=mapIds(d.invItems||[]);
@@ -540,7 +540,7 @@ function syncToAPI(){
     contracts:DB.contracts,
     payments:DB.payments,
     notifs:DB.notifs,
-    checklists:DB.checklists,
+    checklists:DB.chklists,
     invCats:DB.invCats,
     invLocs:DB.invLocs,
     invItems:DB.invItems,
