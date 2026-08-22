@@ -457,11 +457,103 @@ function seedProjects(db){
   {id:103,co:3,project:"Sula Farmhouse - 25kW",person:"Mrs. Kale",phone:"9422077889",amount:700000,remark:"SO 5002 advance",lastCall:"",disc:"",nextCall:"",status:"Pending",soNo:5002,mi:0,paid:[]});
 }
 
+/* ================= API CONFIG ================= */
+var API_BASE = (function(){
+  // Auto-detect: if running on the deployed domain, use the API subdomain
+  var h = location.hostname;
+  if (h === 'mep-projects.spereon.codes') return 'https://api.mep-projects.spereon.codes';
+  if (h === 'localhost' || h === '127.0.0.1') return 'http://localhost:4001';
+  // Fallback: try same origin /api or the production API
+  return 'https://api.mep-projects.spereon.codes';
+})();
+var TOKEN = null;
+var API_MODE = true; // set false to fall back to localStorage-only mode
+
+function api(method, path, body) {
+  var opts = { method: method, headers: { 'Content-Type': 'application/json' } };
+  if (TOKEN) opts.headers['Authorization'] = 'Bearer ' + TOKEN;
+  if (body) opts.body = JSON.stringify(body);
+  return fetch(API_BASE + path, opts).then(function(r) {
+    if (!r.ok) return r.json().then(function(e) { throw new Error(e.error || 'API error ' + r.status); });
+    return r.json();
+  });
+}
+
 /* ================= CORE ================= */
 var DB, U=null, VIEW="dash", PARAM=null;
-function load(){try{var s=localStorage.getItem("pt_db_v12");if(s){DB=JSON.parse(s);return}}catch(e){}DB=seedDB();seedProjects(DB);save()}
-function save(){try{localStorage.setItem("pt_db_v12",JSON.stringify(DB))}catch(e){}}
-function resetDemo(){if(confirm("Reset all demo data?")){localStorage.removeItem("pt_db_v12");location.reload()}}
+var _syncTimer = null;
+
+function load(){
+  // Initial load just sets up empty DB; real data comes after login via loadFromAPI()
+  try{var s=localStorage.getItem("pt_db_v12");if(s){DB=JSON.parse(s);return}}catch(e){}
+  DB=seedDB();seedProjects(DB);saveLocal();
+}
+function loadFromAPI(){
+  return api('GET','/api/data').then(function(d){
+    // Map MongoDB _id to id for compatibility with all view code
+    function mapIds(arr){
+      if(!arr)return[];
+      return arr.map(function(x){var o=Object.assign({},x);o.id=o._id;return o});
+    }
+    DB.companies=mapIds(d.companies);
+    DB.users=mapIds(d.users);
+    DB.enquiries=mapIds(d.enquiries);
+    DB.sos=mapIds(d.sos);
+    DB.projects=mapIds(d.projects);
+    DB.svcCalls=mapIds(d.svcCalls);
+    DB.contracts=mapIds(d.contracts);
+    DB.payments=mapIds(d.payments);
+    DB.notifs=mapIds(d.notifs);
+    DB.checklists=mapIds(d.checklists||[]);
+    DB.invCats=mapIds(d.invCats||[]);
+    DB.invLocs=mapIds(d.invLocs||[]);
+    DB.invItems=mapIds(d.invItems||[]);
+    DB.invIssues=mapIds(d.invIssues||[]);
+    DB.invTxns=mapIds(d.invTxns||[]);
+    // Keep templates and seq from seed for compatibility
+    if(!DB.templates){var sd=seedDB();DB.templates=sd.templates}
+    if(!DB.seq){DB.seq={psc:0,so:0,enq:0,proj:0,pay:0,call:0,user:0,contract:0,notif:0,company:0,chk:0,invItem:0,invCat:0,invLoc:0,invIssue:0,invTxn:0}}
+    saveLocal();
+  });
+}
+
+function saveLocal(){try{localStorage.setItem("pt_db_v12",JSON.stringify(DB))}catch(e){}}
+
+function save(){
+  saveLocal();
+  if(!API_MODE||!TOKEN)return;
+  // Debounce API sync — wait 1 second after last save() call
+  clearTimeout(_syncTimer);
+  _syncTimer=setTimeout(function(){
+    syncToAPI();
+  },1000);
+}
+
+function syncToAPI(){
+  if(!TOKEN)return;
+  // Send current state to server
+  var payload={
+    enquiries:DB.enquiries,
+    sos:DB.sos,
+    projects:DB.projects,
+    svcCalls:DB.svcCalls,
+    contracts:DB.contracts,
+    payments:DB.payments,
+    notifs:DB.notifs,
+    checklists:DB.checklists,
+    invCats:DB.invCats,
+    invLocs:DB.invLocs,
+    invItems:DB.invItems,
+    invIssues:DB.invIssues,
+    invTxns:DB.invTxns
+  };
+  if(U&&U.role==='super')payload.companies=DB.companies;
+  api('POST','/api/data/sync',payload).catch(function(e){
+    console.warn('Sync failed (data saved locally):',e.message);
+  });
+}
+
+function resetDemo(){if(confirm("Reset all demo data?")){localStorage.removeItem("pt_db_v12");TOKEN=null;location.reload()}}
 function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
 function money(n){if(!n&&n!==0)return"";n=Number(n)||0;return "₹ "+n.toLocaleString("en-IN",{maximumFractionDigits:0})}
 function today(){return new Date().toISOString().slice(0,10)}
@@ -469,12 +561,17 @@ function thisMonth(){return new Date().toISOString().slice(0,7)}
 function toast(m){var t=document.getElementById("toast");t.textContent=m;t.style.display="block";clearTimeout(t._x);t._x=setTimeout(function(){t.style.display="none"},2600)}
 function modal(html){document.getElementById("mbox").innerHTML=html;document.getElementById("mwrap").style.display="flex"}
 function closeModal(){document.getElementById("mwrap").style.display="none"}
-function co(){return DB.companies.find(function(c){return c.id===U.co})||{}}
-function mine(arr){return arr.filter(function(x){return x.co===U.co})}
+function co(){return DB.companies.find(function(c){return c.id===U.co||c._id===U.co})||{}}
+function mine(arr){return arr.filter(function(x){return x.co===U.co||x.co===String(U.co)})}
 function gv(id){var e=document.getElementById(id);return e?e.value.trim():""}
-function notify(roles,text){DB.seq.notif++;DB.notifs.push({id:DB.seq.notif,co:U.co,roles:roles,text:text,date:today(),read:[]});save()}
-function myNotifs(){return DB.notifs.filter(function(n){return n.co===U.co&&(n.roles.indexOf(U.role)>=0||n.roles.indexOf("*")>=0)})}
-function unread(){return myNotifs().filter(function(n){return n.read.indexOf(U.id)<0}).length}
+function notify(roles,text){
+  var n={co:U.co,roles:roles,text:text,date:today(),read:[]};
+  if(API_MODE&&TOKEN){
+    api('POST','/api/notifications',n).then(function(r){n._id=r._id;n.id=r._id;DB.notifs.push(n);saveLocal()}).catch(function(){DB.notifs.push(n);save()});
+  } else {DB.seq.notif++;n.id=DB.seq.notif;DB.notifs.push(n);save()}
+}
+function myNotifs(){return DB.notifs.filter(function(n){return (n.co===U.co||n.co===String(U.co))&&(n.roles.indexOf(U.role)>=0||n.roles.indexOf("*")>=0)})}
+function unread(){return myNotifs().filter(function(n){return (n.read||[]).indexOf(U.id)<0&&(n.read||[]).indexOf(String(U.id))<0}).length}
 
 /* ---- division access control ---- */
 var ALL_DIVS=["HVAC","Solar","MEP"];
@@ -506,12 +603,31 @@ var MENUS={
 var DEV_MODE=false;
 function renderQuick(){
  var q=document.getElementById("quick"),h="";
- DB.users.forEach(function(u){if(u.co===1)h+='<button onclick="quickLogin('+u.id+')"><b>'+esc(ROLES[u.role])+'</b>'+esc(u.name)+'</button>'});
+ // Quick login buttons — show usernames from seed data for demo
+ var quickUsers=[
+  {un:"admin",name:"Admin (Suhas)",role:"admin"},
+  {un:"sales",name:"Sales (Suhas)",role:"sales"},
+  {un:"amol",name:"HVAC PM (Amol)",role:"hvac_pm"},
+  {un:"akshay",name:"Solar PM (Akshay)",role:"solar_pm"},
+  {un:"ajinkya",name:"MEP PM (Ajinkya)",role:"mep_pm"},
+  {un:"vinod",name:"Engineer (Vinod)",role:"engineer"},
+  {un:"service",name:"Service Mgr (Rahul)",role:"service_mgr"},
+  {un:"israr",name:"Service Eng (Israr)",role:"service_eng"},
+  {un:"finance",name:"Finance (Vaibhavi)",role:"finance"},
+  {un:"store",name:"Inventory (Ganesh)",role:"inventory"},
+  {un:"Sam",name:"Super Admin (Sam)",role:"super"}
+ ];
+ quickUsers.forEach(function(u){h+='<button onclick="quickLogin(\''+u.un+'\')"><b>'+esc(ROLES[u.role])+'</b>'+esc(u.name)+'</button>'});
  q.innerHTML=h;
  document.getElementById("devQuickLogin").style.display=DEV_MODE?"block":"none";
  q.style.display=DEV_MODE?"grid":"none";
 }
-function quickLogin(id){var u=DB.users.find(function(x){return x.id===id});login(u)}
+function quickLogin(un){
+ document.getElementById("lu").value=un;
+ document.getElementById("lp").value="123";
+ if(un==="Sam")document.getElementById("lp").value="Sam@3336";
+ doLogin();
+}
 function toggleDevMode(){
  DEV_MODE=!DEV_MODE;
  renderQuick();
@@ -520,18 +636,44 @@ function toggleDevMode(){
 function doLogin(){
  var un=gv("lu"),pw=gv("lp");
  if(un==="dev"&&pw==="mode"){toggleDevMode();document.getElementById("lu").value="";document.getElementById("lp").value="";return}
- var u=DB.users.find(function(x){return x.un===un&&x.pw===pw});
- if(!u){toast("Invalid credentials.");return}
- var c=DB.companies.find(function(x){return x.id===u.co});
- if(u.role!=="super"&&c&&c.status==="Suspended"){toast("Company subscription suspended. Contact provider.");return}
- login(u);
+
+ if(API_MODE){
+  // Try API login first
+  toast("Signing in...");
+  api('POST','/api/auth/login',{un:un,pw:pw}).then(function(r){
+    TOKEN=r.token;
+    try{localStorage.setItem("pt_token",TOKEN)}catch(e){}
+    var u=r.user;
+    u.id=u.id||u._id;
+    // Load all data from API
+    return loadFromAPI().then(function(){login(u)});
+  }).catch(function(err){
+    // If API fails, try localStorage fallback
+    console.warn('API login failed:',err.message);
+    var u=DB.users.find(function(x){return x.un===un&&x.pw===pw});
+    if(u){
+      API_MODE=false;TOKEN=null;
+      toast("Offline mode — using local data");
+      login(u);
+    } else {
+      toast(err.message||"Invalid credentials.");
+    }
+  });
+ } else {
+  // Local-only fallback
+  var u=DB.users.find(function(x){return x.un===un&&x.pw===pw});
+  if(!u){toast("Invalid credentials.");return}
+  var c=DB.companies.find(function(x){return x.id===u.co});
+  if(u.role!=="super"&&c&&c.status==="Suspended"){toast("Company subscription suspended. Contact provider.");return}
+  login(u);
+ }
 }
 function login(u){
  if(u.role!=="super"){
-  var c=DB.companies.find(function(x){return x.id===u.co});
+  var c=DB.companies.find(function(x){return x.id===u.co||x._id===u.co});
   var dv=(c&&c.divs&&c.divs.length)?c.divs:["HVAC","Solar","MEP"];
   var need=({hvac_pm:"HVAC",solar_pm:"Solar",mep_pm:"MEP"})[u.role];
-  if(need&&dv.indexOf(need)<0){toast(c.name+" is not subscribed to the "+need+" division.");return}
+  if(need&&dv.indexOf(need)<0){toast((c?c.name:"Company")+" is not subscribed to the "+need+" division.");return}
  }
  U=u;document.getElementById("login").style.display="none";document.getElementById("app").style.display="block";
  document.getElementById("uname").textContent=u.name;document.getElementById("urole").textContent=ROLES[u.role];
@@ -542,7 +684,7 @@ function login(u){
  nav(hash&&allowed.indexOf(hash)>=0?hash:"dash");
  if(DEFERRED_PROMPT&&!isStandalone())pwaShowInstall(true);
 }
-function logout(){U=null;document.getElementById("app").style.display="none";document.getElementById("login").style.display="flex"}
+function logout(){U=null;TOKEN=null;try{localStorage.removeItem("pt_token")}catch(e){}document.getElementById("app").style.display="none";document.getElementById("login").style.display="flex"}
 function buildMenu(){
  var m=document.getElementById("menu"),h="";
  MENUS[U.role].forEach(function(x){h+='<a href="#" id="mi_'+x[0]+'" onclick="nav(\''+x[0]+'\');return false">'+x[1]+'</a>'});
@@ -3174,6 +3316,20 @@ function isStandalone(){
 /* ================= INIT ================= */
 load();renderQuick();pwaRegister();pwaOffline();
 if(!isStandalone()&&DEFERRED_PROMPT)pwaShowInstall(true);
+
+// Auto-login if token exists
+(function(){
+  try{
+    var t=localStorage.getItem("pt_token");
+    if(t&&API_MODE){
+      TOKEN=t;
+      api('GET','/api/auth/me').then(function(r){
+        var u=r.user;u.id=u._id;
+        return loadFromAPI().then(function(){login(u)});
+      }).catch(function(){TOKEN=null;localStorage.removeItem("pt_token")});
+    }
+  }catch(e){}
+})();
 
 </script>
 </body>
