@@ -114,6 +114,14 @@ async function seed() {
     Sequence.deleteMany({})
   ]);
 
+  // Drop stale indexes that may be blocking inserts
+  try {
+    await Company.collection.dropIndex('code_1');
+    console.log('  ✓ Dropped stale code_1 index');
+  } catch (err) {
+    // Index may not exist, that's fine
+  }
+
   // ---- Companies ----
   console.log('Seeding companies...');
   const [co1, co2, co3] = await Company.create([
