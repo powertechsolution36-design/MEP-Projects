@@ -116,7 +116,7 @@ async function seed() {
 
   // Drop stale indexes that may be blocking inserts
   try {
-    await Company.collection.dropIndex('code_1');
+    await mongoose.connection.db.collection('companies').dropIndex('code_1');
     console.log('  ✓ Dropped stale code_1 index');
   } catch (err) {
     // Index may not exist, that's fine
