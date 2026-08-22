@@ -102,24 +102,21 @@ function chkFrom(tpl, doneCount, startDate, stepDays) {
 async function seed() {
   console.log('Connecting to MongoDB...');
   await mongoose.connect(MONGO_URI);
-  console.log('Connected. Clearing existing data...');
+  console.log('Connected. Dropping all collections to clear stale indexes...');
 
-  // Clear all collections
-  await Promise.all([
-    Company.deleteMany({}), User.deleteMany({}), Enquiry.deleteMany({}),
-    SalesOrder.deleteMany({}), Project.deleteMany({}), ServiceCall.deleteMany({}),
-    Contract.deleteMany({}), Payment.deleteMany({}), Notification.deleteMany({}),
-    Checklist.deleteMany({}), InvCategory.deleteMany({}), InvLocation.deleteMany({}),
-    InvItem.deleteMany({}), InvIssue.deleteMany({}), InvTransaction.deleteMany({}),
-    Sequence.deleteMany({})
-  ]);
+  // Drop entire collections (removes data AND indexes)
+  const db = mongoose.connection.db;
+  const collections = ['companies', 'users', 'enquiries', 'salesorders', 'projects', 'servicecalls',
+                       'contracts', 'payments', 'notifications', 'checklists', 'invcategories',
+                       'invlocations', 'invitems', 'invissues', 'invtransactions', 'sequences'];
 
-  // Drop stale indexes that may be blocking inserts
-  try {
-    await mongoose.connection.db.collection('companies').dropIndex('code_1');
-    console.log('  ✓ Dropped stale code_1 index');
-  } catch (err) {
-    // Index may not exist, that's fine
+  for (const coll of collections) {
+    try {
+      await db.dropCollection(coll);
+      console.log(`  ✓ Dropped ${coll}`);
+    } catch (err) {
+      // Collection may not exist, that's fine
+    }
   }
 
   // ---- Companies ----
