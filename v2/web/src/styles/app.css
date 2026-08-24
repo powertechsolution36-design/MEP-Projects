@@ -130,6 +130,39 @@ label { font-size: 12px; font-weight: 600; color: var(--mut); display: block;
   background: var(--dark); color: #fff; padding: 12px 20px; border-radius: 8px;
   box-shadow: var(--shadow-md); z-index: 9999; font-size: 14px; }
 
+/* Responsibilities card */
+.resp-card { padding: 24px; }
+.resp-header { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+.resp-icon {
+  width: 56px; height: 56px; border-radius: 14px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px; flex-shrink: 0;
+}
+.resp-name { font-size: 20px; font-weight: 700; color: var(--txt); }
+.resp-role { font-size: 13px; margin-top: 2px; }
+.resp-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; }
+.resp-list { list-style: none; padding: 0; }
+.resp-list li { padding: 8px 0; display: flex; gap: 10px; font-size: 14px; color: var(--txt); border-bottom: 1px solid var(--line); }
+.resp-list li:last-child { border-bottom: none; }
+.resp-tick { font-weight: 700; }
+
+/* User compact list */
+.user-list { display: flex; flex-direction: column; gap: 4px; }
+.user-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px; border-radius: 8px; background: transparent;
+  cursor: pointer; text-align: left; transition: background 0.1s;
+  width: 100%; border: 1px solid transparent;
+}
+.user-row:hover { background: #f8fafc; border-color: var(--line); }
+.user-avatar {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: var(--red); color: #fff; display: inline-flex;
+  align-items: center; justify-content: center; font-weight: 700; font-size: 15px;
+  flex-shrink: 0;
+}
+.user-row-name { font-weight: 600; color: var(--txt); font-size: 14px; flex-shrink: 0; }
+
 /* Company picker cards */
 .co-card {
   background: #fff; border-radius: var(--radius); box-shadow: var(--shadow);

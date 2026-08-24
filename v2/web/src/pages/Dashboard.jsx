@@ -1,5 +1,6 @@
 import { useStore } from '../store/useStore';
 import { DonutChart, BarChart, LineChart } from '../components/Charts';
+import ResponsibilitiesCard from '../components/ResponsibilitiesCard';
 
 function Stat({ label, value, color, icon }) {
   return (
@@ -90,6 +91,8 @@ export default function Dashboard() {
       <div className="main-header">
         <h2>Dashboard {isSuper && <span className="text-mut text-sm" style={{marginLeft: 10}}>(All Companies)</span>}</h2>
       </div>
+
+      <ResponsibilitiesCard />
 
       <div className="grid grid-3 mb-3">
         <Stat label="Active Projects" value={activeProjects} color="#d92b2b" icon="🏗️" />
