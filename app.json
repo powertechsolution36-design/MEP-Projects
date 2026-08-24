@@ -9,12 +9,15 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.mepprojects.app",
-      "backgroundColor": "#16202e"
+      "backgroundColor": "#16202e",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.mepprojects.app",
       "adaptiveIcon": {
-        "backgroundColor": "#d92b2b",
+        "backgroundColor": "#f2f4f8",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
