@@ -130,6 +130,27 @@ label { font-size: 12px; font-weight: 600; color: var(--mut); display: block;
   background: var(--dark); color: #fff; padding: 12px 20px; border-radius: 8px;
   box-shadow: var(--shadow-md); z-index: 9999; font-size: 14px; }
 
+/* Company picker cards */
+.co-card {
+  background: #fff; border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 24px 20px; text-align: center; cursor: pointer;
+  border: 2px solid transparent; transition: all 0.15s;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+}
+.co-card:hover { border-color: var(--red); transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.co-card-icon { font-size: 36px; }
+.co-card-name { font-size: 16px; font-weight: 700; color: var(--txt); }
+.co-card-code { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+.co-card-count { margin-top: 6px; padding: 4px 10px; background: rgba(217,43,43,0.1); color: var(--red); border-radius: 12px; font-size: 12px; font-weight: 600; }
+
+.co-picker {
+  background: #fff; border: 1px solid var(--line); border-radius: 6px;
+  padding: 6px 10px; font-size: 13px; font-weight: 600; color: var(--txt); cursor: pointer;
+  max-width: 200px;
+}
+.link-btn { color: var(--red); text-decoration: underline; background: none; padding: 0; font-size: 12px; }
+.link-btn:hover { filter: brightness(1.1); }
+
 /* Stat cards */
 .stat-card { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px 18px; display: flex; align-items: center; gap: 14px; }
 .stat-icon { font-size: 28px; }

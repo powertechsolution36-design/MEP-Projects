@@ -29,7 +29,11 @@ export const useStore = create((set, get) => ({
   company: null,
   loading: false,
   connected: false,
+  // For super admin: filter all lists by this company (null = all)
+  scopedCompany: null,
   ...empty,
+
+  setScopedCompany(id) { set({ scopedCompany: id }); },
 
   async login(un, pw) {
     set({ loading: true });

@@ -3,35 +3,44 @@ import { useStore } from '../store/useStore';
 import Modal from './Modal';
 import { toast } from './Toast';
 
-/**
- * Generic list + create/edit/delete page.
- * Props:
- *  - title, resource (store key), columns [{key,label,render?}]
- *  - fields [{key,label,type,options?,required?}]
- *  - filterBy?: array of query filter columns
- */
 export default function ResourcePage({ title, resource, columns, fields, canCreate = true, canDelete = true, requiresCompany = true }) {
   const items = useStore(s => s[resource] || []);
   const user = useStore(s => s.user);
   const companies = useStore(s => s.companies);
+  const scopedCompany = useStore(s => s.scopedCompany);
+  const setScopedCompany = useStore(s => s.setScopedCompany);
   const create = useStore(s => s.create);
   const update = useStore(s => s.update);
   const remove = useStore(s => s.remove);
-  const [editing, setEditing] = useState(null); // null | {} | doc
+  const [editing, setEditing] = useState(null);
   const [q, setQ] = useState('');
 
   const isSuper = user?.role === 'super';
-  const filtered = q ? items.filter(it => JSON.stringify(it).toLowerCase().includes(q.toLowerCase())) : items;
 
-  // For super admin, prepend a company selector to fields (except when the resource IS companies)
-  const effectiveFields = (isSuper && requiresCompany && resource !== 'companies')
-    ? [{ key: 'co', label: 'Company', type: 'select', options: companies.map(c => ({ value: c._id, label: c.name })), required: true }, ...fields]
-    : fields;
+  // Super admin without a scoped company → show company picker landing screen
+  // (except for Companies page which lists them anyway)
+  if (isSuper && !scopedCompany && requiresCompany && resource !== 'companies') {
+    return <CompanyPicker title={title} companies={companies} items={items} onPick={setScopedCompany} />;
+  }
+
+  // Filter items by scoped company for super admin
+  let scopedItems = items;
+  if (isSuper && scopedCompany) {
+    scopedItems = items.filter(i => String(i.co) === String(scopedCompany));
+  }
+
+  const filtered = q ? scopedItems.filter(it => JSON.stringify(it).toLowerCase().includes(q.toLowerCase())) : scopedItems;
+
+  // For super admin, if scope is set, auto-fill co in create form (hide selector)
+  const effectiveFields = fields;
 
   async function onSave(data) {
     try {
-      if (editing?._id) await update(resource, editing._id, data);
-      else await create(resource, data);
+      // Auto-attach scoped company if super has selected one
+      const payload = { ...data };
+      if (isSuper && scopedCompany && !payload.co) payload.co = scopedCompany;
+      if (editing?._id) await update(resource, editing._id, payload);
+      else await create(resource, payload);
       setEditing(null);
       toast('Saved');
     } catch (e) { toast(e.message || 'Save failed'); }
@@ -43,10 +52,19 @@ export default function ResourcePage({ title, resource, columns, fields, canCrea
     catch (e) { toast(e.message); }
   }
 
+  const currentCoName = scopedCompany ? (companies.find(c => String(c._id) === String(scopedCompany))?.name || '') : '';
+
   return (
     <div>
       <div className="main-header">
-        <h2>{title}</h2>
+        <div>
+          <h2>{title}</h2>
+          {isSuper && scopedCompany && (
+            <div className="text-sm text-mut" style={{marginTop: 4}}>
+              🏢 {currentCoName} · <button className="link-btn" onClick={() => setScopedCompany(null)}>← switch company</button>
+            </div>
+          )}
+        </div>
         {canCreate && <button className="btn" onClick={() => setEditing({})}>+ New</button>}
       </div>
       <div className="card">
@@ -73,6 +91,30 @@ export default function ResourcePage({ title, resource, columns, fields, canCrea
         </table>
       </div>
       {editing && <FormModal title={editing._id ? `Edit ${title.replace(/s$/, '')}` : `New ${title.replace(/s$/, '')}`} fields={effectiveFields} initial={editing} onSave={onSave} onClose={() => setEditing(null)} />}
+    </div>
+  );
+}
+
+function CompanyPicker({ title, companies, items, onPick }) {
+  const count = (coId) => items.filter(i => String(i.co) === String(coId)).length;
+  return (
+    <div>
+      <div className="main-header">
+        <h2>{title}</h2>
+        <button className="btn sec" onClick={() => onPick(null)}>Show all →</button>
+      </div>
+      <p className="text-mut mb-2">Select a company to view its {title.toLowerCase()}:</p>
+      <div className="grid grid-3">
+        {companies.length === 0 && <div className="card text-center text-mut">No companies yet</div>}
+        {companies.map(co => (
+          <button key={co._id} className="co-card" onClick={() => onPick(co._id)}>
+            <div className="co-card-icon">🏢</div>
+            <div className="co-card-name">{co.name}</div>
+            <div className="co-card-code text-mut text-sm">{co.code || '—'}</div>
+            <div className="co-card-count">{count(co._id)} {title.toLowerCase()}</div>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

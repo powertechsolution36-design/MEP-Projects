@@ -19,14 +19,19 @@ const NAV = [
 export default function Shell({ children }) {
   const user = useStore(s => s.user);
   const company = useStore(s => s.company);
+  const companies = useStore(s => s.companies);
   const connected = useStore(s => s.connected);
   const notifications = useStore(s => s.notifications);
+  const scopedCompany = useStore(s => s.scopedCompany);
+  const setScopedCompany = useStore(s => s.setScopedCompany);
   const logout = useStore(s => s.logout);
   const [open, setOpen] = useState(false);
   const nav = useNavigate();
   const unread = notifications.filter(n => !n.isRead).length;
 
   const visibleNav = NAV.filter(n => !n.roles || n.roles.includes(user.role));
+  const isSuper = user.role === 'super';
+  const currentCoName = scopedCompany ? (companies.find(c => String(c._id) === String(scopedCompany))?.name || 'Unknown') : 'All Companies';
 
   function handleLogout() { logout(); nav('/'); }
 
@@ -36,6 +41,7 @@ export default function Shell({ children }) {
         <div className="sidebar-brand">
           <img src="/icons/icon-192.png" alt="MEP" className="sidebar-logo" />
           {company && <p className="sidebar-company">{company.name}</p>}
+          {isSuper && scopedCompany && <p className="sidebar-company" style={{color: '#d92b2b', fontWeight: 700}}>Viewing: {currentCoName}</p>}
         </div>
         <nav className="sidebar-nav">
           {visibleNav.map(item => (
@@ -67,6 +73,17 @@ export default function Shell({ children }) {
             </div>
           </div>
           <div style={{display: 'flex', alignItems: 'center', gap: 12}}>
+            {isSuper && (
+              <select
+                className="co-picker"
+                value={scopedCompany || ''}
+                onChange={e => setScopedCompany(e.target.value || null)}
+                title="Filter data by company"
+              >
+                <option value="">All Companies</option>
+                {companies.map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
+              </select>
+            )}
             <NavLink to="/notifications" style={{position: 'relative', textDecoration: 'none', fontSize: 20}}>
               🔔
               {unread > 0 && <span style={{position: 'absolute', top: -4, right: -6, background: 'var(--red)', color: '#fff', fontSize: 10, borderRadius: 10, padding: '2px 6px', fontWeight: 700}}>{unread}</span>}
