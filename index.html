@@ -482,6 +482,8 @@ function api(method, path, body) {
 /* ================= CORE ================= */
 var DB, U=null, VIEW="dash", PARAM=null;
 var _syncTimer = null;
+var _syncInFlight=false, _syncPending=false, _pollTimer=null, _pollInFlight=false, _editingActive=false, _editIdleTimer=null;
+var POLL_MS=10000;
 
 function load(){
   // Initial load just sets up empty DB; real data comes after login via loadFromAPI()
@@ -524,12 +526,14 @@ function save(){
   if(!API_MODE||!TOKEN)return;
   // Debounce API sync — wait 1 second after last save() call
   clearTimeout(_syncTimer);
+  _syncPending=true;
   _syncTimer=setTimeout(function(){
     syncToAPI();
   },1000);
 }
 
 function syncToAPI(){
+  _syncPending=false;
   if(!TOKEN)return;
   // Send current state to server
   var payload={
@@ -548,10 +552,47 @@ function syncToAPI(){
     invTxns:DB.invTxns
   };
   if(U&&U.role==='super')payload.companies=DB.companies;
+  _syncInFlight=true;
   api('POST','/api/data/sync',payload).catch(function(e){
     console.warn('Sync failed (data saved locally):',e.message);
-  });
+  }).then(function(){_syncInFlight=false});
 }
+
+/* ================= NEAR-REAL-TIME SYNC (poll) ================= */
+function markEditing(){
+  _editingActive=true;
+  clearTimeout(_editIdleTimer);
+  _editIdleTimer=setTimeout(function(){_editingActive=false},4000);
+}
+document.addEventListener('input',function(e){
+  if(e.target&&e.target.closest&&(e.target.closest('#view')||e.target.closest('#mbox')))markEditing();
+});
+document.addEventListener('keydown',function(e){
+  if(e.target&&e.target.closest&&(e.target.closest('#view')||e.target.closest('#mbox')))markEditing();
+});
+function pollForUpdates(){
+  if(!TOKEN||!API_MODE||!U)return;
+  if(document.hidden||_pollInFlight||_syncInFlight||_syncPending||_editingActive)return;
+  if(document.getElementById('mwrap').style.display==='flex')return; // don't disturb an open modal
+  _pollInFlight=true;
+  var sy=window.scrollY;
+  loadFromAPI().then(function(){
+    nav(VIEW,PARAM);
+    window.scrollTo(0,sy);
+  }).catch(function(e){
+    console.warn('Poll sync failed:',e.message);
+  }).then(function(){_pollInFlight=false});
+}
+function startPolling(){
+  stopPolling();
+  _pollTimer=setInterval(pollForUpdates,POLL_MS);
+}
+function stopPolling(){
+  clearInterval(_pollTimer);_pollTimer=null;
+}
+document.addEventListener('visibilitychange',function(){
+  if(!document.hidden)pollForUpdates();
+});
 
 function resetDemo(){if(confirm("Reset all demo data?")){localStorage.removeItem("pt_db_v12");TOKEN=null;location.reload()}}
 function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
@@ -683,8 +724,9 @@ function login(u){
  var allowed=MENUS[u.role].map(function(m){return m[0]});
  nav(hash&&allowed.indexOf(hash)>=0?hash:"dash");
  if(DEFERRED_PROMPT&&!isStandalone())pwaShowInstall(true);
+ if(API_MODE&&TOKEN)startPolling();
 }
-function logout(){U=null;TOKEN=null;try{localStorage.removeItem("pt_token")}catch(e){}document.getElementById("app").style.display="none";document.getElementById("login").style.display="flex"}
+function logout(){stopPolling();U=null;TOKEN=null;try{localStorage.removeItem("pt_token")}catch(e){}document.getElementById("app").style.display="none";document.getElementById("login").style.display="flex"}
 function buildMenu(){
  var m=document.getElementById("menu"),h="";
  MENUS[U.role].forEach(function(x){h+='<a href="#" id="mi_'+x[0]+'" onclick="nav(\''+x[0]+'\');return false">'+x[1]+'</a>'});
