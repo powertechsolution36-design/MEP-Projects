@@ -13,6 +13,7 @@ const NAV = [
   { to: '/inventory', label: 'Inventory', icon: '📦' },
   { to: '/checklists', label: 'Checklists', icon: '✅' },
   { to: '/users', label: 'Users', icon: '👥', roles: ['admin', 'super'] },
+  { to: '/companies', label: 'Companies', icon: '🏢', roles: ['super'] },
 ];
 
 export default function Shell({ children }) {
