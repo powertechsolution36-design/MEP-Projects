@@ -144,6 +144,41 @@ export const ROLE_META = {
   },
 };
 
+// Which sidebar routes each role can access
+export const ROLE_MODULES = {
+  super:       ['/', '/companies', '/users', '/projects', '/service-calls', '/contracts', '/payments', '/enquiries', '/sales-orders', '/inventory', '/checklists', '/reports', '/notifications'],
+  admin:       ['/', '/users', '/projects', '/service-calls', '/contracts', '/payments', '/enquiries', '/sales-orders', '/inventory', '/checklists', '/reports', '/notifications'],
+  mep_pm:      ['/', '/projects', '/checklists', '/reports', '/notifications'],
+  hvac_pm:     ['/', '/projects', '/checklists', '/reports', '/notifications'],
+  solar_pm:    ['/', '/projects', '/checklists', '/reports', '/notifications'],
+  engineer:    ['/', '/projects', '/checklists', '/notifications'],
+  service_eng: ['/', '/service-calls', '/notifications'],
+  sales:       ['/', '/enquiries', '/sales-orders', '/payments', '/reports', '/notifications'],
+  store:       ['/', '/inventory', '/reports', '/notifications'],
+  accounts:    ['/', '/payments', '/sales-orders', '/reports', '/notifications'],
+  viewer:      ['/', '/reports', '/notifications'],
+};
+
+// Which dashboard cards each role sees (compact stat labels)
+export const ROLE_DASHBOARD = {
+  super:       ['companies', 'users', 'projects', 'serviceCalls', 'contracts', 'payments', 'enquiries', 'inventory'],
+  admin:       ['users', 'projects', 'serviceCalls', 'contracts', 'payments', 'enquiries', 'salesOrders', 'inventory'],
+  mep_pm:      ['projects', 'projectsActive', 'projectsPlanning', 'projectsCompleted'],
+  hvac_pm:     ['projects', 'projectsActive', 'projectsPlanning', 'projectsCompleted'],
+  solar_pm:    ['projects', 'projectsActive', 'projectsPlanning', 'projectsCompleted'],
+  engineer:    ['myProjects', 'myChecklistItems'],
+  service_eng: ['myCallsOpen', 'myCallsClosed', 'myCallsUrgent'],
+  sales:       ['enquiries', 'enquiriesNew', 'salesOrders', 'salesOrdersTotal', 'payments'],
+  store:       ['inventory', 'lowStock', 'invIssues', 'invValue'],
+  accounts:    ['payments', 'paymentsPending', 'paymentsPaid', 'salesOrders'],
+  viewer:      ['projects', 'serviceCalls', 'payments'],
+};
+
+export function canAccess(role, path) {
+  const mods = ROLE_MODULES[role] || ROLE_MODULES.viewer;
+  return mods.includes(path);
+}
+
 export function getRoleMeta(role) {
   return ROLE_META[role] || {
     label: role || 'User',

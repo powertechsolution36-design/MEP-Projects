@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
-import { getRoleLabel } from '../utils/responsibilities';
+import { getRoleLabel, ROLE_MODULES } from '../utils/responsibilities';
 
 const NAV = [
   { to: '/', label: 'Dashboard', icon: '📊', end: true },
@@ -13,9 +13,9 @@ const NAV = [
   { to: '/sales-orders', label: 'Sales Orders', icon: '🛒' },
   { to: '/inventory', label: 'Inventory', icon: '📦' },
   { to: '/checklists', label: 'Checklists', icon: '✅' },
-  { to: '/reports', label: 'Reports', icon: '📊' },
-  { to: '/users', label: 'Users', icon: '👥', roles: ['admin', 'super'] },
-  { to: '/companies', label: 'Companies', icon: '🏢', roles: ['super'] },
+  { to: '/reports', label: 'Reports', icon: '📈' },
+  { to: '/users', label: 'Users', icon: '👥' },
+  { to: '/companies', label: 'Companies', icon: '🏢' },
 ];
 
 export default function Shell({ children }) {
@@ -31,19 +31,21 @@ export default function Shell({ children }) {
   const nav = useNavigate();
   const unread = notifications.filter(n => !n.isRead).length;
 
-  const visibleNav = NAV.filter(n => !n.roles || n.roles.includes(user.role));
+  const allowed = ROLE_MODULES[user.role] || [];
+  const visibleNav = NAV.filter(n => allowed.includes(n.to));
   const isSuper = user.role === 'super';
   const currentCoName = scopedCompany ? (companies.find(c => String(c._id) === String(scopedCompany))?.name || 'Unknown') : 'All Companies';
 
-  function handleLogout() { logout(); nav('/'); }
+  function handleLogout(e) { e?.preventDefault(); logout(); nav('/'); }
 
   return (
     <div className="app-shell">
       <aside className={`sidebar ${open ? 'open' : ''}`}>
         <div className="sidebar-brand">
-          <img src="/icons/icon-192.png" alt="MEP" className="sidebar-logo" />
-          {company && <p className="sidebar-company">{company.name}</p>}
-          {isSuper && scopedCompany && <p className="sidebar-company" style={{color: '#d92b2b', fontWeight: 700}}>Viewing: {currentCoName}</p>}
+          <span className="sidebar-brand-text"><em>MEP</em> PROJECTS</span>
+          <div className="sidebar-company">
+            {company ? company.name : (isSuper ? (scopedCompany ? currentCoName : 'All Companies') : '')}
+          </div>
         </div>
         <nav className="sidebar-nav">
           {visibleNav.map(item => (
@@ -56,11 +58,12 @@ export default function Shell({ children }) {
         <div className="sidebar-footer">
           <div className="sidebar-status">
             <span className={`status-dot ${connected ? 'on' : 'off'}`}></span>
-            {connected ? 'Connected' : 'Offline'}
+            {connected ? 'Online' : 'Offline'}
           </div>
-          <div className="sidebar-user">{user.name}</div>
-          <div className="sidebar-role">{getRoleLabel(user.role)}</div>
-          <button className="btn sm sec" style={{marginTop: 10, width: '100%'}} onClick={handleLogout}>Sign out</button>
+          <b className="sidebar-user">{user.name}</b>
+          <span className="sidebar-role">{getRoleLabel(user.role)}</span>
+          <br />
+          <a href="#" className="sidebar-signout" onClick={handleLogout}>Sign out</a>
         </div>
       </aside>
       <main className="main">
@@ -76,12 +79,7 @@ export default function Shell({ children }) {
           </div>
           <div style={{display: 'flex', alignItems: 'center', gap: 12}}>
             {isSuper && (
-              <select
-                className="co-picker"
-                value={scopedCompany || ''}
-                onChange={e => setScopedCompany(e.target.value || null)}
-                title="Filter data by company"
-              >
+              <select className="co-picker" value={scopedCompany || ''} onChange={e => setScopedCompany(e.target.value || null)}>
                 <option value="">All Companies</option>
                 {companies.map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
               </select>
