@@ -191,6 +191,7 @@ label { font-size: 12px; font-weight: 600; color: var(--mut); display: block;
   padding: 10px 14px; border-radius: 8px; background: transparent;
   cursor: pointer; text-align: left; transition: background 0.1s;
   width: 100%; border: 1px solid transparent;
+  min-width: 0;
 }
 .user-row:hover { background: #f8fafc; border-color: var(--line); }
 .user-avatar {
@@ -199,7 +200,27 @@ label { font-size: 12px; font-weight: 600; color: var(--mut); display: block;
   align-items: center; justify-content: center; font-weight: 700; font-size: 15px;
   flex-shrink: 0;
 }
-.user-row-name { font-weight: 600; color: var(--txt); font-size: 14px; flex-shrink: 0; }
+.user-row-name {
+  font-weight: 600; color: var(--txt); font-size: 14px;
+  min-width: 0; flex: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.user-row-un {
+  color: var(--mut); font-size: 12px;
+  min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 40%;
+}
+.user-row .badge { flex-shrink: 0; white-space: normal; text-align: center; line-height: 1.2; }
+.user-row-arrow { color: var(--mut); flex-shrink: 0; margin-left: auto; }
+
+@media (max-width: 640px) {
+  .user-row { gap: 8px; padding: 10px 8px; flex-wrap: wrap; }
+  .user-row-name { flex: 1 1 auto; }
+  .user-row-un { flex: 0 1 100%; max-width: 100%; padding-left: 48px; margin-top: -4px; }
+  .user-row .badge { font-size: 10px; padding: 2px 6px; }
+  .user-row-arrow { display: none; }
+}
 
 /* Company picker cards */
 .co-card {

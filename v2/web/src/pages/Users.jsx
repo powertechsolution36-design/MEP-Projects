@@ -100,8 +100,8 @@ export default function Users() {
                 <span className="user-avatar">{(u.name || u.un || '?')[0].toUpperCase()}</span>
                 <span className="user-row-name">{u.name}</span>
                 <span className="badge blu">{getRoleLabel(u.role)}</span>
-                <span className="text-mut text-sm">@{u.un}</span>
-                <span style={{marginLeft: 'auto', color: 'var(--mut)'}}>›</span>
+                <span className="user-row-un" title={`@${u.un}`}>@{u.un}</span>
+                <span className="user-row-arrow">›</span>
               </button>
             ))}
           </div>
