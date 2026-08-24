@@ -66,6 +66,9 @@ export default function Shell({ children }) {
               {unread > 0 && <span style={{position: 'absolute', top: -4, right: -6, background: 'var(--red)', color: '#fff', fontSize: 10, borderRadius: 10, padding: '2px 6px', fontWeight: 700}}>{unread}</span>}
             </NavLink>
             <div className="brand-header">
+              <span className="brand-logo-wrap">
+                <img src="/icons/icon-192.png" alt="MEP" className="brand-logo" />
+              </span>
               <span className="brand-red">MEP</span> <span>PROJECTS</span>
             </div>
           </div>

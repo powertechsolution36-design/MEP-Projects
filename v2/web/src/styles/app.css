@@ -79,11 +79,23 @@ label { font-size: 12px; font-weight: 600; color: var(--mut); display: block;
   letter-spacing: 3px;
   color: var(--txt);
   display: flex;
-  gap: 6px;
+  gap: 10px;
   align-items: center;
 }
 .brand-header .brand-red { color: var(--red); }
-@media (max-width: 480px) { .brand-header { font-size: 18px; letter-spacing: 2px; } }
+.brand-logo-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #cfd6df;
+  border-radius: 10px;
+  padding: 4px;
+}
+.brand-logo { width: 36px; height: 36px; display: block; border-radius: 6px; }
+@media (max-width: 480px) {
+  .brand-header { font-size: 18px; letter-spacing: 2px; gap: 6px; }
+  .brand-logo { width: 28px; height: 28px; }
+}
 .sidebar-nav { padding: 16px 0; }
 .sidebar-nav a { display: flex; align-items: center; gap: 12px; padding: 10px 20px;
   color: #cbd5e0; text-decoration: none; font-size: 14px; transition: background 0.15s; }
