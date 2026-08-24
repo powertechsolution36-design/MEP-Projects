@@ -61,7 +61,7 @@ Installed devices detect the new version and show a "Reload now" prompt. Saved d
 
 | Role | Login | Password |
 |---|---|---|
-| Super Admin | `Sam` | `Sam@3336` |
+| Super Admin | `Sam` | `S` |
 | Powertech Admin | `admin` | `123` |
 | Sales | `sales` | `123` |
 | HVAC Project Manager | `amol` | `123` |
