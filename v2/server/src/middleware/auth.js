@@ -33,4 +33,21 @@ function requireRole(...roles) {
   };
 }
 
-module.exports = { auth, sign, requireRole, SECRET };
+/**
+ * Ensures a POST body has a company (co) set.
+ * - Super admin must supply co in body
+ * - Any other role must have co set on their user
+ * Returns friendly error instead of raw Mongoose validation failure.
+ */
+function ensureCompany(req, res, next) {
+  if (req.method !== 'POST') return next();
+  if (req.user.role === 'super') {
+    if (!req.body?.co) return res.status(400).json({ error: 'Company is required. Please select a company for this record.' });
+  } else {
+    if (!req.user.co) return res.status(400).json({ error: 'Your account is not assigned to any company. Ask an admin to assign one.' });
+    req.body.co = req.user.co;
+  }
+  next();
+}
+
+module.exports = { auth, sign, requireRole, ensureCompany, SECRET };
