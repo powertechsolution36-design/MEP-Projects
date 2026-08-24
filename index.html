@@ -165,6 +165,7 @@ tr.click{cursor:pointer}tr.click:hover{background:#fbf6f6}
 <div id="mwrap" onclick="if(event.target===this)closeModal()"><div id="mbox"></div></div>
 <div id="toast"></div>
 
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script>
 /* ================= SEED DATA ================= */
 const HVAC_CHK=[
@@ -482,8 +483,7 @@ function api(method, path, body) {
 /* ================= CORE ================= */
 var DB, U=null, VIEW="dash", PARAM=null;
 var _syncTimer = null;
-var _syncInFlight=false, _syncPending=false, _pollTimer=null, _pollInFlight=false, _editingActive=false, _editIdleTimer=null;
-var POLL_MS=10000;
+var _syncInFlight=false, _syncPending=false, _editingActive=false, _editIdleTimer=null;
 
 function load(){
   // Initial load just sets up empty DB; real data comes after login via loadFromAPI()
@@ -558,7 +558,7 @@ function syncToAPI(){
   }).then(function(){_syncInFlight=false});
 }
 
-/* ================= NEAR-REAL-TIME SYNC (poll) ================= */
+/* ================= REAL-TIME SYNC (websocket) ================= */
 function markEditing(){
   _editingActive=true;
   clearTimeout(_editIdleTimer);
@@ -570,28 +570,59 @@ document.addEventListener('input',function(e){
 document.addEventListener('keydown',function(e){
   if(e.target&&e.target.closest&&(e.target.closest('#view')||e.target.closest('#mbox')))markEditing();
 });
-function pollForUpdates(){
-  if(!TOKEN||!API_MODE||!U)return;
-  if(document.hidden||_pollInFlight||_syncInFlight||_syncPending||_editingActive)return;
+
+var SOCKET=null;
+var ENTITY_KEY={enquiry:'enquiries',salesorder:'sos',project:'projects',servicecall:'svcCalls',
+  contract:'contracts',payment:'payments',notification:'notifs',checklist:'chklists',
+  category:'invCats',location:'invLocs',invitem:'invItems',issue:'invIssues',
+  transaction:'invTxns',user:'users',company:'companies'};
+
+function refreshView(){
+  if(document.hidden||_editingActive||_syncInFlight||_syncPending)return;
   if(document.getElementById('mwrap').style.display==='flex')return; // don't disturb an open modal
-  _pollInFlight=true;
   var sy=window.scrollY;
-  loadFromAPI().then(function(){
-    nav(VIEW,PARAM);
-    window.scrollTo(0,sy);
-  }).catch(function(e){
-    console.warn('Poll sync failed:',e.message);
-  }).then(function(){_pollInFlight=false});
+  nav(VIEW,PARAM);
+  window.scrollTo(0,sy);
 }
-function startPolling(){
-  stopPolling();
-  _pollTimer=setInterval(pollForUpdates,POLL_MS);
+function applyRemoteUpdate(entityType,entity){
+  var key=ENTITY_KEY[entityType];if(!key||!entity)return;
+  var o=Object.assign({},entity);o.id=o._id;delete o._id;
+  var arr=DB[key]||(DB[key]=[]);
+  var idx=arr.findIndex(function(x){return x.id===o.id});
+  if(idx>=0)arr[idx]=o;else arr.push(o);
 }
-function stopPolling(){
-  clearInterval(_pollTimer);_pollTimer=null;
+function applyRemoteDelete(entityType,entityId){
+  var key=ENTITY_KEY[entityType];if(!key)return;
+  var arr=DB[key];if(!arr)return;
+  var idx=arr.findIndex(function(x){return x.id===entityId});
+  if(idx>=0)arr.splice(idx,1);
+}
+function connectSocket(){
+  disconnectSocket();
+  if(typeof io==='undefined'||!TOKEN)return;
+  SOCKET=io(API_BASE,{auth:{token:TOKEN},transports:['websocket','polling']});
+  SOCKET.on('connect',function(){console.log('[WS] connected')});
+  SOCKET.on('data:update',function(msg){
+    applyRemoteUpdate(msg.entityType,msg.entity);
+    saveLocal();
+    refreshView();
+  });
+  SOCKET.on('data:delete',function(msg){
+    applyRemoteDelete(msg.entityType,msg.entityId);
+    saveLocal();
+    refreshView();
+  });
+  SOCKET.on('connect_error',function(e){console.warn('[WS] connect error:',e.message)});
+  SOCKET.on('disconnect',function(reason){console.warn('[WS] disconnected:',reason)});
+}
+function disconnectSocket(){
+  if(SOCKET){try{SOCKET.disconnect()}catch(e){}SOCKET=null}
 }
 document.addEventListener('visibilitychange',function(){
-  if(!document.hidden)pollForUpdates();
+  if(!document.hidden&&TOKEN&&U){
+    if(!SOCKET||!SOCKET.connected)connectSocket();
+    loadFromAPI().then(refreshView).catch(function(){});
+  }
 });
 
 function resetDemo(){if(confirm("Reset all demo data?")){localStorage.removeItem("pt_db_v12");TOKEN=null;location.reload()}}
@@ -724,9 +755,9 @@ function login(u){
  var allowed=MENUS[u.role].map(function(m){return m[0]});
  nav(hash&&allowed.indexOf(hash)>=0?hash:"dash");
  if(DEFERRED_PROMPT&&!isStandalone())pwaShowInstall(true);
- if(API_MODE&&TOKEN)startPolling();
+ if(API_MODE&&TOKEN)connectSocket();
 }
-function logout(){stopPolling();U=null;TOKEN=null;try{localStorage.removeItem("pt_token")}catch(e){}document.getElementById("app").style.display="none";document.getElementById("login").style.display="flex"}
+function logout(){disconnectSocket();U=null;TOKEN=null;try{localStorage.removeItem("pt_token")}catch(e){}document.getElementById("app").style.display="none";document.getElementById("login").style.display="flex"}
 function buildMenu(){
  var m=document.getElementById("menu"),h="";
  MENUS[U.role].forEach(function(x){h+='<a href="#" id="mi_'+x[0]+'" onclick="nav(\''+x[0]+'\');return false">'+x[1]+'</a>'});
