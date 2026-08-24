@@ -5,7 +5,7 @@ const Company = require('../models/Company');
 // GET all companies (super only)
 router.get('/', auth, async (req, res) => {
   try {
-    if (req.user.role !== 'super') return res.status(403).json({ error: 'Forbidden' });
+    if (req.user.role !== 'super' && req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
     const companies = await Company.find().sort({ createdAt: -1 });
     res.json(companies);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -26,7 +26,7 @@ router.get('/:id', auth, async (req, res) => {
 // POST create company (super only)
 router.post('/', auth, async (req, res) => {
   try {
-    if (req.user.role !== 'super') return res.status(403).json({ error: 'Forbidden' });
+    if (req.user.role !== 'super' && req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
     const company = await Company.create(req.body);
     res.status(201).json(company);
   } catch (err) { res.status(500).json({ error: err.message }); }
