@@ -78,6 +78,19 @@ export const ROLE_META = {
       'Monitor delayed projects',
     ],
   },
+  service_mgr: {
+    label: 'Service Manager',
+    subtitle: 'Service Operations',
+    icon: '🛠️',
+    color: '#2563c9',
+    responsibilities: [
+      'Manage service calls',
+      'Assign engineers',
+      'Schedule service visits',
+      'Manage AMC / PM work',
+      'Review service reports',
+    ],
+  },
   service_eng: {
     label: 'Service Engineer',
     subtitle: 'Field Service',
@@ -144,16 +157,17 @@ export const ROLE_META = {
   },
 };
 
-// Which sidebar routes each role can access
+// Which sidebar routes each role can access — mirrors old-app MENUS mapping
 export const ROLE_MODULES = {
   super:       ['/', '/companies', '/users', '/projects', '/service-calls', '/contracts', '/payments', '/enquiries', '/sales-orders', '/inventory', '/checklists', '/reports', '/notifications'],
-  admin:       ['/', '/users', '/projects', '/service-calls', '/contracts', '/payments', '/enquiries', '/sales-orders', '/inventory', '/checklists', '/reports', '/notifications'],
-  mep_pm:      ['/', '/projects', '/checklists', '/reports', '/notifications'],
-  hvac_pm:     ['/', '/projects', '/checklists', '/reports', '/notifications'],
-  solar_pm:    ['/', '/projects', '/checklists', '/reports', '/notifications'],
-  engineer:    ['/', '/projects', '/checklists', '/notifications'],
-  service_eng: ['/', '/service-calls', '/notifications'],
-  sales:       ['/', '/enquiries', '/sales-orders', '/payments', '/reports', '/notifications'],
+  admin:       ['/', '/enquiries', '/sales-orders', '/projects', '/service-calls', '/contracts', '/payments', '/inventory', '/users', '/checklists', '/reports', '/notifications'],
+  sales:       ['/', '/enquiries', '/sales-orders', '/reports', '/notifications'],
+  hvac_pm:     ['/', '/projects', '/sales-orders', '/inventory', '/checklists', '/reports', '/notifications'],
+  solar_pm:    ['/', '/projects', '/sales-orders', '/inventory', '/checklists', '/reports', '/notifications'],
+  mep_pm:      ['/', '/projects', '/sales-orders', '/checklists', '/reports', '/notifications'],
+  engineer:    ['/', '/projects', '/inventory', '/notifications'],
+  service_mgr: ['/', '/service-calls', '/contracts', '/inventory', '/reports', '/notifications'],
+  service_eng: ['/', '/service-calls', '/inventory', '/notifications'],
   store:       ['/', '/inventory', '/reports', '/notifications'],
   accounts:    ['/', '/payments', '/sales-orders', '/reports', '/notifications'],
   viewer:      ['/', '/reports', '/notifications'],
@@ -167,6 +181,7 @@ export const ROLE_DASHBOARD = {
   hvac_pm:     ['projects', 'projectsActive', 'projectsPlanning', 'projectsCompleted'],
   solar_pm:    ['projects', 'projectsActive', 'projectsPlanning', 'projectsCompleted'],
   engineer:    ['myProjects', 'myChecklistItems'],
+  service_mgr: ['serviceCalls', 'contracts', 'lowStock'],
   service_eng: ['myCallsOpen', 'myCallsClosed', 'myCallsUrgent'],
   sales:       ['enquiries', 'enquiriesNew', 'salesOrders', 'salesOrdersTotal', 'payments'],
   store:       ['inventory', 'lowStock', 'invIssues', 'invValue'],
@@ -195,7 +210,7 @@ export function getRoleLabel(role) {
 
 // Ordered options for role dropdowns: {value, label}
 export function roleOptions(includeSuper = false) {
-  const order = ['admin', 'mep_pm', 'hvac_pm', 'solar_pm', 'sales', 'service_eng', 'engineer', 'store', 'accounts', 'viewer'];
+  const order = ['admin', 'mep_pm', 'hvac_pm', 'solar_pm', 'sales', 'service_mgr', 'service_eng', 'engineer', 'store', 'accounts', 'viewer'];
   const opts = order.map(r => ({ value: r, label: ROLE_META[r].label }));
   if (includeSuper) opts.unshift({ value: 'super', label: ROLE_META.super.label });
   return opts;

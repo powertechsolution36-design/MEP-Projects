@@ -12,7 +12,7 @@ export default function Projects() {
         { key: 'client', label: 'Client' },
         { key: 'div', label: 'Division' },
         { key: 'status', label: 'Status', render: v => <span className={`badge ${STATUS_BADGE[v] || ''}`}>{v}</span> },
-        { key: 'pm', label: 'PM' },
+        { key: 'pm', label: 'Project Manager' },
         { key: 'value', label: 'Value', render: v => (v || 0).toLocaleString() },
       ]}
       fields={[

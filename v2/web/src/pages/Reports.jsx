@@ -16,7 +16,7 @@ const PRESETS = [
 const MODULES = [
   { key: 'projects', label: 'Projects', dateKey: 'createdAt', cols: [
     {key:'name',label:'Name'},{key:'client',label:'Client'},{key:'div',label:'Division'},
-    {key:'status',label:'Status'},{key:'value',label:'Value'},{key:'pm',label:'PM'},{key:'createdAt',label:'Created'},
+    {key:'status',label:'Status'},{key:'value',label:'Value'},{key:'pm',label:'Project Manager'},{key:'createdAt',label:'Created'},
   ]},
   { key: 'serviceCalls', label: 'Service Calls', dateKey: 'createdAt', cols: [
     {key:'psc',label:'PSC#'},{key:'client',label:'Client'},{key:'type',label:'Type'},

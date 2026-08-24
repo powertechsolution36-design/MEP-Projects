@@ -3,17 +3,18 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import { getRoleLabel, ROLE_MODULES } from '../utils/responsibilities';
 
+// Menu items — icons match the old app style
 const NAV = [
-  { to: '/', label: 'Dashboard', icon: '📊', end: true },
+  { to: '/', label: 'Dashboard', icon: '🏠', end: true },
+  { to: '/enquiries', label: 'Enquiries', icon: '📋' },
+  { to: '/sales-orders', label: 'Sales Orders', icon: '🧾' },
   { to: '/projects', label: 'Projects', icon: '🏗️' },
-  { to: '/service-calls', label: 'Service Calls', icon: '🔧' },
-  { to: '/contracts', label: 'Contracts', icon: '📄' },
+  { to: '/service-calls', label: 'Service Calls', icon: '🛠️' },
+  { to: '/contracts', label: 'AMC / Contracts', icon: '🔁' },
   { to: '/payments', label: 'Payments', icon: '💰' },
-  { to: '/enquiries', label: 'Enquiries', icon: '📞' },
-  { to: '/sales-orders', label: 'Sales Orders', icon: '🛒' },
   { to: '/inventory', label: 'Inventory', icon: '📦' },
   { to: '/checklists', label: 'Checklists', icon: '✅' },
-  { to: '/reports', label: 'Reports', icon: '📈' },
+  { to: '/reports', label: 'Reports', icon: '📊' },
   { to: '/users', label: 'Users', icon: '👥' },
   { to: '/companies', label: 'Companies', icon: '🏢' },
 ];
