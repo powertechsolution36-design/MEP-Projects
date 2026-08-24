@@ -34,9 +34,8 @@ export default function Shell({ children }) {
     <div className="app-shell">
       <aside className={`sidebar ${open ? 'open' : ''}`}>
         <div className="sidebar-brand">
-          <h1>MEP</h1>
-          <p>PROJECTS</p>
-          {company && <p style={{marginTop: 6, color: '#a0b0c8', letterSpacing: 0}}>{company.name}</p>}
+          <img src="/icons/icon-192.png" alt="MEP" className="sidebar-logo" />
+          {company && <p className="sidebar-company">{company.name}</p>}
         </div>
         <nav className="sidebar-nav">
           {visibleNav.map(item => (
@@ -46,13 +45,13 @@ export default function Shell({ children }) {
             </NavLink>
           ))}
         </nav>
-        <div style={{padding: '16px 20px', borderTop: '1px solid var(--dark2)', marginTop: 16}}>
-          <div style={{color: '#cbd5e0', fontSize: 12, marginBottom: 4}}>
+        <div className="sidebar-footer">
+          <div className="sidebar-status">
             <span className={`status-dot ${connected ? 'on' : 'off'}`}></span>
             {connected ? 'Connected' : 'Offline'}
           </div>
-          <div style={{color: '#fff', fontSize: 14, fontWeight: 600}}>{user.name}</div>
-          <div style={{color: '#7e8ea0', fontSize: 12}}>{user.role}</div>
+          <div className="sidebar-user">{user.name}</div>
+          <div className="sidebar-role">{user.role}</div>
           <button className="btn sm sec" style={{marginTop: 10, width: '100%'}} onClick={handleLogout}>Sign out</button>
         </div>
       </aside>
@@ -61,11 +60,14 @@ export default function Shell({ children }) {
           <div style={{display: 'flex', alignItems: 'center', gap: 12}}>
             <button className="mobile-menu-btn" onClick={() => setOpen(!open)}>☰</button>
           </div>
-          <div style={{display: 'flex', alignItems: 'center', gap: 12}}>
+          <div style={{display: 'flex', alignItems: 'center', gap: 20}}>
             <NavLink to="/notifications" style={{position: 'relative', textDecoration: 'none', fontSize: 20}}>
               🔔
               {unread > 0 && <span style={{position: 'absolute', top: -4, right: -6, background: 'var(--red)', color: '#fff', fontSize: 10, borderRadius: 10, padding: '2px 6px', fontWeight: 700}}>{unread}</span>}
             </NavLink>
+            <div className="brand-header">
+              <span className="brand-red">MEP</span> <span>PROJECTS</span>
+            </div>
           </div>
         </div>
         {children}

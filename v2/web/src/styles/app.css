@@ -65,9 +65,25 @@ label { font-size: 12px; font-weight: 600; color: var(--mut); display: block;
 /* Layout */
 .app-shell { display: grid; grid-template-columns: 240px 1fr; height: 100vh; }
 .sidebar { background: var(--dark); color: #fff; padding: 20px 0; overflow-y: auto; }
-.sidebar-brand { padding: 0 20px 20px; border-bottom: 1px solid var(--dark2); }
-.sidebar-brand h1 { font-family: var(--font-brand); font-size: 24px; color: var(--red); letter-spacing: 2px; font-weight: 400; }
-.sidebar-brand p { font-size: 11px; color: #7e8ea0; letter-spacing: 1px; margin-top: 2px; }
+.sidebar-brand { padding: 0 20px 20px; border-bottom: 1px solid var(--dark2); text-align: center; }
+.sidebar-logo { width: 72px; height: 72px; border-radius: 12px; display: block; margin: 0 auto; }
+.sidebar-company { font-size: 12px; color: #a0b0c8; margin-top: 10px; letter-spacing: 0.5px; }
+.sidebar-footer { padding: 16px 20px; border-top: 1px solid var(--dark2); margin-top: 16px; }
+.sidebar-status { color: #cbd5e0; font-size: 12px; margin-bottom: 4px; }
+.sidebar-user { color: #fff; font-size: 14px; font-weight: 600; }
+.sidebar-role { color: #7e8ea0; font-size: 12px; }
+
+.brand-header {
+  font-family: var(--font-brand);
+  font-size: 24px;
+  letter-spacing: 3px;
+  color: var(--txt);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.brand-header .brand-red { color: var(--red); }
+@media (max-width: 480px) { .brand-header { font-size: 18px; letter-spacing: 2px; } }
 .sidebar-nav { padding: 16px 0; }
 .sidebar-nav a { display: flex; align-items: center; gap: 12px; padding: 10px 20px;
   color: #cbd5e0; text-decoration: none; font-size: 14px; transition: background 0.15s; }
