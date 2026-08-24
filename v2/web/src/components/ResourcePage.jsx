@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useStore } from '../store/useStore';
 import Modal from './Modal';
+import ReportModal from './ReportModal';
 import { toast } from './Toast';
 
 export default function ResourcePage({ title, resource, columns, fields, canCreate = true, canDelete = true, requiresCompany = true }) {
@@ -13,6 +14,7 @@ export default function ResourcePage({ title, resource, columns, fields, canCrea
   const update = useStore(s => s.update);
   const remove = useStore(s => s.remove);
   const [editing, setEditing] = useState(null);
+  const [showReport, setShowReport] = useState(false);
   const [q, setQ] = useState('');
 
   const isSuper = user?.role === 'super';
@@ -65,7 +67,10 @@ export default function ResourcePage({ title, resource, columns, fields, canCrea
             </div>
           )}
         </div>
-        {canCreate && <button className="btn" onClick={() => setEditing({})}>+ New</button>}
+        <div style={{display: 'flex', gap: 8}}>
+          <button className="btn sec" onClick={() => setShowReport(true)} title="Download report">📊 Reports</button>
+          {canCreate && <button className="btn" onClick={() => setEditing({})}>+ New</button>}
+        </div>
       </div>
       <div className="card">
         <input placeholder={`Search ${title.toLowerCase()}...`} value={q} onChange={e => setQ(e.target.value)} style={{marginBottom: 12}} />
@@ -91,6 +96,7 @@ export default function ResourcePage({ title, resource, columns, fields, canCrea
         </table>
       </div>
       {editing && <FormModal title={editing._id ? `Edit ${title.replace(/s$/, '')}` : `New ${title.replace(/s$/, '')}`} fields={effectiveFields} initial={editing} onSave={onSave} onClose={() => setEditing(null)} />}
+      {showReport && <ReportModal title={title} items={scopedItems} columns={columns} onClose={() => setShowReport(false)} />}
     </div>
   );
 }

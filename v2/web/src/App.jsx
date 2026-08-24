@@ -15,6 +15,7 @@ import Inventory from './pages/Inventory';
 import Checklists from './pages/Checklists';
 import Notifications from './pages/Notifications';
 import Companies from './pages/Companies';
+import Reports from './pages/Reports';
 import Toast from './components/Toast';
 
 export default function App() {
@@ -43,6 +44,7 @@ export default function App() {
         <Route path="/checklists/*" element={<Checklists />} />
         <Route path="/users/*" element={<Users />} />
         <Route path="/companies/*" element={<Companies />} />
+        <Route path="/reports" element={<Reports />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
