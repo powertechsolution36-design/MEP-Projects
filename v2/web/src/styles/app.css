@@ -130,6 +130,23 @@ label { font-size: 12px; font-weight: 600; color: var(--mut); display: block;
   background: var(--dark); color: #fff; padding: 12px 20px; border-radius: 8px;
   box-shadow: var(--shadow-md); z-index: 9999; font-size: 14px; }
 
+/* Stat cards */
+.stat-card { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px 18px; display: flex; align-items: center; gap: 14px; }
+.stat-icon { font-size: 28px; }
+.stat-value { font-size: 22px; font-weight: 700; margin-top: 2px; }
+
+/* Charts */
+.chart-wrap { width: 100%; }
+.chart-title { font-size: 13px; font-weight: 600; color: var(--mut); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
+.chart-body { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+.chart-legend { flex: 1; min-width: 160px; }
+.legend-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; }
+.legend-dot { width: 10px; height: 10px; border-radius: 2px; }
+.legend-label { flex: 1; text-transform: capitalize; }
+.legend-value { font-weight: 600; color: var(--txt); }
+.bar-labels { display: flex; margin-top: 4px; }
+.bar-label { text-align: center; font-size: 11px; color: var(--mut); text-transform: capitalize; }
+
 /* Table */
 .data-table { width: 100%; background: #fff; border-radius: var(--radius);
   overflow: hidden; box-shadow: var(--shadow); border-collapse: collapse; }

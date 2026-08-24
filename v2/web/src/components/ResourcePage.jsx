@@ -10,15 +10,23 @@ import { toast } from './Toast';
  *  - fields [{key,label,type,options?,required?}]
  *  - filterBy?: array of query filter columns
  */
-export default function ResourcePage({ title, resource, columns, fields, canCreate = true, canDelete = true }) {
+export default function ResourcePage({ title, resource, columns, fields, canCreate = true, canDelete = true, requiresCompany = true }) {
   const items = useStore(s => s[resource] || []);
+  const user = useStore(s => s.user);
+  const companies = useStore(s => s.companies);
   const create = useStore(s => s.create);
   const update = useStore(s => s.update);
   const remove = useStore(s => s.remove);
   const [editing, setEditing] = useState(null); // null | {} | doc
   const [q, setQ] = useState('');
 
+  const isSuper = user?.role === 'super';
   const filtered = q ? items.filter(it => JSON.stringify(it).toLowerCase().includes(q.toLowerCase())) : items;
+
+  // For super admin, prepend a company selector to fields (except when the resource IS companies)
+  const effectiveFields = (isSuper && requiresCompany && resource !== 'companies')
+    ? [{ key: 'co', label: 'Company', type: 'select', options: companies.map(c => ({ value: c._id, label: c.name })), required: true }, ...fields]
+    : fields;
 
   async function onSave(data) {
     try {
@@ -64,7 +72,7 @@ export default function ResourcePage({ title, resource, columns, fields, canCrea
           </tbody>
         </table>
       </div>
-      {editing && <FormModal title={editing._id ? `Edit ${title.replace(/s$/, '')}` : `New ${title.replace(/s$/, '')}`} fields={fields} initial={editing} onSave={onSave} onClose={() => setEditing(null)} />}
+      {editing && <FormModal title={editing._id ? `Edit ${title.replace(/s$/, '')}` : `New ${title.replace(/s$/, '')}`} fields={effectiveFields} initial={editing} onSave={onSave} onClose={() => setEditing(null)} />}
     </div>
   );
 }
