@@ -153,3 +153,15 @@ export function getRoleMeta(role) {
     responsibilities: [],
   };
 }
+
+export function getRoleLabel(role) {
+  return ROLE_META[role]?.label || role || '—';
+}
+
+// Ordered options for role dropdowns: {value, label}
+export function roleOptions(includeSuper = false) {
+  const order = ['admin', 'mep_pm', 'hvac_pm', 'solar_pm', 'sales', 'service_eng', 'engineer', 'store', 'accounts', 'viewer'];
+  const opts = order.map(r => ({ value: r, label: ROLE_META[r].label }));
+  if (includeSuper) opts.unshift({ value: 'super', label: ROLE_META.super.label });
+  return opts;
+}

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
+import { getRoleLabel } from '../utils/responsibilities';
 
 const NAV = [
   { to: '/', label: 'Dashboard', icon: '📊', end: true },
@@ -58,7 +59,7 @@ export default function Shell({ children }) {
             {connected ? 'Connected' : 'Offline'}
           </div>
           <div className="sidebar-user">{user.name}</div>
-          <div className="sidebar-role">{user.role}</div>
+          <div className="sidebar-role">{getRoleLabel(user.role)}</div>
           <button className="btn sm sec" style={{marginTop: 10, width: '100%'}} onClick={handleLogout}>Sign out</button>
         </div>
       </aside>

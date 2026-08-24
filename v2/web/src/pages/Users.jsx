@@ -2,9 +2,7 @@ import { useState } from 'react';
 import { useStore } from '../store/useStore';
 import Modal from '../components/Modal';
 import { toast } from '../components/Toast';
-
-const ROLES = ['admin', 'hvac_pm', 'solar_pm', 'mep_pm', 'engineer', 'service_eng', 'sales', 'store', 'accounts', 'viewer'];
-const SUPER_ROLES = ['super', ...ROLES];
+import { getRoleLabel, roleOptions } from '../utils/responsibilities';
 
 export default function Users() {
   const users = useStore(s => s.users);
@@ -15,13 +13,12 @@ export default function Users() {
   const create = useStore(s => s.create);
   const update = useStore(s => s.update);
   const remove = useStore(s => s.remove);
-  const [selected, setSelected] = useState(null); // clicked user (detail view)
-  const [editing, setEditing] = useState(null);   // null | {} | user
+  const [selected, setSelected] = useState(null);
+  const [editing, setEditing] = useState(null);
   const [q, setQ] = useState('');
 
   const isSuper = user?.role === 'super';
 
-  // Super admin without a scoped company → company picker landing screen
   if (isSuper && !scopedCompany) {
     return (
       <div>
@@ -49,22 +46,17 @@ export default function Users() {
   }
 
   const scoped = isSuper && scopedCompany ? users.filter(u => String(u.co) === String(scopedCompany)) : users;
-  const filtered = q ? scoped.filter(u => (u.name + ' ' + u.un + ' ' + u.role).toLowerCase().includes(q.toLowerCase())) : scoped;
+  const filtered = q ? scoped.filter(u => (u.name + ' ' + u.un + ' ' + getRoleLabel(u.role)).toLowerCase().includes(q.toLowerCase())) : scoped;
   const currentCoName = scopedCompany ? (companies.find(c => String(c._id) === String(scopedCompany))?.name || '') : '';
 
-  const roleOptions = isSuper ? SUPER_ROLES : ROLES;
+  const rOpts = roleOptions(isSuper);
 
   async function onSave(data) {
-    // duplicate username check (client-side friendly warning)
     const existing = scoped.find(u => u.un?.toLowerCase() === data.un?.toLowerCase() && String(u._id) !== String(editing?._id));
-    if (existing) {
-      toast(`Username "${data.un}" already exists in this company`);
-      return;
-    }
+    if (existing) return toast(`Username "${data.un}" already exists in this company`);
     try {
       const payload = { ...data };
       if (isSuper && scopedCompany && !payload.co) payload.co = scopedCompany;
-      // Strip empty password on edit (don't overwrite existing)
       if (editing?._id && !payload.pw) delete payload.pw;
       if (editing?._id) await update('users', editing._id, payload);
       else await create('users', payload);
@@ -78,12 +70,10 @@ export default function Users() {
   }
 
   async function onDelete(u) {
-    if (!confirm(`Delete user "${u.name}" (${u.un})?`)) return;
+    if (!confirm(`Delete ${u.name} (${u.un})?`)) return;
     try { await remove('users', u._id); toast('Deleted'); setSelected(null); }
     catch (e) { toast(e.message); }
   }
-
-  const roleColors = { super:'red', admin:'blu', hvac_pm:'blu', solar_pm:'blu', mep_pm:'blu', engineer:'grn', service_eng:'grn', sales:'amb', store:'amb', accounts:'amb', viewer:'' };
 
   return (
     <div>
@@ -100,7 +90,7 @@ export default function Users() {
       </div>
 
       <div className="card">
-        <input placeholder="Search by name or username..." value={q} onChange={e => setQ(e.target.value)} style={{marginBottom: 12}} />
+        <input placeholder="Search by name, username, or role..." value={q} onChange={e => setQ(e.target.value)} style={{marginBottom: 12}} />
         {filtered.length === 0 ? (
           <div className="text-center text-mut" style={{padding: 40}}>No users yet</div>
         ) : (
@@ -109,7 +99,7 @@ export default function Users() {
               <button key={u._id} className="user-row" onClick={() => setSelected(u)}>
                 <span className="user-avatar">{(u.name || u.un || '?')[0].toUpperCase()}</span>
                 <span className="user-row-name">{u.name}</span>
-                <span className={`badge ${roleColors[u.role] || ''}`}>{u.role}</span>
+                <span className="badge blu">{getRoleLabel(u.role)}</span>
                 <span className="text-mut text-sm">@{u.un}</span>
                 <span style={{marginLeft: 'auto', color: 'var(--mut)'}}>›</span>
               </button>
@@ -125,7 +115,7 @@ export default function Users() {
             <div>
               <div style={{fontSize: 18, fontWeight: 700}}>{selected.name}</div>
               <div className="text-mut">@{selected.un}</div>
-              <span className={`badge ${roleColors[selected.role] || ''}`} style={{marginTop: 4, display: 'inline-block'}}>{selected.role}</span>
+              <span className="badge blu" style={{marginTop: 4, display: 'inline-block'}}>{getRoleLabel(selected.role)}</span>
             </div>
           </div>
           <DetailRow label="Email" value={selected.email} />
@@ -141,13 +131,7 @@ export default function Users() {
       )}
 
       {editing && (
-        <UserForm
-          initial={editing}
-          isEdit={!!editing._id}
-          roleOptions={roleOptions}
-          onSave={onSave}
-          onClose={() => setEditing(null)}
-        />
+        <UserForm initial={editing} isEdit={!!editing._id} roleOptions={rOpts} onSave={onSave} onClose={() => setEditing(null)} />
       )}
     </div>
   );
@@ -178,7 +162,7 @@ function UserForm({ initial, isEdit, roleOptions, onSave, onClose }) {
         <label className="mt-1">Role *</label>
         <select value={data.role || ''} onChange={e => set('role', e.target.value)} required>
           <option value="">— select role —</option>
-          {roleOptions.map(r => <option key={r} value={r}>{r}</option>)}
+          {roleOptions.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
         </select>
         <label className="mt-1">Email</label>
         <input type="email" value={data.email || ''} onChange={e => set('email', e.target.value)} />
