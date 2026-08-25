@@ -1,9 +1,18 @@
 import { useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import { getRoleLabel, ROLE_MODULES } from '../utils/responsibilities';
 
-// Menu items — icons match the old app style
+const INVENTORY_CHILDREN = [
+  { to: '/inventory', label: 'Overview', icon: '🏠', end: true },
+  { to: '/inventory/stock', label: 'Stock', icon: '📦' },
+  { to: '/inventory/issue', label: 'Issue Material', icon: '📤' },
+  { to: '/inventory/returns', label: 'Returns', icon: '📥' },
+  { to: '/inventory/transfer', label: 'Stock Transfer', icon: '🔄' },
+  { to: '/inventory/categories', label: 'Categories & Locations', icon: '🗂' },
+  { to: '/inventory/transactions', label: 'Transactions', icon: '🧾' },
+];
+
 const NAV = [
   { to: '/', label: 'Dashboard', icon: '🏠', end: true },
   { to: '/enquiries', label: 'Enquiries', icon: '📋' },
@@ -12,7 +21,7 @@ const NAV = [
   { to: '/service-calls', label: 'Service Calls', icon: '🛠️' },
   { to: '/contracts', label: 'AMC / Contracts', icon: '🔁' },
   { to: '/payments', label: 'Payments', icon: '💰' },
-  { to: '/inventory', label: 'Inventory', icon: '📦' },
+  { to: '/inventory', label: 'Inventory', icon: '📦', children: INVENTORY_CHILDREN },
   { to: '/checklists', label: 'Checklists', icon: '✅' },
   { to: '/reports', label: 'Reports', icon: '📊' },
   { to: '/users', label: 'Users', icon: '👥' },
@@ -30,12 +39,15 @@ export default function Shell({ children }) {
   const logout = useStore(s => s.logout);
   const [open, setOpen] = useState(false);
   const nav = useNavigate();
+  const location = useLocation();
   const unread = notifications.filter(n => !n.isRead).length;
 
   const allowed = ROLE_MODULES[user.role] || [];
   const visibleNav = NAV.filter(n => allowed.includes(n.to));
   const isSuper = user.role === 'super';
   const currentCoName = scopedCompany ? (companies.find(c => String(c._id) === String(scopedCompany))?.name || 'Unknown') : 'All Companies';
+
+  const inInventory = location.pathname.startsWith('/inventory');
 
   function handleLogout(e) { e?.preventDefault(); logout(); nav('/'); }
 
@@ -50,10 +62,23 @@ export default function Shell({ children }) {
         </div>
         <nav className="sidebar-nav">
           {visibleNav.map(item => (
-            <NavLink key={item.to} to={item.to} end={item.end} onClick={() => setOpen(false)}>
-              <span className="sidebar-nav-icon">{item.icon}</span>
-              <span>{item.label}</span>
-            </NavLink>
+            <div key={item.to}>
+              <NavLink to={item.to} end={item.end} onClick={() => setOpen(false)}>
+                <span className="sidebar-nav-icon">{item.icon}</span>
+                <span>{item.label}</span>
+              </NavLink>
+              {/* Auto-expand children when on that section */}
+              {item.children && (item.to === '/inventory' ? inInventory : false) && (
+                <div className="sidebar-subnav">
+                  {item.children.map(child => (
+                    <NavLink key={child.to} to={child.to} end={child.end} onClick={() => setOpen(false)}>
+                      <span className="sidebar-nav-icon">{child.icon}</span>
+                      <span>{child.label}</span>
+                    </NavLink>
+                  ))}
+                </div>
+              )}
+            </div>
           ))}
         </nav>
         <div className="sidebar-footer">

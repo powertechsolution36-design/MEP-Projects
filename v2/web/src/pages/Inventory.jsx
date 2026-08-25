@@ -1,31 +1,13 @@
 import { useState } from 'react';
-import { Routes, Route, useNavigate, useParams, NavLink, Navigate } from 'react-router-dom';
+import { Routes, Route, useNavigate, useParams, Navigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import Modal from '../components/Modal';
 import { toast } from '../components/Toast';
 import { api } from '../api/client';
 
-const TABS = [
-  { to: '', label: 'Overview', icon: '🏠', end: true },
-  { to: 'stock', label: 'Stock', icon: '📦' },
-  { to: 'issue', label: 'Issue Material', icon: '📤' },
-  { to: 'returns', label: 'Returns', icon: '📥' },
-  { to: 'transfer', label: 'Stock Transfer', icon: '🔄' },
-  { to: 'categories', label: 'Categories & Locations', icon: '🗂' },
-  { to: 'transactions', label: 'Transactions', icon: '🧾' },
-];
-
 export default function Inventory() {
   return (
     <div>
-      <div className="main-header"><h2>📦 Inventory</h2></div>
-      <div className="inv-tabs">
-        {TABS.map(t => (
-          <NavLink key={t.to || 'ov'} to={t.to} end={t.end} className="inv-tab">
-            <span>{t.icon}</span><span>{t.label}</span>
-          </NavLink>
-        ))}
-      </div>
       <Routes>
         <Route path="" element={<Overview />} />
         <Route path="stock" element={<Stock />} />
