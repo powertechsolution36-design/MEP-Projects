@@ -33,22 +33,25 @@ router.post('/', requireRole('admin'), async (req, res) => {
   try {
     const data = { ...req.body };
     // Super admin creates users only when explicitly scoped to a company (via co in body).
-    // Otherwise it's Company Admin creating within their own company.
     if (req.user.role === 'super') {
-      if (!data.co) return res.status(400).json({ error: 'Super admin must specify a company (co) when adding users. Typically the Company Admin creates users.' });
-      // Prevent super from creating another super via the users API
+      if (!data.co) return res.status(400).json({ error: 'Super admin must specify a company (co) when adding users.' });
       if (data.role === 'super') return res.status(400).json({ error: 'Cannot create a Super Admin through this endpoint' });
     } else {
       data.co = req.user.co;
       if (data.role === 'super') return res.status(403).json({ error: 'Only super can create Super Admin' });
     }
+    if (!data.un) return res.status(400).json({ error: 'Username required' });
     if (!data.pw) return res.status(400).json({ error: 'Password required' });
+    data.un = String(data.un).toLowerCase().trim();
+    // Global duplicate check (defense in depth on top of unique index)
+    const dupe = await User.findOne({ un: data.un });
+    if (dupe) return res.status(409).json({ error: `Username "${data.un}" is already taken. Choose another.` });
     const user = await User.create(data);
     const u = user.toObject(); delete u.pw;
     broadcastUpdate(global.io, u.co, 'user', u);
     res.status(201).json(u);
   } catch (err) {
-    if (err.code === 11000) return res.status(409).json({ error: 'Username already exists' });
+    if (err.code === 11000) return res.status(409).json({ error: `Username "${req.body.un}" already exists` });
     res.status(400).json({ error: err.message });
   }
 });
@@ -57,6 +60,12 @@ router.put('/:id', requireRole('admin'), async (req, res) => {
   try {
     const data = { ...req.body };
     delete data.co;
+    // If username is being changed, ensure it doesn't collide with another user
+    if (data.un) {
+      data.un = String(data.un).toLowerCase().trim();
+      const dupe = await User.findOne({ un: data.un, _id: { $ne: req.params.id } });
+      if (dupe) return res.status(409).json({ error: `Username "${data.un}" is already taken by another user` });
+    }
     if (data.pw) {
       const user = await User.findOne(coFilter(req, req.params.id));
       if (!user) return res.status(404).json({ error: 'Not found' });

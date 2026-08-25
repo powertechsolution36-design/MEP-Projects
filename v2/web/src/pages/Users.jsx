@@ -52,8 +52,10 @@ export default function Users() {
   const rOpts = roleOptions(isSuper);
 
   async function onSave(data) {
-    const existing = scoped.find(u => u.un?.toLowerCase() === data.un?.toLowerCase() && String(u._id) !== String(editing?._id));
-    if (existing) return toast(`Username "${data.un}" already exists in this company`);
+    // Global uniqueness check (across ALL companies, not just this one)
+    const cleanUn = (data.un || '').toLowerCase().trim();
+    const existing = users.find(u => u.un?.toLowerCase() === cleanUn && String(u._id) !== String(editing?._id));
+    if (existing) return toast(`Username "${cleanUn}" is already taken. Choose another.`);
     try {
       const payload = { ...data };
       if (isSuper && scopedCompany && !payload.co) payload.co = scopedCompany;

@@ -15,7 +15,10 @@ const UserSchema = new mongoose.Schema({
   meta: { type: mongoose.Schema.Types.Mixed, default: {} },
 }, { timestamps: true });
 
-UserSchema.index({ co: 1, un: 1 }, { unique: true });
+// Username uniqueness is enforced at the app level (server routes check globally).
+// Kept as a plain (non-unique) index for query performance so existing duplicate
+// usernames from before this rule don't break startup.
+UserSchema.index({ un: 1 });
 
 UserSchema.pre('save', async function(next) {
   if (!this.isModified('pw')) return next();
