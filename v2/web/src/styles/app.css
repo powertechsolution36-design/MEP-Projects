@@ -73,13 +73,14 @@ label { font-size: 12px; font-weight: 600; color: var(--mut); display: block;
   padding-top: env(safe-area-inset-top);
 }
 #side .logo {
-  padding: 18px 16px 12px;
-  font-weight: 800; font-size: 17px; color: #fff;
-  display: flex; align-items: center; gap: 10px;
+  padding: 20px 14px 14px;
+  font-weight: 800; font-size: 22px; color: #fff;
+  display: flex; align-items: center; gap: 12px;
+  letter-spacing: 0.5px;
 }
 #side .logo img {
-  width: 32px; height: 32px; border-radius: 6px;
-  background: #cfd6df; padding: 3px; flex-shrink: 0;
+  width: 48px; height: 48px; border-radius: 10px;
+  background: #cfd6df; padding: 4px; flex-shrink: 0;
 }
 #side .logo em { color: var(--red); font-style: normal; }
 #side .co { font-size: 11px; color: #7e8ea0; padding: 0 16px 12px; border-bottom: 1px solid #263548; }
