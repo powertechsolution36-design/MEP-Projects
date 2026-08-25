@@ -159,7 +159,7 @@ export const ROLE_META = {
 
 // Which sidebar routes each role can access — mirrors old-app MENUS mapping
 export const ROLE_MODULES = {
-  super:       ['/', '/companies', '/analytics', '/users', '/projects', '/service-calls', '/contracts', '/payments', '/enquiries', '/lost-enquiries', '/sales-orders', '/inventory', '/checklists', '/reports', '/notifications'],
+  super:       ['/', '/companies', '/analytics', '/users', '/projects', '/contracts', '/payments', '/enquiries', '/lost-enquiries', '/sales-orders', '/checklists', '/reports', '/notifications'],
   admin:       ['/', '/enquiries', '/lost-enquiries', '/sales-orders', '/projects', '/service-calls', '/contracts', '/payments', '/inventory', '/users', '/checklists', '/reports', '/notifications'],
   sales:       ['/', '/enquiries', '/lost-enquiries', '/sales-orders', '/reports', '/notifications'],
   hvac_pm:     ['/', '/projects', '/sales-orders', '/inventory', '/checklists', '/reports', '/notifications'],
@@ -175,7 +175,7 @@ export const ROLE_MODULES = {
 
 // Which dashboard cards each role sees (compact stat labels)
 export const ROLE_DASHBOARD = {
-  super:       ['companies', 'users', 'projects', 'serviceCalls', 'contracts', 'payments', 'enquiries', 'inventory'],
+  super:       ['companies', 'users', 'projects', 'contracts', 'payments', 'enquiries', 'salesOrders'],
   admin:       ['users', 'projects', 'serviceCalls', 'contracts', 'payments', 'enquiries', 'salesOrders', 'inventory'],
   mep_pm:      ['projects', 'projectsActive', 'projectsPlanning', 'projectsCompleted'],
   hvac_pm:     ['projects', 'projectsActive', 'projectsPlanning', 'projectsCompleted'],
