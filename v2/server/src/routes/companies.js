@@ -1,5 +1,6 @@
 const express = require('express');
 const Company = require('../models/Company');
+const User = require('../models/User');
 const { auth, requireRole } = require('../middleware/auth');
 const { broadcastUpdate, broadcastDelete } = require('../websocket/sync');
 
@@ -27,12 +28,40 @@ router.get('/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.post('/', requireRole('admin'), async (req, res) => {
+// Super admin creates a Company AND its initial Admin user atomically.
+// Body: { name, code, ...companyFields, admin: { name, un, pw, email, phone } }
+router.post('/', async (req, res) => {
   try {
     if (req.user.role !== 'super') return res.status(403).json({ error: 'Only super can create companies' });
-    const co = await Company.create(req.body);
-    broadcastUpdate(global.io, co._id, 'company', co);
-    res.status(201).json(co);
+    const { admin, ...companyData } = req.body || {};
+    if (!admin || !admin.un || !admin.pw || !admin.name) {
+      return res.status(400).json({ error: 'Company admin (name, username, password) is required' });
+    }
+    // Check duplicate username first (fast fail, no orphan company)
+    const un = String(admin.un).toLowerCase().trim();
+    const dupe = await User.findOne({ un });
+    if (dupe) return res.status(409).json({ error: `Username "${un}" already in use` });
+
+    const co = await Company.create(companyData);
+    try {
+      const adminUser = await User.create({
+        co: co._id,
+        un,
+        pw: admin.pw,
+        name: admin.name,
+        email: admin.email,
+        phone: admin.phone,
+        role: 'admin',
+      });
+      broadcastUpdate(global.io, co._id, 'company', co);
+      const u = adminUser.toObject(); delete u.pw;
+      broadcastUpdate(global.io, co._id, 'user', u);
+      res.status(201).json({ company: co, admin: u });
+    } catch (uerr) {
+      // Roll back company if admin creation failed
+      await Company.findByIdAndDelete(co._id);
+      throw uerr;
+    }
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 

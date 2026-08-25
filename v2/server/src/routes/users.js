@@ -32,7 +32,16 @@ router.get('/:id', async (req, res) => {
 router.post('/', requireRole('admin'), async (req, res) => {
   try {
     const data = { ...req.body };
-    if (req.user.role !== 'super') data.co = req.user.co;
+    // Super admin creates users only when explicitly scoped to a company (via co in body).
+    // Otherwise it's Company Admin creating within their own company.
+    if (req.user.role === 'super') {
+      if (!data.co) return res.status(400).json({ error: 'Super admin must specify a company (co) when adding users. Typically the Company Admin creates users.' });
+      // Prevent super from creating another super via the users API
+      if (data.role === 'super') return res.status(400).json({ error: 'Cannot create a Super Admin through this endpoint' });
+    } else {
+      data.co = req.user.co;
+      if (data.role === 'super') return res.status(403).json({ error: 'Only super can create Super Admin' });
+    }
     if (!data.pw) return res.status(400).json({ error: 'Password required' });
     const user = await User.create(data);
     const u = user.toObject(); delete u.pw;
