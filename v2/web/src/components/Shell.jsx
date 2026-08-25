@@ -115,7 +115,10 @@ export default function Shell({ children }) {
   return (
     <div className="app-shell">
       <div id="side" className={open ? 'open' : ''}>
-        <div className="logo"><em>MEP</em> PROJECTS</div>
+        <div className="logo">
+          <img src="/icons/icon-192.png" alt="" />
+          <span><em>MEP</em> PROJECTS</span>
+        </div>
         <div className="co">
           {company ? (
             <>
