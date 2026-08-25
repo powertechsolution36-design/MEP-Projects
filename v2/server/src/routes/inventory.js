@@ -6,6 +6,14 @@ const InvIssue = require('../models/InvIssue');
 const InvTransaction = require('../models/InvTransaction');
 const { auth } = require('../middleware/auth');
 const { broadcastUpdate, broadcastDelete } = require('../websocket/sync');
+const { events } = require('../utils/notify');
+const { scopeIssues } = require('../utils/scope');
+
+function checkLowStock(item) {
+  if (item && (item.qty || 0) <= (item.minQty || 0) && (item.minQty || 0) > 0) {
+    events.lowStock(global.io, item).catch(() => {});
+  }
+}
 
 const router = express.Router();
 router.use(auth);
@@ -66,9 +74,10 @@ subCrud('locations', InvLocation, 'invlocation');
 subCrud('items', InvItem, 'invitem');
 
 // ----- ISSUES -----
+// Personal filter: engineers/service_eng see only their own issued material (My Material)
 router.get('/issues', async (req, res) => {
   try {
-    const f = coFilter(req);
+    const f = scopeIssues({}, req);
     if (req.query.status) f.status = req.query.status;
     if (req.query.staff) f.staff = req.query.staff;
     const docs = await InvIssue.find(f).sort({ createdAt: -1 }).limit(500).lean();
@@ -98,6 +107,7 @@ router.post('/issues', async (req, res) => {
         it.qty = (it.qty || 0) - line.qty;
         await it.save();
         broadcastUpdate(global.io, it.co, 'invitem', it);
+        checkLowStock(it);
         await InvTransaction.create({ co: data.co, item: it._id, type: 'out', qty: line.qty, rate: it.rate, ref: `Issue to ${data.staff}`, by: req.user.name });
       }
     }
@@ -149,6 +159,7 @@ router.patch('/issues/:id/return-request/:reqId', async (req, res) => {
           await it.save();
           broadcastUpdate(global.io, it.co, 'invitem', it);
           await InvTransaction.create({ co: doc.co, item: it._id, type: 'in', qty: rl.qty, ref: `Return from ${rr.by}`, by: req.user.name });
+          checkLowStock(it);
         }
         // update issue line returnedQty
         const line = doc.items.find(l => String(l.item) === String(rl.item));
@@ -216,6 +227,7 @@ router.post('/transactions', async (req, res) => {
         // transfer doesn't change qty (same company, moves between locations)
         await item.save();
         broadcastUpdate(global.io, item.co, 'invitem', item);
+        checkLowStock(item);
       }
     }
     const doc = await InvTransaction.create(data);

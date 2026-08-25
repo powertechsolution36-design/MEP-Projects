@@ -2,6 +2,7 @@ const express = require('express');
 const Payment = require('../models/Payment');
 const { auth } = require('../middleware/auth');
 const { broadcastUpdate, broadcastDelete } = require('../websocket/sync');
+const { events } = require('../utils/notify');
 
 const router = express.Router();
 router.use(auth);
@@ -16,6 +17,7 @@ router.get('/', async (req, res) => {
   try {
     const f = coFilter(req);
     if (req.query.status) f.status = req.query.status;
+    if (req.query.pending === 'true') f.status = { $ne: 'paid' };
     const docs = await Payment.find(f).sort({ createdAt: -1 }).lean();
     res.json(docs);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -41,8 +43,7 @@ router.post('/', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   try {
-    const data = { ...req.body };
-    delete data.co;
+    const data = { ...req.body }; delete data.co;
     const doc = await Payment.findOneAndUpdate(coFilter(req, req.params.id), data, { new: true });
     if (!doc) return res.status(404).json({ error: 'Not found' });
     broadcastUpdate(global.io, doc.co, 'payment', doc);
@@ -60,6 +61,7 @@ router.post('/:id/paid', async (req, res) => {
     doc.status = totalPaid >= doc.amount ? 'paid' : (totalPaid > 0 ? 'partial' : 'pending');
     await doc.save();
     broadcastUpdate(global.io, doc.co, 'payment', doc);
+    events.paymentReceived(global.io, doc, entry.amt || 0, req.user.name).catch(() => {});
     res.json(doc);
   } catch (err) { res.status(400).json({ error: err.message }); }
 });

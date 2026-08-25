@@ -3,6 +3,7 @@ const SalesOrder = require('../models/SalesOrder');
 const Sequence = require('../models/Sequence');
 const { auth } = require('../middleware/auth');
 const { broadcastUpdate, broadcastDelete } = require('../websocket/sync');
+const { events } = require('../utils/notify');
 
 const router = express.Router();
 router.use(auth);
@@ -45,19 +46,25 @@ router.post('/', async (req, res) => {
     recalc(data);
     const doc = await SalesOrder.create(data);
     broadcastUpdate(global.io, doc.co, 'salesorder', doc);
+    if (doc.status === 'confirmed') events.soConfirmed(global.io, doc, req.user.name).catch(() => {});
     res.status(201).json(doc);
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
 router.put('/:id', async (req, res) => {
   try {
-    const data = { ...req.body };
-    delete data.co;
+    const existing = await SalesOrder.findOne(coFilter(req, req.params.id));
+    if (!existing) return res.status(404).json({ error: 'Not found' });
+    const oldStatus = existing.status;
+    const data = { ...req.body }; delete data.co; delete data.no;
     recalc(data);
-    const doc = await SalesOrder.findOneAndUpdate(coFilter(req, req.params.id), data, { new: true });
-    if (!doc) return res.status(404).json({ error: 'Not found' });
-    broadcastUpdate(global.io, doc.co, 'salesorder', doc);
-    res.json(doc);
+    Object.assign(existing, data);
+    await existing.save();
+    broadcastUpdate(global.io, existing.co, 'salesorder', existing);
+    if (oldStatus !== 'confirmed' && existing.status === 'confirmed') {
+      events.soConfirmed(global.io, existing, req.user.name).catch(() => {});
+    }
+    res.json(existing);
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 

@@ -3,22 +3,22 @@ const ServiceCall = require('../models/ServiceCall');
 const Sequence = require('../models/Sequence');
 const { auth } = require('../middleware/auth');
 const { broadcastUpdate, broadcastDelete } = require('../websocket/sync');
+const { scopeServiceCalls } = require('../utils/scope');
+const { events } = require('../utils/notify');
 
 const router = express.Router();
 router.use(auth);
 
 function coFilter(req, id) {
   const f = id ? { _id: id } : {};
-  if (req.user.role !== 'super') f.co = req.user.co;
-  return f;
+  return scopeServiceCalls(f, req);
 }
 
 router.get('/', async (req, res) => {
   try {
-    const f = coFilter(req);
+    const f = scopeServiceCalls({}, req);
     if (req.query.status) f.status = req.query.status;
     if (req.query.type) f.type = req.query.type;
-    if (req.user.role === 'service_eng') f.eng = req.user.name;
     const docs = await ServiceCall.find(f).sort({ createdAt: -1 }).lean();
     res.json(docs);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -39,19 +39,26 @@ router.post('/', async (req, res) => {
     if (!data.psc) data.psc = await Sequence.next(data.co, 'psc');
     const doc = await ServiceCall.create(data);
     broadcastUpdate(global.io, doc.co, 'servicecall', doc);
+    events.serviceCallCreated(global.io, doc, req.user.name).catch(() => {});
+    if (doc.eng) events.serviceCallAssigned(global.io, doc).catch(() => {});
     res.status(201).json(doc);
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
 router.put('/:id', async (req, res) => {
   try {
-    const data = { ...req.body };
-    delete data.co;
+    const existing = await ServiceCall.findOne(coFilter(req, req.params.id));
+    if (!existing) return res.status(404).json({ error: 'Not found' });
+    const oldEng = existing.eng;
+    const data = { ...req.body }; delete data.co;
     if (data.status === 'closed' && !data.closedAt) data.closedAt = new Date();
-    const doc = await ServiceCall.findOneAndUpdate(coFilter(req, req.params.id), data, { new: true });
-    if (!doc) return res.status(404).json({ error: 'Not found' });
-    broadcastUpdate(global.io, doc.co, 'servicecall', doc);
-    res.json(doc);
+    Object.assign(existing, data);
+    await existing.save();
+    broadcastUpdate(global.io, existing.co, 'servicecall', existing);
+    if (existing.eng && existing.eng !== oldEng) {
+      events.serviceCallAssigned(global.io, existing).catch(() => {});
+    }
+    res.json(existing);
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
