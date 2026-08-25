@@ -5,7 +5,7 @@ import { connectSocket, disconnectSocket, getSocket } from '../api/socket';
 const empty = {
   companies: [], users: [], projects: [], serviceCalls: [], contracts: [], payments: [],
   enquiries: [], salesOrders: [], notifications: [], checklists: [],
-  invCategories: [], invLocations: [], invItems: [], invIssues: [],
+  invCategories: [], invLocations: [], invItems: [], invIssues: [], invTransactions: [],
 };
 
 // Map resource name -> store key
@@ -13,7 +13,7 @@ const RESOURCE_MAP = {
   company: 'companies', user: 'users', project: 'projects', servicecall: 'serviceCalls',
   contract: 'contracts', payment: 'payments', enquiry: 'enquiries', salesorder: 'salesOrders',
   notification: 'notifications', checklist: 'checklists',
-  invcategory: 'invCategories', invlocation: 'invLocations', invitem: 'invItems', invissue: 'invIssues',
+  invcategory: 'invCategories', invlocation: 'invLocations', invitem: 'invItems', invissue: 'invIssues', invtransaction: 'invTransactions',
 };
 
 function upsert(list, doc) {

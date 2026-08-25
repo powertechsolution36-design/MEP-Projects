@@ -243,6 +243,22 @@ label { font-size: 12px; font-weight: 600; color: var(--mut); display: block;
 .link-btn { color: var(--red); text-decoration: underline; background: none; padding: 0; font-size: 12px; }
 .link-btn:hover { filter: brightness(1.1); }
 
+/* Inventory tabs */
+.inv-tabs {
+  display: flex; gap: 4px; margin-bottom: 20px;
+  border-bottom: 1px solid var(--line); overflow-x: auto;
+}
+.inv-tab {
+  display: inline-flex; gap: 6px; align-items: center;
+  padding: 10px 16px; color: var(--mut); text-decoration: none;
+  font-size: 13px; font-weight: 600; border-bottom: 2px solid transparent;
+  white-space: nowrap;
+}
+.inv-tab:hover { color: var(--txt); }
+.inv-tab.active { color: var(--red); border-bottom-color: var(--red); }
+.text-red { color: var(--red); }
+.tw { overflow-x: auto; }
+
 /* Stat cards */
 .stat-card { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px 18px; display: flex; align-items: center; gap: 14px; }
 .stat-icon { font-size: 28px; }

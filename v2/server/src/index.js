@@ -73,10 +73,11 @@ app.get('/api/bulk', require('./middleware/auth').auth, async (req, res) => {
       require('./models/InvItem').find(filter).lean(),
       require('./models/InvIssue').find(filter).lean(),
     ]);
+    const invTransactions = await require('./models/InvTransaction').find(filter).sort({ createdAt: -1 }).limit(500).lean();
     res.json({
       companies, users, projects, serviceCalls, contracts, payments,
       enquiries, salesOrders, notifications, checklists,
-      invCategories, invLocations, invItems, invIssues,
+      invCategories, invLocations, invItems, invIssues, invTransactions,
       loadedAt: new Date().toISOString(),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
