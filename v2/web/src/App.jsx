@@ -16,6 +16,8 @@ import Checklists from './pages/Checklists';
 import Notifications from './pages/Notifications';
 import Companies from './pages/Companies';
 import Reports from './pages/Reports';
+import LostEnquiries from './pages/LostEnquiries';
+import SuperAnalytics from './pages/SuperAnalytics';
 import Toast from './components/Toast';
 
 export default function App() {
@@ -45,6 +47,8 @@ export default function App() {
         <Route path="/users/*" element={<Users />} />
         <Route path="/companies/*" element={<Companies />} />
         <Route path="/reports" element={<Reports />} />
+        <Route path="/lost-enquiries" element={<LostEnquiries />} />
+        <Route path="/analytics/*" element={<SuperAnalytics />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

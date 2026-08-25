@@ -13,9 +13,17 @@ const INVENTORY_CHILDREN = [
   { to: '/inventory/transactions', label: 'Transactions', icon: '🧾' },
 ];
 
+const ANALYTICS_CHILDREN = [
+  { to: '/analytics', label: 'Client Business', icon: '📈', end: true },
+  { to: '/analytics/revenue', label: 'Revenue', icon: '💵' },
+  { to: '/analytics/expiring', label: 'Expiring Soon', icon: '⏳' },
+  { to: '/analytics/locations', label: 'Locations', icon: '📍' },
+];
+
 const NAV = [
   { to: '/', label: 'Dashboard', icon: '🏠', end: true },
   { to: '/enquiries', label: 'Enquiries', icon: '📋' },
+  { to: '/lost-enquiries', label: 'Lost Enquiries', icon: '❌' },
   { to: '/sales-orders', label: 'Sales Orders', icon: '🧾' },
   { to: '/projects', label: 'Projects', icon: '🏗️' },
   { to: '/service-calls', label: 'Service Calls', icon: '🛠️' },
@@ -26,6 +34,7 @@ const NAV = [
   { to: '/reports', label: 'Reports', icon: '📊' },
   { to: '/users', label: 'Users', icon: '👥' },
   { to: '/companies', label: 'Companies', icon: '🏢' },
+  { to: '/analytics', label: 'Analytics', icon: '📈', children: ANALYTICS_CHILDREN },
 ];
 
 export default function Shell({ children }) {
@@ -48,6 +57,7 @@ export default function Shell({ children }) {
   const currentCoName = scopedCompany ? (companies.find(c => String(c._id) === String(scopedCompany))?.name || 'Unknown') : 'All Companies';
 
   const inInventory = location.pathname.startsWith('/inventory');
+  const inAnalytics = location.pathname.startsWith('/analytics');
 
   function handleLogout(e) { e?.preventDefault(); logout(); nav('/'); }
 
@@ -68,7 +78,7 @@ export default function Shell({ children }) {
                 <span>{item.label}</span>
               </NavLink>
               {/* Auto-expand children when on that section */}
-              {item.children && (item.to === '/inventory' ? inInventory : false) && (
+              {item.children && ((item.to === '/inventory' && inInventory) || (item.to === '/analytics' && inAnalytics)) && (
                 <div className="sidebar-subnav">
                   {item.children.map(child => (
                     <NavLink key={child.to} to={child.to} end={child.end} onClick={() => setOpen(false)}>

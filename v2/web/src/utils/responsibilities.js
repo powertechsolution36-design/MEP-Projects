@@ -159,9 +159,9 @@ export const ROLE_META = {
 
 // Which sidebar routes each role can access — mirrors old-app MENUS mapping
 export const ROLE_MODULES = {
-  super:       ['/', '/companies', '/users', '/projects', '/service-calls', '/contracts', '/payments', '/enquiries', '/sales-orders', '/inventory', '/checklists', '/reports', '/notifications'],
-  admin:       ['/', '/enquiries', '/sales-orders', '/projects', '/service-calls', '/contracts', '/payments', '/inventory', '/users', '/checklists', '/reports', '/notifications'],
-  sales:       ['/', '/enquiries', '/sales-orders', '/reports', '/notifications'],
+  super:       ['/', '/companies', '/analytics', '/users', '/projects', '/service-calls', '/contracts', '/payments', '/enquiries', '/lost-enquiries', '/sales-orders', '/inventory', '/checklists', '/reports', '/notifications'],
+  admin:       ['/', '/enquiries', '/lost-enquiries', '/sales-orders', '/projects', '/service-calls', '/contracts', '/payments', '/inventory', '/users', '/checklists', '/reports', '/notifications'],
+  sales:       ['/', '/enquiries', '/lost-enquiries', '/sales-orders', '/reports', '/notifications'],
   hvac_pm:     ['/', '/projects', '/sales-orders', '/inventory', '/checklists', '/reports', '/notifications'],
   solar_pm:    ['/', '/projects', '/sales-orders', '/inventory', '/checklists', '/reports', '/notifications'],
   mep_pm:      ['/', '/projects', '/sales-orders', '/checklists', '/reports', '/notifications'],
