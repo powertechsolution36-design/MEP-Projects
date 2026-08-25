@@ -3,6 +3,7 @@ import { useStore } from '../store/useStore';
 import Modal from '../components/Modal';
 import { toast } from '../components/Toast';
 import { api } from '../api/client';
+import SubscriptionFields from '../components/SubscriptionFields';
 
 export default function Companies() {
   const companies = useStore(s => s.companies);
@@ -13,6 +14,8 @@ export default function Companies() {
   const [q, setQ] = useState('');
 
   const filtered = q ? companies.filter(c => (c.name + ' ' + (c.code || '') + ' ' + (c.email || '')).toLowerCase().includes(q.toLowerCase())) : companies;
+
+  const now = Date.now();
 
   async function del(co) {
     if (!confirm(`Delete ${co.name} and ALL its data? This cannot be undone.`)) return;
@@ -28,23 +31,36 @@ export default function Companies() {
         <h2>🏢 Companies</h2>
         <button className="btn" onClick={() => setShowNew(true)}>+ New Company</button>
       </div>
-      <p className="text-mut mb-2">Each company is a separate tenant. Creating a company also creates its first Admin user (who then manages their own team).</p>
+      <p className="text-mut mb-2">Each company is a separate tenant. Creating a company also creates its first Admin user and sets a subscription duration.</p>
       <div className="card">
         <input placeholder="Search companies..." value={q} onChange={e => setQ(e.target.value)} style={{marginBottom: 12}} />
         <div className="tw"><table className="data-table">
-          <thead><tr><th>Name</th><th>Code</th><th>Users</th><th>Email</th><th>Phone</th><th>Status</th><th style={{width: 180}}>Actions</th></tr></thead>
+          <thead><tr><th>Name</th><th>Code</th><th>Users</th><th>Plan</th><th>Renews</th><th>Status</th><th style={{width: 180}}>Actions</th></tr></thead>
           <tbody>
             {filtered.length === 0 && <tr><td colSpan={7} className="text-center text-mut" style={{padding: 40}}>No companies</td></tr>}
             {filtered.map(co => {
               const userCount = users.filter(u => String(u.co) === String(co._id)).length;
+              const sub = co.meta?.subscription || {};
+              const renews = sub.renewsOn ? new Date(sub.renewsOn) : null;
+              const days = renews ? Math.round((renews.getTime() - now) / (24 * 3600 * 1000)) : null;
+              const status = sub.status || (co.disabled ? 'suspended' : 'active');
+              const statusBadge = status === 'active' ? 'grn' : status === 'trial' ? 'amb' : 'red';
               return (
                 <tr key={co._id}>
-                  <td><strong>{co.name}</strong></td>
+                  <td><strong>{co.name}</strong>{co.email && <div className="text-mut text-sm">{co.email}</div>}</td>
                   <td>{co.code || '—'}</td>
                   <td>{userCount}</td>
-                  <td>{co.email || '—'}</td>
-                  <td>{co.phone || '—'}</td>
-                  <td>{co.disabled ? <span className="badge red">Disabled</span> : <span className="badge grn">Active</span>}</td>
+                  <td>{planLabel(sub.plan, sub.customMonths)}</td>
+                  <td>
+                    {renews ? (
+                      <>
+                        {renews.toLocaleDateString()}
+                        {days !== null && days >= 0 && days <= 30 && <span className={`badge ${days < 7 ? 'red' : 'amb'}`} style={{marginLeft: 6}}>{days}d</span>}
+                        {days !== null && days < 0 && <span className="badge red" style={{marginLeft: 6}}>Expired</span>}
+                      </>
+                    ) : '—'}
+                  </td>
+                  <td><span className={`badge ${statusBadge}`}>{status}</span></td>
                   <td>
                     <button className="btn sm grn" onClick={() => enterCo(co._id)}>Enter</button>
                     <button className="btn sm sec" style={{marginLeft: 4}} onClick={() => setEditing(co)}>Edit</button>
@@ -62,13 +78,20 @@ export default function Companies() {
   );
 }
 
+function planLabel(plan, customMonths) {
+  if (!plan) return '—';
+  if (plan === 'custom') return `${customMonths || 1}m custom`;
+  return { trial: 'Trial', '1month': '1 mo', '3month': '3 mo', '6month': '6 mo', '1year': '1 yr' }[plan] || plan;
+}
+
 function NewCompanyForm({ onClose }) {
-  const [co, setCo] = useState({ divs: ['MEP', 'HVAC', 'Solar'] });
+  const [co, setCo] = useState({ divs: ['MEP', 'HVAC', 'Solar'], meta: { subscription: { plan: '1month', status: 'trial', startedAt: new Date().toISOString().slice(0,10) } } });
   const [admin, setAdmin] = useState({});
   const [busy, setBusy] = useState(false);
 
   function setC(k, v) { setCo(d => ({ ...d, [k]: v })); }
   function setA(k, v) { setAdmin(d => ({ ...d, [k]: v })); }
+  function setSub(next) { setCo(d => ({ ...d, meta: { ...(d.meta || {}), subscription: next } })); }
 
   async function submit(e) {
     e.preventDefault();
@@ -85,7 +108,7 @@ function NewCompanyForm({ onClose }) {
   }
 
   return (
-    <Modal title="Create Company" onClose={onClose} maxWidth={640}>
+    <Modal title="Create Company" onClose={onClose} maxWidth={720}>
       <form onSubmit={submit}>
         <h4 style={{fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--mut)', marginBottom: 8}}>🏢 Company Details</h4>
         <div className="row">
@@ -102,6 +125,8 @@ function NewCompanyForm({ onClose }) {
           <div style={{flex: 1}}><label>GSTIN</label><input value={co.gstin || ''} onChange={e => setC('gstin', e.target.value)} /></div>
           <div style={{flex: 2}}><label>Divisions (comma separated)</label><input value={(co.divs || []).join(', ')} onChange={e => setC('divs', e.target.value.split(',').map(s => s.trim()).filter(Boolean))} /></div>
         </div>
+
+        <SubscriptionFields sub={co.meta?.subscription || {}} onChange={setSub} />
 
         <div style={{marginTop: 20, padding: 16, background: '#fef8f6', border: '1px solid #f5d4c9', borderRadius: 8}}>
           <h4 style={{fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--red)', marginBottom: 8}}>🛡️ Company Admin Account</h4>
@@ -129,8 +154,9 @@ function NewCompanyForm({ onClose }) {
 }
 
 function EditCompanyForm({ initial, onClose }) {
-  const [data, setData] = useState({ ...initial });
+  const [data, setData] = useState({ ...initial, meta: { ...(initial.meta || {}) } });
   function set(k, v) { setData(d => ({ ...d, [k]: v })); }
+  function setSub(next) { setData(d => ({ ...d, meta: { ...(d.meta || {}), subscription: next } })); }
   async function submit(e) {
     e.preventDefault();
     try {
@@ -140,7 +166,7 @@ function EditCompanyForm({ initial, onClose }) {
     } catch (e) { toast(e.message); }
   }
   return (
-    <Modal title={`Edit ${initial.name}`} onClose={onClose}>
+    <Modal title={`Edit ${initial.name}`} onClose={onClose} maxWidth={720}>
       <form onSubmit={submit}>
         <div className="row">
           <div style={{flex: 2}}><label>Name *</label><input required value={data.name || ''} onChange={e => set('name', e.target.value)} /></div>
@@ -156,6 +182,9 @@ function EditCompanyForm({ initial, onClose }) {
           <div style={{flex: 1}}><label>GSTIN</label><input value={data.gstin || ''} onChange={e => set('gstin', e.target.value)} /></div>
           <div style={{flex: 2}}><label>Divisions (comma separated)</label><input value={(data.divs || []).join(', ')} onChange={e => set('divs', e.target.value.split(',').map(s => s.trim()).filter(Boolean))} /></div>
         </div>
+
+        <SubscriptionFields sub={data.meta?.subscription || {}} onChange={setSub} />
+
         <div style={{marginTop: 12}}>
           <label style={{display: 'flex', gap: 8, alignItems: 'center'}}>
             <input type="checkbox" checked={!!data.disabled} onChange={e => set('disabled', e.target.checked)} style={{width: 'auto'}} />
