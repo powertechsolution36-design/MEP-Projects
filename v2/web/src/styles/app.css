@@ -309,3 +309,16 @@ label { font-size: 12px; font-weight: 600; color: var(--mut); display: block;
   #main { margin-left: 0; padding: 12px; }
   #burger { display: block; }
 }
+
+/* Project checklist */
+.chk-item { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+.chk-item.done { background: #f2fbf6; border-color: #bfe8d2; }
+.text-red { color: var(--red); }
+.text-green { color: var(--green); }
+.tw { overflow-x: auto; }
+
+/* Tab strip (used in project detail, contracts, etc) */
+.inv-tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.inv-tab { display: inline-flex; gap: 6px; align-items: center; padding: 10px 16px; color: var(--mut); text-decoration: none; font-size: 13px; font-weight: 600; border-bottom: 2px solid transparent; white-space: nowrap; background: none; cursor: pointer; }
+.inv-tab:hover { color: var(--txt); }
+.inv-tab.active { color: var(--red); border-bottom-color: var(--red); }
