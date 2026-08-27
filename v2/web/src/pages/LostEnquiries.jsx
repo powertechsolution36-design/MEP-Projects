@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useStore } from '../store/useStore';
 import Modal from '../components/Modal';
+import ReportDownload from '../components/ReportDownload';
 import { toast } from '../components/Toast';
 import { api } from '../api/client';
 
@@ -29,7 +30,7 @@ export default function LostEnquiries() {
       <div className="main-header">
         <h2>❌ Lost Enquiries</h2>
         <span className="text-mut text-sm">{list.length} record(s)</span>
-      </div>
+      <ReportDownload module="enquiries" label="Lost Enquiries" /></div>
       <div className="card">
         <input placeholder="Search lost enquiries..." value={q} onChange={e => setQ(e.target.value)} style={{marginBottom: 12}} />
         <div className="tw"><table className="data-table">

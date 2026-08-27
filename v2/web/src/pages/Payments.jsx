@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useStore } from '../store/useStore';
 import Modal from '../components/Modal';
+import ReportDownload from '../components/ReportDownload';
 import { toast } from '../components/Toast';
 import { api } from '../api/client';
 
@@ -31,7 +32,7 @@ export default function Payments() {
       <div className="main-header">
         <h2>💰 Payments</h2>
         <button className="btn" onClick={() => setEditing({})}>+ New Invoice</button>
-      </div>
+      <ReportDownload module="payments" label="Payments" /></div>
       <div className="grid grid-3 mb-2">
         <Stat label="Total Billed" value={`₹${totalBilled.toLocaleString()}`} color="var(--blue)" />
         <Stat label="Collected" value={`₹${totalCollected.toLocaleString()}`} color="var(--green)" />

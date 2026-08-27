@@ -47,6 +47,7 @@ app.use('/api/sales-orders', require('./routes/salesOrders'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/checklists', require('./routes/checklists'));
 app.use('/api/inventory', require('./routes/inventory'));
+app.use('/api/reports', require('./routes/reportsDownload'));
 
 // Bulk endpoint - fetch everything for initial app load
 app.get('/api/bulk', require('./middleware/auth').auth, async (req, res) => {

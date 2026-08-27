@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Routes, Route, useNavigate, useParams, Navigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import Modal from '../components/Modal';
+import ReportDownload from '../components/ReportDownload';
 import { toast } from '../components/Toast';
 import { api } from '../api/client';
 

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useStore } from '../store/useStore';
 import Modal from '../components/Modal';
+import ReportDownload from '../components/ReportDownload';
 import { toast } from '../components/Toast';
 import { api } from '../api/client';
 
@@ -31,6 +32,7 @@ export default function Enquiries() {
           <div className="text-sm text-mut">{list.length} active · ₹{totalValue.toLocaleString()} pipeline</div>
         </div>
         <button className="btn" onClick={() => setEditing({})}>+ New Enquiry</button>
+        <ReportDownload module="enquiries" label="Enquiries" />
       </div>
       <div className="card">
         <div className="row mb-2">

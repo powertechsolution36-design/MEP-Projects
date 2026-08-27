@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useStore } from '../store/useStore';
 import Modal from '../components/Modal';
+import ReportDownload from '../components/ReportDownload';
 import { toast } from '../components/Toast';
 import { api } from '../api/client';
 
@@ -28,7 +29,7 @@ export default function SalesOrders() {
       <div className="main-header">
         <div>
           <h2>🧾 Sales Orders</h2>
-          <div className="text-sm text-mut">{list.length} orders · ₹{total.toLocaleString()}</div>
+          <div className="text-sm text-mut">{list.length} orders · ₹{total.toLocaleString()}<ReportDownload module="sales-orders" label="Sales Orders" /></div>
         </div>
         <button className="btn" onClick={() => setEditing({})}>+ New SO</button>
       </div>

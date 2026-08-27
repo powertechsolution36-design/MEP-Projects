@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Routes, Route, useNavigate, useParams, Navigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import Modal from '../components/Modal';
+import ReportDownload from '../components/ReportDownload';
 import { toast } from '../components/Toast';
 import { api } from '../api/client';
 
@@ -42,7 +43,8 @@ function List() {
     <div>
       <div className="main-header">
         <h2>🏗️ {isEngineer ? 'My Work' : 'Projects'}</h2>
-        {!isEngineer && <button className="btn" onClick={() => setEditing({})}>+ New Project</button>}
+        {!isEngineer && <button className="btn" onClick={() => setEditing({})}>+ New Project</button>
+        <ReportDownload module="projects" label="Projects" />}
       </div>
       <div className="card">
         <div className="row mb-2">

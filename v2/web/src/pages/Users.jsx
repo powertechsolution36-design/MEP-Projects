@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useStore } from '../store/useStore';
 import Modal from '../components/Modal';
+import ReportDownload from '../components/ReportDownload';
 import { toast } from '../components/Toast';
 import { getRoleLabel, roleOptions } from '../utils/responsibilities';
 
@@ -89,6 +90,7 @@ export default function Users() {
           )}
         </div>
         <button className="btn" onClick={() => setEditing({})}>+ New User</button>
+        <ReportDownload module="users" label="Users" />
       </div>
 
       <div className="card">

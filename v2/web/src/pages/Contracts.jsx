@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useStore } from '../store/useStore';
 import Modal from '../components/Modal';
+import ReportDownload from '../components/ReportDownload';
 import { toast } from '../components/Toast';
 import { api } from '../api/client';
 
@@ -32,6 +33,7 @@ export default function Contracts() {
       <div className="main-header">
         <h2>🔁 AMC / PM Contracts</h2>
         <button className="btn" onClick={() => setEditing({})}>+ New Contract</button>
+        <ReportDownload module="contracts" label="Contracts" />
       </div>
       <div className="grid grid-3 mb-2">
         <Stat label="Active Contracts" value={contracts.filter(c => c.status === 'active').length} color="var(--green)" />

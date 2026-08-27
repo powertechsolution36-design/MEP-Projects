@@ -1,5 +1,6 @@
 import { useStore } from '../store/useStore';
 import { DonutChart, BarChart, LineChart } from '../components/Charts';
+import ReportDownload from '../components/ReportDownload';
 import ResponsibilitiesCard from '../components/ResponsibilitiesCard';
 import { ROLE_DASHBOARD, ROLE_MODULES } from '../utils/responsibilities';
 
@@ -70,7 +71,7 @@ export default function Dashboard() {
     <div>
       <div className="main-header">
         <h2>Dashboard {isSuper && <span className="text-mut text-sm" style={{marginLeft: 10}}>(All Companies)</span>}</h2>
-      </div>
+      <ReportDownload /></div>
 
       <ResponsibilitiesCard />
 
