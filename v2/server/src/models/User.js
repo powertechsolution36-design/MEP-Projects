@@ -1,8 +1,8 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
-const ROLES = ['super', 'admin', 'hvac_pm', 'solar_pm', 'mep_pm', 'engineer', 'service_eng', 'service_mgr', 'sales', 'store', 'accounts', 'viewer'];
-const DESIGNATIONS = ['super_admin', 'company_admin', 'manager', 'senior_engineer', 'engineer', 'executive', 'technician', 'viewer'];
+const ROLES = ['super', 'admin', 'hvac_pm', 'solar_pm', 'mep_pm', 'hvac_dm', 'solar_dm', 'mep_dm', 'engineer', 'service_eng', 'service_mgr', 'sales', 'store', 'accounts', 'viewer'];
+const DESIGNATIONS = ['super_admin', 'company_admin', 'manager', 'project_manager', 'senior_engineer', 'engineer', 'executive', 'technician', 'viewer'];
 const DEPARTMENTS = ['ADMIN', 'PROJECTS', 'HVAC', 'SOLAR', 'MEP', 'SERVICE', 'SALES', 'STORE', 'ACCOUNTS'];
 const DIVISIONS = ['HVAC', 'SOLAR', 'MEP'];
 
@@ -28,9 +28,9 @@ function deriveRoleFromDesDep(des, dep, div) {
   if (des === 'company_admin') return 'admin';
   if (des === 'manager') {
     if (dep === 'PROJECTS') {
-      if (div === 'SOLAR') return 'solar_pm';
-      if (div === 'MEP') return 'mep_pm';
-      return 'hvac_pm';
+      if (div === 'SOLAR') return 'solar_dm';
+      if (div === 'MEP') return 'mep_dm';
+      return 'hvac_dm';
     }
     if (dep === 'HVAC') return 'hvac_pm';
     if (dep === 'SOLAR') return 'solar_pm';
@@ -38,6 +38,14 @@ function deriveRoleFromDesDep(des, dep, div) {
     if (dep === 'SERVICE') return 'service_mgr';
     if (dep === 'STORE') return 'store';
     return 'admin';
+  }
+  if (des === 'project_manager') {
+    if (dep === 'PROJECTS') {
+      if (div === 'SOLAR') return 'solar_pm';
+      if (div === 'MEP') return 'mep_pm';
+      return 'hvac_pm';
+    }
+    return 'engineer';
   }
   if (des === 'engineer' || des === 'senior_engineer' || des === 'technician') {
     if (dep === 'SERVICE') return 'service_eng';

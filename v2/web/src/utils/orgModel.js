@@ -5,6 +5,7 @@
 
 export const DESIGNATIONS = [
   { value: 'manager',         label: 'Manager' },
+  { value: 'project_manager', label: 'Project Manager' },
   { value: 'senior_engineer', label: 'Senior Engineer' },
   { value: 'engineer',        label: 'Engineer' },
   { value: 'executive',       label: 'Executive' },
@@ -63,9 +64,12 @@ export function orgLabel(user) {
 export const ROLE_TO_DESDEP = {
   super:       { designation: 'super_admin',   department: 'ADMIN' },
   admin:       { designation: 'company_admin', department: 'ADMIN' },
-  hvac_pm:     { designation: 'manager',       department: 'PROJECTS', division: 'HVAC' },
-  solar_pm:    { designation: 'manager',       department: 'PROJECTS', division: 'SOLAR' },
-  mep_pm:      { designation: 'manager',       department: 'PROJECTS', division: 'MEP' },
+  hvac_pm:     { designation: 'project_manager', department: 'PROJECTS', division: 'HVAC' },
+  hvac_dm:     { designation: 'manager',         department: 'PROJECTS', division: 'HVAC' },
+  solar_pm:    { designation: 'project_manager', department: 'PROJECTS', division: 'SOLAR' },
+  solar_dm:    { designation: 'manager',         department: 'PROJECTS', division: 'SOLAR' },
+  mep_pm:      { designation: 'project_manager', department: 'PROJECTS', division: 'MEP' },
+  mep_dm:      { designation: 'manager',         department: 'PROJECTS', division: 'MEP' },
   engineer:    { designation: 'engineer',      department: 'PROJECTS', division: 'HVAC' },
   service_mgr: { designation: 'manager',       department: 'SERVICE' },
   service_eng: { designation: 'engineer',      department: 'SERVICE' },

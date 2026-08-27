@@ -24,10 +24,15 @@ async function auth(req, res, next) {
   }
 }
 
+// Division manager roles get admin-level access (but data is filtered by scope.js)
+const DM_ROLES = ['hvac_dm', 'solar_dm', 'mep_dm'];
+
 function requireRole(...roles) {
   return (req, res, next) => {
     if (!req.user) return res.status(401).json({ error: 'Auth required' });
     if (req.user.role === 'super') return next();
+    // Division managers granted the same route access as admin (data filtered by scope)
+    if (roles.includes('admin') && DM_ROLES.includes(req.user.role)) return next();
     if (!roles.includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
     next();
   };

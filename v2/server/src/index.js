@@ -54,6 +54,10 @@ app.get('/api/bulk', require('./middleware/auth').auth, async (req, res) => {
   try {
     const co = req.user.co;
     const filter = req.user.role === 'super' ? {} : { co };
+    // Division-based inventory filter for HVAC/Solar/MEP managers
+    const divRoleMap = { hvac_dm:'HVAC', hvac_pm:'HVAC', solar_dm:'SOLAR', solar_pm:'SOLAR', mep_dm:'MEP', mep_pm:'MEP' };
+    const userDiv = divRoleMap[req.user.role];
+    const invFilter = userDiv ? { ...filter, $or: [{ division: userDiv }, { division: 'COMMON' }, { division: { $exists: false } }] } : filter;
     const [
       companies, users, projects, serviceCalls, contracts, payments,
       enquiries, salesOrders, notifications, checklists,
@@ -71,7 +75,7 @@ app.get('/api/bulk', require('./middleware/auth').auth, async (req, res) => {
       require('./models/Checklist').find(filter).lean(),
       require('./models/InvCategory').find(filter).lean(),
       require('./models/InvLocation').find(filter).lean(),
-      require('./models/InvItem').find(filter).lean(),
+      require('./models/InvItem').find(invFilter).lean(),
       require('./models/InvIssue').find(filter).lean(),
     ]);
     const invTransactions = await require('./models/InvTransaction').find(filter).sort({ createdAt: -1 }).limit(500).lean();

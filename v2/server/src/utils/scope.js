@@ -23,8 +23,16 @@ function isAdminLevel(user) {
   return user.role === 'super' || user.role === 'admin' || user.department === 'ADMIN';
 }
 
+// Division Managers see everything within their division (across all resources)
+function isDivisionManager(user) {
+  return ['hvac_dm', 'solar_dm', 'mep_dm'].includes(user.role);
+}
+
 // Get the division this user belongs to (returns null if not a division-based dept)
 function userDivision(user) {
+  if (user.role === 'hvac_dm' || user.role === 'hvac_pm') return 'HVAC';
+  if (user.role === 'solar_dm' || user.role === 'solar_pm') return 'Solar';
+  if (user.role === 'mep_dm' || user.role === 'mep_pm') return 'MEP';
   if (user.division) return user.division === 'HVAC' ? 'HVAC' : user.division === 'SOLAR' ? 'Solar' : user.division === 'MEP' ? 'MEP' : null;
   return DEPT_TO_DIVISION[user.department] || null;
 }
@@ -67,9 +75,9 @@ function scopeFilter(user, resource, extra = {}) {
 
     case 'serviceCalls':
     case 'contracts':
-      // Only SERVICE dept sees these (unless admin)
-      if (user.department !== 'SERVICE') {
-        f._blocked = true; // returns nothing
+      // SERVICE dept + Division Managers see these
+      if (user.department !== 'SERVICE' && !isDivisionManager(user)) {
+        f._blocked = true;
       }
       // Service engineers see only their assigned calls
       if (user.designation === 'engineer' || user.designation === 'technician') {
@@ -78,8 +86,8 @@ function scopeFilter(user, resource, extra = {}) {
       break;
 
     case 'payments':
-      // Only ACCOUNTS + Admin see payments
-      if (user.department !== 'ACCOUNTS') f._blocked = true;
+      // ACCOUNTS + Division Managers see payments
+      if (user.department !== 'ACCOUNTS' && !isDivisionManager(user)) f._blocked = true;
       break;
 
     case 'inventory':
@@ -99,4 +107,4 @@ function scopeFilter(user, resource, extra = {}) {
   return f;
 }
 
-module.exports = { scopeFilter, isAdminLevel, userDivision, DEPT_TO_DIVISION };
+module.exports = { scopeFilter, isAdminLevel, isDivisionManager, userDivision, DEPT_TO_DIVISION };
