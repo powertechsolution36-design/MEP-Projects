@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
-const ROLES = ['super', 'admin', 'hvac_pm', 'solar_pm', 'mep_pm', 'engineer', 'service_eng', 'sales', 'store', 'accounts', 'viewer'];
+const ROLES = ['super', 'admin', 'hvac_pm', 'solar_pm', 'mep_pm', 'engineer', 'service_eng', 'service_mgr', 'sales', 'store', 'accounts', 'viewer'];
 
 const UserSchema = new mongoose.Schema({
   co: { type: mongoose.Schema.Types.ObjectId, ref: 'Company', index: true },
