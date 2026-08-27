@@ -43,8 +43,8 @@ function List() {
     <div>
       <div className="main-header">
         <h2>🏗️ {isEngineer ? 'My Work' : 'Projects'}</h2>
-        {!isEngineer && <button className="btn" onClick={() => setEditing({})}>+ New Project</button>
-        <ReportDownload module="projects" label="Projects" />}
+        {!isEngineer && <button className="btn" onClick={() => setEditing({})}>+ New Project</button>}
+        <ReportDownload module="projects" label="Projects" />
       </div>
       <div className="card">
         <div className="row mb-2">
