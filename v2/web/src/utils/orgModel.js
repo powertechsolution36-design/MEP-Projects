@@ -49,15 +49,20 @@ export const DIVISIONS = [
 // Human-readable label combining designation + department (+ division)
 export function orgLabel(user) {
   if (!user) return '';
-  const d = ALL_DESIGNATIONS.find(x => x.value === user.designation)?.label || user.designation || '';
-  let dep = ALL_DEPARTMENTS.find(x => x.value === user.department)?.label || user.department || '';
-  // If department is PROJECTS and user has a division, show "Projects — HVAC"
+  const desLabel = ALL_DESIGNATIONS.find(x => x.value === user.designation)?.label || user.designation || '';
+  const depLabel = ALL_DEPARTMENTS.find(x => x.value === user.department)?.label || user.department || '';
+
+  // Projects dept with a division: prefix division to designation
+  // e.g. Manager + PROJECTS + SOLAR → "Solar Manager"
+  //      Project Manager + PROJECTS + HVAC → "HVAC Project Manager"
   if (user.department === 'PROJECTS' && user.division) {
-    const div = DIVISIONS.find(x => x.value === user.division)?.label || user.division;
-    dep = `Projects — ${div}`;
+    const divLabel = DIVISIONS.find(x => x.value === user.division)?.label || user.division;
+    if (desLabel) return `${divLabel} ${desLabel}`;
+    return divLabel;
   }
-  if (d && dep) return `${d} — ${dep}`;
-  return d || dep || user.role || '—';
+
+  if (desLabel && depLabel) return `${desLabel} — ${depLabel}`;
+  return desLabel || depLabel || user.role || '—';
 }
 
 // Legacy role → org triplet
