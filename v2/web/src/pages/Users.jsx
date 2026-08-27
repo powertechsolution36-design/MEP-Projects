@@ -4,7 +4,7 @@ import Modal from '../components/Modal';
 import ReportDownload from '../components/ReportDownload';
 import { toast } from '../components/Toast';
 import { getRoleLabel, roleOptions } from '../utils/responsibilities';
-import { DESIGNATIONS, DEPARTMENTS, DIVISIONS, orgLabel } from '../utils/orgModel';
+import { DESIGNATIONS, DEPARTMENTS, DIVISIONS, orgLabel, getOrg } from '../utils/orgModel';
 
 export default function Users() {
   const users = useStore(s => s.users);
@@ -177,30 +177,44 @@ function UserForm({ initial, isEdit, roleOptions, onSave, onClose }) {
         <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 8}}>
           <div>
             <label>Designation *</label>
-            <select value={data.designation || ''} onChange={e => set('designation', e.target.value)} required>
+            <select value={data.designation || ''} onChange={e => {
+              set('designation', e.target.value);
+              if (e.target.value !== 'project_manager') { set('division', ''); }
+              else { set('department', 'PROJECTS'); }
+            }} required>
               <option value="">— select —</option>
               {DESIGNATIONS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
             </select>
           </div>
-          <div>
-            <label>Department *</label>
-            <select value={data.department || ''} onChange={e => {
-              set('department', e.target.value);
-              if (e.target.value !== 'PROJECTS') set('division', '');
-            }} required>
-              <option value="">— select —</option>
-              {DEPARTMENTS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
-            </select>
-          </div>
+          {data.designation !== 'project_manager' && (
+            <div>
+              <label>Department *</label>
+              <select value={data.department || ''} onChange={e => set('department', e.target.value)} required>
+                <option value="">— select —</option>
+                {DEPARTMENTS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+              </select>
+            </div>
+          )}
         </div>
-        {data.department === 'PROJECTS' && (
+        {data.designation === 'project_manager' && (
           <>
             <label className="mt-1">Division *</label>
-            <select value={data.division || ''} onChange={e => set('division', e.target.value)} required>
+            <select value={data.division || ''} onChange={e => {
+              set('division', e.target.value);
+              set('department', 'PROJECTS'); // auto-set department for Project Manager
+            }} required>
               <option value="">— select division —</option>
               {DIVISIONS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
             </select>
           </>
+        )}
+        {data.designation && (data.department || data.designation === 'project_manager') && (data.designation !== 'project_manager' || data.division) && (
+          <div style={{marginTop: 12, padding: 10, background: '#eef6ff', border: '1px solid #b3d4fc', borderRadius: 6}}>
+            <div style={{fontSize: 12, color: '#555', marginBottom: 4}}>This user will be created as:</div>
+            <div style={{fontSize: 16, fontWeight: 'bold', color: '#0056b3'}}>
+              {orgLabel(data)}
+            </div>
+          </div>
         )}
         <label className="mt-1">Employee ID</label>
         <input value={data.employeeId || ''} onChange={e => set('employeeId', e.target.value)} placeholder="Optional" />

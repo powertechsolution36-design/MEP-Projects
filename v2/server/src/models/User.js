@@ -10,10 +10,10 @@ const DIVISIONS = ['HVAC', 'SOLAR', 'MEP'];
 const ROLE_TO_DESDEP = {
   super:       { designation: 'super_admin',     department: 'ADMIN' },
   admin:       { designation: 'company_admin',   department: 'ADMIN' },
-  hvac_pm:     { designation: 'manager',         department: 'PROJECTS', division: 'HVAC' },
-  solar_pm:    { designation: 'manager',         department: 'PROJECTS', division: 'SOLAR' },
-  mep_pm:      { designation: 'manager',         department: 'PROJECTS', division: 'MEP' },
-  engineer:    { designation: 'engineer',        department: 'PROJECTS', division: 'HVAC' },
+  hvac_pm:     { designation: 'project_manager', department: 'PROJECTS', division: 'HVAC' },
+  solar_pm:    { designation: 'project_manager', department: 'PROJECTS', division: 'SOLAR' },
+  mep_pm:      { designation: 'project_manager', department: 'PROJECTS', division: 'MEP' },
+  engineer:    { designation: 'engineer',        department: 'HVAC' },
   service_mgr: { designation: 'manager',         department: 'SERVICE' },
   service_eng: { designation: 'engineer',        department: 'SERVICE' },
   sales:       { designation: 'executive',       department: 'SALES' },
@@ -27,25 +27,17 @@ function deriveRoleFromDesDep(des, dep, div) {
   if (des === 'super_admin') return 'super';
   if (des === 'company_admin') return 'admin';
   if (des === 'manager') {
-    if (dep === 'PROJECTS') {
-      if (div === 'SOLAR') return 'solar_dm';
-      if (div === 'MEP') return 'mep_dm';
-      return 'hvac_dm';
-    }
-    if (dep === 'HVAC') return 'hvac_pm';
-    if (dep === 'SOLAR') return 'solar_pm';
-    if (dep === 'MEP') return 'mep_pm';
+    if (dep === 'HVAC') return 'hvac_dm';
+    if (dep === 'SOLAR') return 'solar_dm';
+    if (dep === 'MEP') return 'mep_dm';
     if (dep === 'SERVICE') return 'service_mgr';
     if (dep === 'STORE') return 'store';
     return 'admin';
   }
   if (des === 'project_manager') {
-    if (dep === 'PROJECTS') {
-      if (div === 'SOLAR') return 'solar_pm';
-      if (div === 'MEP') return 'mep_pm';
-      return 'hvac_pm';
-    }
-    return 'engineer';
+    if (div === 'SOLAR') return 'solar_pm';
+    if (div === 'MEP') return 'mep_pm';
+    return 'hvac_pm';
   }
   if (des === 'engineer' || des === 'senior_engineer' || des === 'technician') {
     if (dep === 'SERVICE') return 'service_eng';

@@ -23,7 +23,9 @@ export const ALL_DESIGNATIONS = [
 // Top-level departments shown in user form.
 // 'Projects' expands into a Division picker (HVAC/Solar/MEP).
 export const DEPARTMENTS = [
-  { value: 'PROJECTS', label: 'Projects (HVAC / Solar / MEP)' },
+  { value: 'HVAC',     label: 'HVAC' },
+  { value: 'SOLAR',    label: 'Solar' },
+  { value: 'MEP',      label: 'MEP' },
   { value: 'SERVICE',  label: 'Service' },
   { value: 'SALES',    label: 'Sales' },
   { value: 'STORE',    label: 'Store / Inventory' },
@@ -33,10 +35,8 @@ export const DEPARTMENTS = [
 // All departments including ADMIN + legacy flat ones (for label lookup)
 export const ALL_DEPARTMENTS = [
   { value: 'ADMIN',    label: 'Administration' },
+  { value: 'PROJECTS', label: 'Projects' },
   ...DEPARTMENTS,
-  { value: 'HVAC',     label: 'HVAC' },
-  { value: 'SOLAR',    label: 'Solar' },
-  { value: 'MEP',      label: 'MEP' },
 ];
 
 // Divisions shown when Department = 'PROJECTS'
@@ -52,13 +52,16 @@ export function orgLabel(user) {
   const desLabel = ALL_DESIGNATIONS.find(x => x.value === user.designation)?.label || user.designation || '';
   const depLabel = ALL_DEPARTMENTS.find(x => x.value === user.department)?.label || user.department || '';
 
-  // Projects dept with a division: prefix division to designation
-  // e.g. Manager + PROJECTS + SOLAR → "Solar Manager"
-  //      Project Manager + PROJECTS + HVAC → "HVAC Project Manager"
-  if (user.department === 'PROJECTS' && user.division) {
+  // Project Manager + division: "Solar Project Manager"
+  if (user.designation === 'project_manager' && user.division) {
     const divLabel = DIVISIONS.find(x => x.value === user.division)?.label || user.division;
-    if (desLabel) return `${divLabel} ${desLabel}`;
-    return divLabel;
+    return `${divLabel} Project Manager`;
+  }
+
+  // Any division-based department: "Solar Manager", "HVAC Engineer"
+  if (['HVAC', 'SOLAR', 'MEP'].includes(user.department) && desLabel) {
+    const divLabel = { HVAC: 'HVAC', SOLAR: 'Solar', MEP: 'MEP' }[user.department];
+    return `${divLabel} ${desLabel}`;
   }
 
   if (desLabel && depLabel) return `${desLabel} — ${depLabel}`;
@@ -70,12 +73,12 @@ export const ROLE_TO_DESDEP = {
   super:       { designation: 'super_admin',   department: 'ADMIN' },
   admin:       { designation: 'company_admin', department: 'ADMIN' },
   hvac_pm:     { designation: 'project_manager', department: 'PROJECTS', division: 'HVAC' },
-  hvac_dm:     { designation: 'manager',         department: 'PROJECTS', division: 'HVAC' },
+  hvac_dm:     { designation: 'manager',         department: 'HVAC' },
   solar_pm:    { designation: 'project_manager', department: 'PROJECTS', division: 'SOLAR' },
-  solar_dm:    { designation: 'manager',         department: 'PROJECTS', division: 'SOLAR' },
+  solar_dm:    { designation: 'manager',         department: 'SOLAR' },
   mep_pm:      { designation: 'project_manager', department: 'PROJECTS', division: 'MEP' },
-  mep_dm:      { designation: 'manager',         department: 'PROJECTS', division: 'MEP' },
-  engineer:    { designation: 'engineer',      department: 'PROJECTS', division: 'HVAC' },
+  mep_dm:      { designation: 'manager',         department: 'MEP' },
+  engineer:    { designation: 'engineer',      department: 'HVAC' },
   service_mgr: { designation: 'manager',       department: 'SERVICE' },
   service_eng: { designation: 'engineer',      department: 'SERVICE' },
   sales:       { designation: 'executive',     department: 'SALES' },
