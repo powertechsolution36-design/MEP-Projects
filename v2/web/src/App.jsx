@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useStore } from './store/useStore';
 import Login from './pages/Login';
-import Shell from './components/Shell';
+import Shell from './components/AppShell'; // AppShell wraps Shell; overrides only Super Admin sidebar (see components/AppShell.jsx)
 import Dashboard from './pages/Dashboard';
 import Projects from './pages/Projects';
 import ServiceCalls from './pages/ServiceCalls';
@@ -17,6 +17,8 @@ import Notifications from './pages/Notifications';
 import Companies from './pages/Companies';
 import Reports from './pages/Reports';
 import LostEnquiries from './pages/LostEnquiries';
+import Customers from './pages/Customers';
+import Quotations from './pages/Quotations';
 import SuperAnalytics from './pages/SuperAnalytics';
 import Toast from './components/Toast';
 
@@ -48,6 +50,8 @@ export default function App() {
         <Route path="/companies/*" element={<Companies />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/lost-enquiries" element={<LostEnquiries />} />
+        <Route path="/customers/*" element={<Customers />} />
+        <Route path="/quotations/*" element={<Quotations />} />
         <Route path="/analytics/*" element={<SuperAnalytics />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="*" element={<Navigate to="/" replace />} />
