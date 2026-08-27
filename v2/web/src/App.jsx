@@ -17,8 +17,6 @@ import Notifications from './pages/Notifications';
 import Companies from './pages/Companies';
 import Reports from './pages/Reports';
 import LostEnquiries from './pages/LostEnquiries';
-import Customers from './pages/Customers';
-import Quotations from './pages/Quotations';
 import SuperAnalytics from './pages/SuperAnalytics';
 import Toast from './components/Toast';
 
@@ -50,8 +48,6 @@ export default function App() {
         <Route path="/companies/*" element={<Companies />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/lost-enquiries" element={<LostEnquiries />} />
-        <Route path="/customers/*" element={<Customers />} />
-        <Route path="/quotations/*" element={<Quotations />} />
         <Route path="/analytics/*" element={<SuperAnalytics />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="*" element={<Navigate to="/" replace />} />
