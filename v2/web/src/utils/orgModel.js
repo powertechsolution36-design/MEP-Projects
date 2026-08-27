@@ -4,14 +4,19 @@
  */
 
 export const DESIGNATIONS = [
-  { value: 'super_admin',     label: 'Super Admin' },
-  { value: 'company_admin',   label: 'Company Admin' },
   { value: 'manager',         label: 'Manager' },
   { value: 'senior_engineer', label: 'Senior Engineer' },
   { value: 'engineer',        label: 'Engineer' },
   { value: 'executive',       label: 'Executive' },
   { value: 'technician',      label: 'Technician' },
   { value: 'viewer',          label: 'Viewer' },
+];
+
+// All designations including admin-level (for internal use / display of Sam)
+export const ALL_DESIGNATIONS = [
+  { value: 'super_admin',     label: 'Super Admin' },
+  { value: 'company_admin',   label: 'Company Admin' },
+  ...DESIGNATIONS.map(d => d),
 ];
 
 export const DEPARTMENTS = [
@@ -28,7 +33,7 @@ export const DEPARTMENTS = [
 // Human-readable label combining designation + department
 export function orgLabel(user) {
   if (!user) return '';
-  const d = DESIGNATIONS.find(x => x.value === user.designation)?.label || user.designation || '';
+  const d = ALL_DESIGNATIONS.find(x => x.value === user.designation)?.label || user.designation || '';
   const dep = DEPARTMENTS.find(x => x.value === user.department)?.label || user.department || '';
   if (d && dep) return `${d} — ${dep}`;
   return d || dep || user.role || '—';
