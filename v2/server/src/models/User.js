@@ -54,6 +54,7 @@ const UserSchema = new mongoose.Schema({
   designation: { type: String, enum: DESIGNATIONS, index: true },
   department: { type: String, enum: DEPARTMENTS, index: true },
   employeeId: { type: String, trim: true },
+  createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
   email: { type: String, trim: true, lowercase: true },
   phone: { type: String, trim: true },
   disabled: { type: Boolean, default: false, index: true },

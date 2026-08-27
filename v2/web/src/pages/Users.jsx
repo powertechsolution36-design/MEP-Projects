@@ -18,6 +18,7 @@ export default function Users() {
   const [selected, setSelected] = useState(null);
   const [editing, setEditing] = useState(null);
   const [q, setQ] = useState('');
+  const [credentials, setCredentials] = useState(null); // {un, pw, name} shown after create/reset
 
   const isSuper = user?.role === 'super';
 
@@ -62,11 +63,19 @@ export default function Users() {
       const payload = { ...data };
       if (isSuper && scopedCompany && !payload.co) payload.co = scopedCompany;
       if (editing?._id && !payload.pw) delete payload.pw;
+      const wasCreate = !editing?._id;
+      const savedPw = payload.pw;
       if (editing?._id) await update('users', editing._id, payload);
       else await create('users', payload);
       setEditing(null);
       setSelected(null);
       toast('Saved');
+      // After create OR password reset, show credentials so admin can share them
+      if (wasCreate && savedPw) {
+        setCredentials({ un: payload.un, pw: savedPw, name: payload.name });
+      } else if (!wasCreate && savedPw) {
+        setCredentials({ un: payload.un, pw: savedPw, name: payload.name, isReset: true });
+      }
     } catch (e) {
       if (e.status === 409 || /duplicate/i.test(e.message)) toast(`Username "${data.un}" already exists`);
       else toast(e.message || 'Save failed');
@@ -138,6 +147,7 @@ export default function Users() {
       {editing && (
         <UserForm initial={editing} isEdit={!!editing._id} roleOptions={rOpts} onSave={onSave} onClose={() => setEditing(null)} />
       )}
+    {credentials && <CredentialsDialog credentials={credentials} onClose={() => setCredentials(null)} />}
     </div>
   );
 }
@@ -197,6 +207,62 @@ function UserForm({ initial, isEdit, roleOptions, onSave, onClose }) {
           <button type="submit" className="btn">Save</button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+function CredentialsDialog({ credentials, onClose }) {
+  const { un, pw, name, isReset } = credentials;
+  const [copied, setCopied] = useState('');
+  function copy(text, what) {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(what);
+      setTimeout(() => setCopied(''), 2000);
+    });
+  }
+  const both = `Username: ${un}\nPassword: ${pw}`;
+  return (
+    <Modal title={isReset ? '🔑 Password Reset — Save Now' : '✅ User Created — Save Credentials Now'} onClose={onClose} maxWidth={520}>
+      <div style={{ padding: 8 }}>
+        <div style={{ background: '#fff8e1', border: '1px solid #ffc107', padding: 12, borderRadius: 6, marginBottom: 16 }}>
+          <b>⚠️ Important:</b> This is the ONLY time the password is shown. Copy it now — after closing this dialog, the password cannot be viewed again.
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontWeight: 'bold' }}>Full Name</label>
+          <div style={{ padding: 8, background: '#f5f5f5', borderRadius: 4 }}>{name}</div>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontWeight: 'bold' }}>Username</label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input readOnly value={un} style={{ flex: 1, fontFamily: 'monospace', fontSize: 14 }} />
+            <button type="button" className="btn sec" onClick={() => copy(un, 'un')}>
+              {copied === 'un' ? '✓ Copied' : 'Copy'}
+            </button>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ fontWeight: 'bold' }}>Password</label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input readOnly value={pw} style={{ flex: 1, fontFamily: 'monospace', fontSize: 14 }} />
+            <button type="button" className="btn sec" onClick={() => copy(pw, 'pw')}>
+              {copied === 'pw' ? '✓ Copied' : 'Copy'}
+            </button>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 20 }}>
+          <button type="button" className="btn" onClick={() => copy(both, 'both')} style={{ width: '100%' }}>
+            {copied === 'both' ? '✓ Both Copied to Clipboard' : '📋 Copy Both'}
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button type="button" className="btn" onClick={onClose}>I have saved the credentials</button>
+        </div>
+      </div>
     </Modal>
   );
 }

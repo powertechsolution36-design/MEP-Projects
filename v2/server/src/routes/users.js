@@ -46,6 +46,7 @@ router.post('/', requireRole('admin'), async (req, res) => {
     // Global duplicate check (defense in depth on top of unique index)
     const dupe = await User.findOne({ un: data.un });
     if (dupe) return res.status(409).json({ error: `Username "${data.un}" is already taken. Choose another.` });
+    data.createdBy = req.user._id;
     const user = await User.create(data);
     const u = user.toObject(); delete u.pw;
     broadcastUpdate(global.io, u.co, 'user', u);
