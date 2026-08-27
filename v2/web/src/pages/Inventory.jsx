@@ -124,11 +124,13 @@ function Stock() {
   const cats = useStore(s => s.invCategories);
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('');
+  const [div, setDiv] = useState('');
   const [showLow, setShowLow] = useState(false);
   const nav = useNavigate();
 
   let list = items;
   if (cat) list = list.filter(i => String(i.cat) === cat);
+  if (div) list = list.filter(i => (i.division || 'COMMON') === div);
   if (showLow) list = list.filter(i => (i.qty || 0) <= (i.minQty || 0) && (i.minQty || 0) > 0);
   if (q) list = list.filter(i => (i.name + ' ' + (i.code || '')).toLowerCase().includes(q.toLowerCase()));
 
@@ -142,6 +144,13 @@ function Stock() {
           <option value="">All Categories</option>
           {cats.map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
         </select>
+        <select value={div} onChange={e => setDiv(e.target.value)} style={{maxWidth: 180}}>
+          <option value="">All Divisions</option>
+          <option value="COMMON">Common</option>
+          <option value="HVAC">HVAC</option>
+          <option value="SOLAR">Solar</option>
+          <option value="MEP">MEP</option>
+        </select>
         <label style={{display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap'}}>
           <input type="checkbox" checked={showLow} onChange={e => setShowLow(e.target.checked)} style={{width: 'auto'}} />
           Low stock only
@@ -150,9 +159,9 @@ function Stock() {
       </div>
       <div className="card">
         <div className="tw"><table className="data-table">
-          <thead><tr><th>Code</th><th>Item</th><th>Category</th><th>Unit</th><th>In Stock</th><th>Min</th><th>Rate</th><th>Value</th></tr></thead>
+          <thead><tr><th>Code</th><th>Item</th><th>Category</th><th>Division</th><th>Unit</th><th>In Stock</th><th>Min</th><th>Rate</th><th>Value</th></tr></thead>
           <tbody>
-            {list.length === 0 && <tr><td colSpan={8} className="text-center text-mut" style={{padding: 40}}>No items</td></tr>}
+            {list.length === 0 && <tr><td colSpan={9} className="text-center text-mut" style={{padding: 40}}>No items</td></tr>}
             {list.map(i => {
               const cn = cats.find(c => String(c._id) === String(i.cat))?.name || '—';
               const low = (i.qty || 0) <= (i.minQty || 0) && (i.minQty || 0) > 0;
@@ -161,6 +170,7 @@ function Stock() {
                   <td>{i.code || '—'}</td>
                   <td><strong>{i.name}</strong></td>
                   <td>{cn}</td>
+                  <td><span className={`badge ${(i.division||'COMMON')==='COMMON'?'blu':(i.division==='HVAC'?'grn':(i.division==='SOLAR'?'ylw':'org'))}`}>{i.division||'COMMON'}</span></td>
                   <td>{i.unit}</td>
                   <td className={low ? 'text-red' : ''}><strong>{i.qty || 0}</strong>{low && ' ⚠'}</td>
                   <td>{i.minQty || 0}</td>
@@ -275,7 +285,7 @@ function ItemForm({ initial = {}, onClose }) {
   const locs = useStore(s => s.invLocations);
   const scoped = useStore(s => s.scopedCompany);
   const user = useStore(s => s.user);
-  const [data, setData] = useState({ unit: 'nos', ...initial });
+  const [data, setData] = useState({ unit: 'nos', division: 'COMMON', ...initial });
   function set(k, v) { setData(d => ({ ...d, [k]: v })); }
   async function submit(e) {
     e.preventDefault();
@@ -299,6 +309,13 @@ function ItemForm({ initial = {}, onClose }) {
         <select value={data.cat || ''} onChange={e => set('cat', e.target.value)}>
           <option value="">— select —</option>
           {cats.map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
+        </select>
+        <label className="mt-1">Division *</label>
+        <select value={data.division || 'COMMON'} onChange={e => set('division', e.target.value)} required>
+          <option value="COMMON">Common (all divisions)</option>
+          <option value="HVAC">HVAC only</option>
+          <option value="SOLAR">Solar only</option>
+          <option value="MEP">MEP only</option>
         </select>
         <label className="mt-1">Default Location</label>
         <select value={data.location || ''} onChange={e => set('location', e.target.value)}>

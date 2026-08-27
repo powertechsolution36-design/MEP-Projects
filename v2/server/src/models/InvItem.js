@@ -10,6 +10,7 @@ const InvItemSchema = new mongoose.Schema({
   minQty: { type: Number, default: 0 },
   rate: { type: Number, default: 0 },
   location: { type: mongoose.Schema.Types.ObjectId, ref: 'InvLocation' },
+  division: { type: String, enum: ['COMMON', 'HVAC', 'SOLAR', 'MEP'], default: 'COMMON', index: true },
   desc: String,
 }, { timestamps: true });
 

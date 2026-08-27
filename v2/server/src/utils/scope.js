@@ -25,6 +25,7 @@ function isAdminLevel(user) {
 
 // Get the division this user belongs to (returns null if not a division-based dept)
 function userDivision(user) {
+  if (user.division) return user.division === 'HVAC' ? 'HVAC' : user.division === 'SOLAR' ? 'Solar' : user.division === 'MEP' ? 'MEP' : null;
   return DEPT_TO_DIVISION[user.department] || null;
 }
 
@@ -83,10 +84,8 @@ function scopeFilter(user, resource, extra = {}) {
 
     case 'inventory':
     case 'inventoryTransactions':
-      // Only STORE + Admin see inventory
-      if (user.department !== 'STORE' && user.department !== 'HVAC' && user.department !== 'SOLAR' && user.department !== 'MEP' && user.department !== 'SERVICE') {
-        f._blocked = true;
-      }
+      // Inventory is shared across all divisions/departments — no restriction
+      // Users can filter by division on the frontend if needed
       break;
 
     case 'users':
