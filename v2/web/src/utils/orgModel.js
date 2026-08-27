@@ -20,7 +20,6 @@ export const ALL_DESIGNATIONS = [
 ];
 
 export const DEPARTMENTS = [
-  { value: 'ADMIN',    label: 'Administration' },
   { value: 'HVAC',     label: 'HVAC' },
   { value: 'SOLAR',    label: 'Solar' },
   { value: 'MEP',      label: 'MEP' },
@@ -30,11 +29,17 @@ export const DEPARTMENTS = [
   { value: 'ACCOUNTS', label: 'Accounts / Finance' },
 ];
 
+// All departments including ADMIN (for internal use / display)
+export const ALL_DEPARTMENTS = [
+  { value: 'ADMIN',    label: 'Administration' },
+  ...DEPARTMENTS.map(d => d),
+];
+
 // Human-readable label combining designation + department
 export function orgLabel(user) {
   if (!user) return '';
   const d = ALL_DESIGNATIONS.find(x => x.value === user.designation)?.label || user.designation || '';
-  const dep = DEPARTMENTS.find(x => x.value === user.department)?.label || user.department || '';
+  const dep = ALL_DEPARTMENTS.find(x => x.value === user.department)?.label || user.department || '';
   if (d && dep) return `${d} — ${dep}`;
   return d || dep || user.role || '—';
 }
