@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import { getRoleLabel } from '../utils/responsibilities';
+import { orgLabel } from '../utils/orgModel';
 import Shell from './Shell';
 import { SUPER_ADMIN_MENU } from '../config/superAdminMenu';
 
@@ -71,7 +72,7 @@ export default function AppShell({ children }) {
         </nav>
         <div className="uinfo">
           <b>{user.name}</b>
-          <span>{getRoleLabel(user.role)}</span>
+          <span>{orgLabel(user)}</span>
           <br/>
           <a href="#" onClick={handleLogout}>Sign out</a>
         </div>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import { getRoleLabel } from '../utils/responsibilities';
+import { orgLabel } from '../utils/orgModel';
 
 /**
  * Role → flat menu list. Mirrors the old MENUS[U.role] mapping 1:1.
@@ -180,7 +181,7 @@ export default function Shell({ children }) {
         </nav>
         <div className="uinfo">
           <b>{user.name}</b>
-          <span>{getRoleLabel(user.role)}</span>
+          <span>{orgLabel(user)}</span>
           <br/>
           <a href="#" onClick={handleLogout}>Sign out</a>
         </div>

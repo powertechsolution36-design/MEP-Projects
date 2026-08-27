@@ -4,6 +4,7 @@ import Modal from '../components/Modal';
 import ReportDownload from '../components/ReportDownload';
 import { toast } from '../components/Toast';
 import { getRoleLabel, roleOptions } from '../utils/responsibilities';
+import { DESIGNATIONS, DEPARTMENTS, orgLabel } from '../utils/orgModel';
 
 export default function Users() {
   const users = useStore(s => s.users);
@@ -47,7 +48,7 @@ export default function Users() {
   }
 
   const scoped = isSuper && scopedCompany ? users.filter(u => String(u.co) === String(scopedCompany)) : users;
-  const filtered = q ? scoped.filter(u => (u.name + ' ' + u.un + ' ' + getRoleLabel(u.role)).toLowerCase().includes(q.toLowerCase())) : scoped;
+  const filtered = q ? scoped.filter(u => (u.name + ' ' + u.un + ' ' + orgLabel(u)).toLowerCase().includes(q.toLowerCase())) : scoped;
   const currentCoName = scopedCompany ? (companies.find(c => String(c._id) === String(scopedCompany))?.name || '') : '';
 
   const rOpts = roleOptions(isSuper);
@@ -103,7 +104,7 @@ export default function Users() {
               <button key={u._id} className="user-row" onClick={() => setSelected(u)}>
                 <span className="user-avatar">{(u.name || u.un || '?')[0].toUpperCase()}</span>
                 <span className="user-row-name">{u.name}</span>
-                <span className="badge blu">{getRoleLabel(u.role)}</span>
+                <span className="badge blu">{orgLabel(u)}</span>
                 <span className="user-row-un" title={`@${u.un}`}>@{u.un}</span>
                 <span className="user-row-arrow">›</span>
               </button>
@@ -119,7 +120,7 @@ export default function Users() {
             <div>
               <div style={{fontSize: 18, fontWeight: 700}}>{selected.name}</div>
               <div className="text-mut">@{selected.un}</div>
-              <span className="badge blu" style={{marginTop: 4, display: 'inline-block'}}>{getRoleLabel(selected.role)}</span>
+              <span className="badge blu" style={{marginTop: 4, display: 'inline-block'}}>{orgLabel(selected)}</span>
             </div>
           </div>
           <DetailRow label="Email" value={selected.email} />
@@ -163,11 +164,24 @@ function UserForm({ initial, isEdit, roleOptions, onSave, onClose }) {
         <input value={data.un || ''} onChange={e => set('un', e.target.value.toLowerCase())} required autoComplete="username" />
         <label className="mt-1">Password {isEdit && '(leave blank to keep current)'}{!isEdit && ' *'}</label>
         <input type="password" value={data.pw || ''} onChange={e => set('pw', e.target.value)} required={!isEdit} autoComplete="new-password" />
-        <label className="mt-1">Role *</label>
-        <select value={data.role || ''} onChange={e => set('role', e.target.value)} required>
-          <option value="">— select role —</option>
-          {roleOptions.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-        </select>
+        <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 8}}>
+          <div>
+            <label>Designation *</label>
+            <select value={data.designation || ''} onChange={e => set('designation', e.target.value)} required>
+              <option value="">— select —</option>
+              {DESIGNATIONS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label>Department *</label>
+            <select value={data.department || ''} onChange={e => set('department', e.target.value)} required>
+              <option value="">— select —</option>
+              {DEPARTMENTS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+            </select>
+          </div>
+        </div>
+        <label className="mt-1">Employee ID</label>
+        <input value={data.employeeId || ''} onChange={e => set('employeeId', e.target.value)} placeholder="Optional" />
         <label className="mt-1">Email</label>
         <input type="email" value={data.email || ''} onChange={e => set('email', e.target.value)} />
         <label className="mt-1">Phone</label>

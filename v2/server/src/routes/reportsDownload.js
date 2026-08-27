@@ -27,11 +27,27 @@ function getRange(period, from, to) {
   return { start, end };
 }
 
+const { scopeFilter } = require('../utils/scope');
 function scopeQuery(req, extra) {
   const q = Object.assign({}, extra || {});
-  if (req.user.role === 'super') { if (req.query.co) q.co = req.query.co; }
-  else { q.co = req.user.co; }
-  return q;
+  const mod = req.query.module;
+  const resMap = {
+    enquiries: 'enquiries', 'sales-orders': 'salesOrders', projects: 'projects',
+    'service-calls': 'serviceCalls', contracts: 'contracts', payments: 'payments',
+    inventory: 'inventory', 'inventory-transactions': 'inventoryTransactions', users: 'users',
+  };
+  const resource = resMap[mod] || 'other';
+  const scoped = scopeFilter(req.user, resource, q);
+  if (req.user.role === 'super' && req.query.co) scoped.co = req.query.co;
+  // Explicit department filter (admin/super only — enforced by scopeFilter for others)
+  if (req.query.department) {
+    const DEPT_DIV = { HVAC: 'HVAC', SOLAR: 'Solar', MEP: 'MEP' };
+    const div = DEPT_DIV[req.query.department];
+    if (['enquiries', 'salesOrders', 'projects'].includes(resource) && div) {
+      scoped.division = div;
+    }
+  }
+  return scoped;
 }
 
 const MODULES = {
@@ -196,7 +212,13 @@ router.get('/download', async (req, res) => {
     if (!cfg) return res.status(400).json({ error: `Unknown module: ${module}` });
 
     const range = getRange(period, from, to);
-    const rows = (await cfg.fetch(req, range)) || [];
+    // If department scoping blocks this resource, return empty
+    const testQuery = scopeQuery(req, {});
+    if (testQuery._blocked) {
+      const rows = [];
+      // proceed to generate empty report
+    }
+    const rows = testQuery._blocked ? [] : ((await cfg.fetch(req, range)) || []);
 
     const fmt = (r, col) => {
       const v = r[col.key];

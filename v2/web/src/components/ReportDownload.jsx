@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { API_BASE, getToken } from '../api/client';
 import { useStore } from '../store/useStore';
+import { DEPARTMENTS } from '../utils/orgModel';
 import Modal from './Modal';
 import { toast } from './Toast';
 
@@ -12,8 +13,13 @@ export default function ReportDownload({ module: fixedModule, label: fixedLabel,
   const [to, setTo] = useState('');
   const [module, setModule] = useState(fixedModule || '');
   const [modules, setModules] = useState([]);
+  const [department, setDepartment] = useState('');
   const [loading, setLoading] = useState(false);
   const scopedCompany = useStore(s => s.scopedCompany);
+  const user = useStore(s => s.user);
+
+  // Admin can pick any dept; non-admin locked to their own
+  const canPickDept = user?.designation === 'super_admin' || user?.designation === 'company_admin' || user?.role === 'super' || user?.role === 'admin';
 
   useEffect(() => {
     if (!open || fixedModule) return;
@@ -31,6 +37,7 @@ export default function ReportDownload({ module: fixedModule, label: fixedLabel,
       const params = new URLSearchParams({ module, period, format });
       if (period === 'custom') { params.set('from', from); params.set('to', to); }
       if (scopedCompany) params.set('co', scopedCompany);
+      if (department) params.set('department', department);
       const res = await fetch(`${API_BASE}/api/reports/download?${params}`, { headers: { Authorization: `Bearer ${getToken()}` } });
       if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.error || `HTTP ${res.status}`); }
       const blob = await res.blob();
@@ -57,6 +64,15 @@ export default function ReportDownload({ module: fixedModule, label: fixedLabel,
                 <label>Report Type</label>
                 <select value={module} onChange={e => setModule(e.target.value)}>
                   {modules.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+                </select>
+              </div>
+            )}
+            {canPickDept && (
+              <div>
+                <label>Department (optional filter)</label>
+                <select value={department} onChange={e => setDepartment(e.target.value)}>
+                  <option value="">All Departments</option>
+                  {DEPARTMENTS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
                 </select>
               </div>
             )}

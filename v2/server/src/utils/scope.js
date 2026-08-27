@@ -1,53 +1,103 @@
 /**
- * Role-based scoping helpers. Applied server-side to enforce
- * division isolation and personal work views.
+ * Department-based data scoping utilities.
+ *
+ * Rules:
+ *  - super, admin (ADMIN dept): see all data in company
+ *  - Managers (HVAC/SOLAR/MEP): see only their department's projects/enquiries/SO
+ *  - Engineers: see only their own assigned records within their department
+ *  - Service dept: sees all service calls, contracts
+ *  - Sales dept: sees all enquiries, sales orders, quotations
+ *  - Accounts dept: sees payments, sales orders
+ *  - Store dept: sees inventory, transactions
  */
 
-// Division a PM is scoped to
-const PM_DIV = { hvac_pm: 'HVAC', solar_pm: 'Solar', mep_pm: 'MEP' };
+// Division field mapping: 'HVAC' | 'Solar' | 'MEP'
+const DEPT_TO_DIVISION = {
+  HVAC: 'HVAC',
+  SOLAR: 'Solar',
+  MEP: 'MEP',
+};
+
+// Does the user have unrestricted access within their company?
+function isAdminLevel(user) {
+  return user.role === 'super' || user.role === 'admin' || user.department === 'ADMIN';
+}
+
+// Get the division this user belongs to (returns null if not a division-based dept)
+function userDivision(user) {
+  return DEPT_TO_DIVISION[user.department] || null;
+}
 
 /**
- * Add division/company/personal filters to a Mongo query filter for Projects.
- * - super: no scoping
- * - admin / accounts / viewer: only own company
- * - hvac_pm/solar_pm/mep_pm: only own company + division
- * - engineer: only own company + projects where they are in engs
- * - anyone with ?mine=true param: personal filter regardless
+ * Build a MongoDB filter for a resource based on user's role/department.
+ * @param {Object} user - authenticated user
+ * @param {String} resource - 'projects' | 'enquiries' | 'salesOrders' | 'quotations' | 'serviceCalls' | 'contracts' | 'payments' | 'inventory'
+ * @param {Object} extra - additional filter to merge
  */
-function scopeProjects(filter, req) {
-  const u = req.user;
-  if (u.role !== 'super') filter.co = u.co;
-  const div = PM_DIV[u.role];
-  if (div) filter.div = div;
-  if (u.role === 'engineer' || req.query.mine === 'true') {
-    filter.$or = [{ engs: u.name }, { pm: u.name }];
+function scopeFilter(user, resource, extra = {}) {
+  const f = { ...extra };
+
+  // Super admin sees all (or scoped company via query)
+  if (user.role === 'super') return f;
+
+  // Everyone else scoped to their company
+  f.co = user.co;
+
+  if (isAdminLevel(user)) return f;
+
+  const div = userDivision(user);
+
+  switch (resource) {
+    case 'projects':
+    case 'enquiries':
+    case 'salesOrders':
+    case 'quotations':
+      // Division-based scoping for HVAC/SOLAR/MEP managers
+      if (div) f.division = div;
+      // Engineers see only their assigned projects
+      if (user.designation === 'engineer' || user.designation === 'technician') {
+        f.$or = [
+          { assignedTo: user._id },
+          { 'team.userId': user._id },
+        ];
+        if (div) delete f.division; // team assignments override division
+      }
+      break;
+
+    case 'serviceCalls':
+    case 'contracts':
+      // Only SERVICE dept sees these (unless admin)
+      if (user.department !== 'SERVICE') {
+        f._blocked = true; // returns nothing
+      }
+      // Service engineers see only their assigned calls
+      if (user.designation === 'engineer' || user.designation === 'technician') {
+        f.assignedTo = user._id;
+      }
+      break;
+
+    case 'payments':
+      // Only ACCOUNTS + Admin see payments
+      if (user.department !== 'ACCOUNTS') f._blocked = true;
+      break;
+
+    case 'inventory':
+    case 'inventoryTransactions':
+      // Only STORE + Admin see inventory
+      if (user.department !== 'STORE' && user.department !== 'HVAC' && user.department !== 'SOLAR' && user.department !== 'MEP' && user.department !== 'SERVICE') {
+        f._blocked = true;
+      }
+      break;
+
+    case 'users':
+      // Managers see users in their department only
+      if (user.designation === 'manager' && user.department) {
+        f.department = user.department;
+      }
+      break;
   }
-  return filter;
+
+  return f;
 }
 
-function scopeServiceCalls(filter, req) {
-  const u = req.user;
-  if (u.role !== 'super') filter.co = u.co;
-  if (u.role === 'service_eng' || req.query.mine === 'true') {
-    filter.eng = u.name;
-  }
-  return filter;
-}
-
-function scopeIssues(filter, req) {
-  const u = req.user;
-  if (u.role !== 'super') filter.co = u.co;
-  if (['engineer', 'service_eng'].includes(u.role) || req.query.mine === 'true') {
-    filter.staff = u.name;
-  }
-  return filter;
-}
-
-function scopeCompany(filter, req, idField = '_id') {
-  const u = req.user;
-  if (u.role === 'super') return filter;
-  filter[idField] = u.co;
-  return filter;
-}
-
-module.exports = { scopeProjects, scopeServiceCalls, scopeIssues, scopeCompany, PM_DIV };
+module.exports = { scopeFilter, isAdminLevel, userDivision, DEPT_TO_DIVISION };
