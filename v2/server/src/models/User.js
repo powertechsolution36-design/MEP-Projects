@@ -3,16 +3,17 @@ const bcrypt = require('bcryptjs');
 
 const ROLES = ['super', 'admin', 'hvac_pm', 'solar_pm', 'mep_pm', 'engineer', 'service_eng', 'service_mgr', 'sales', 'store', 'accounts', 'viewer'];
 const DESIGNATIONS = ['super_admin', 'company_admin', 'manager', 'senior_engineer', 'engineer', 'executive', 'technician', 'viewer'];
-const DEPARTMENTS = ['ADMIN', 'HVAC', 'SOLAR', 'MEP', 'SERVICE', 'SALES', 'STORE', 'ACCOUNTS'];
+const DEPARTMENTS = ['ADMIN', 'PROJECTS', 'HVAC', 'SOLAR', 'MEP', 'SERVICE', 'SALES', 'STORE', 'ACCOUNTS'];
+const DIVISIONS = ['HVAC', 'SOLAR', 'MEP'];
 
 // Role → { designation, department } mapping for backward compat backfill
 const ROLE_TO_DESDEP = {
   super:       { designation: 'super_admin',     department: 'ADMIN' },
   admin:       { designation: 'company_admin',   department: 'ADMIN' },
-  hvac_pm:     { designation: 'manager',         department: 'HVAC' },
-  solar_pm:    { designation: 'manager',         department: 'SOLAR' },
-  mep_pm:      { designation: 'manager',         department: 'MEP' },
-  engineer:    { designation: 'engineer',        department: 'HVAC' },
+  hvac_pm:     { designation: 'manager',         department: 'PROJECTS', division: 'HVAC' },
+  solar_pm:    { designation: 'manager',         department: 'PROJECTS', division: 'SOLAR' },
+  mep_pm:      { designation: 'manager',         department: 'PROJECTS', division: 'MEP' },
+  engineer:    { designation: 'engineer',        department: 'PROJECTS', division: 'HVAC' },
   service_mgr: { designation: 'manager',         department: 'SERVICE' },
   service_eng: { designation: 'engineer',        department: 'SERVICE' },
   sales:       { designation: 'executive',       department: 'SALES' },
@@ -22,10 +23,15 @@ const ROLE_TO_DESDEP = {
 };
 
 // { designation, department } → role for reverse compat
-function deriveRoleFromDesDep(des, dep) {
+function deriveRoleFromDesDep(des, dep, div) {
   if (des === 'super_admin') return 'super';
   if (des === 'company_admin') return 'admin';
   if (des === 'manager') {
+    if (dep === 'PROJECTS') {
+      if (div === 'SOLAR') return 'solar_pm';
+      if (div === 'MEP') return 'mep_pm';
+      return 'hvac_pm';
+    }
     if (dep === 'HVAC') return 'hvac_pm';
     if (dep === 'SOLAR') return 'solar_pm';
     if (dep === 'MEP') return 'mep_pm';
@@ -53,6 +59,7 @@ const UserSchema = new mongoose.Schema({
   role: { type: String, enum: ROLES, default: 'viewer', index: true },
   designation: { type: String, enum: DESIGNATIONS, index: true },
   department: { type: String, enum: DEPARTMENTS, index: true },
+  division: { type: String, enum: [...DIVISIONS, null, ''], index: true }, // Only when department === 'PROJECTS'
   employeeId: { type: String, trim: true },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
   email: { type: String, trim: true, lowercase: true },
@@ -68,7 +75,7 @@ UserSchema.index({ co: 1, department: 1 });
 // Also backfill designation+department from role if missing
 UserSchema.pre('validate', function(next) {
   if (this.designation && this.department && !this.role) {
-    this.role = deriveRoleFromDesDep(this.designation, this.department);
+    this.role = deriveRoleFromDesDep(this.designation, this.department, this.division);
   } else if (this.role && (!this.designation || !this.department)) {
     const map = ROLE_TO_DESDEP[this.role];
     if (map) {
@@ -77,7 +84,7 @@ UserSchema.pre('validate', function(next) {
     }
   } else if (this.designation && this.department && this.isModified('designation') || this.isModified('department')) {
     // If designation/department changed, re-derive role
-    this.role = deriveRoleFromDesDep(this.designation, this.department);
+    this.role = deriveRoleFromDesDep(this.designation, this.department, this.division);
   }
   next();
 });
@@ -95,6 +102,7 @@ UserSchema.methods.comparePw = function(plain) {
 UserSchema.statics.ROLES = ROLES;
 UserSchema.statics.DESIGNATIONS = DESIGNATIONS;
 UserSchema.statics.DEPARTMENTS = DEPARTMENTS;
+UserSchema.statics.DIVISIONS = DIVISIONS;
 UserSchema.statics.ROLE_TO_DESDEP = ROLE_TO_DESDEP;
 UserSchema.statics.deriveRoleFromDesDep = deriveRoleFromDesDep;
 

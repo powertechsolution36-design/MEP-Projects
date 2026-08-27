@@ -4,7 +4,7 @@ import Modal from '../components/Modal';
 import ReportDownload from '../components/ReportDownload';
 import { toast } from '../components/Toast';
 import { getRoleLabel, roleOptions } from '../utils/responsibilities';
-import { DESIGNATIONS, DEPARTMENTS, orgLabel } from '../utils/orgModel';
+import { DESIGNATIONS, DEPARTMENTS, DIVISIONS, orgLabel } from '../utils/orgModel';
 
 export default function Users() {
   const users = useStore(s => s.users);
@@ -184,12 +184,24 @@ function UserForm({ initial, isEdit, roleOptions, onSave, onClose }) {
           </div>
           <div>
             <label>Department *</label>
-            <select value={data.department || ''} onChange={e => set('department', e.target.value)} required>
+            <select value={data.department || ''} onChange={e => {
+              set('department', e.target.value);
+              if (e.target.value !== 'PROJECTS') set('division', '');
+            }} required>
               <option value="">— select —</option>
               {DEPARTMENTS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
             </select>
           </div>
         </div>
+        {data.department === 'PROJECTS' && (
+          <>
+            <label className="mt-1">Division *</label>
+            <select value={data.division || ''} onChange={e => set('division', e.target.value)} required>
+              <option value="">— select division —</option>
+              {DIVISIONS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+            </select>
+          </>
+        )}
         <label className="mt-1">Employee ID</label>
         <input value={data.employeeId || ''} onChange={e => set('employeeId', e.target.value)} placeholder="Optional" />
         <label className="mt-1">Email</label>

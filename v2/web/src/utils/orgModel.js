@@ -1,5 +1,5 @@
 /**
- * Organization model — designations, departments, and their labels.
+ * Organization model — designations, departments, divisions.
  * Kept in sync with server-side User.js constants.
  */
 
@@ -12,46 +12,61 @@ export const DESIGNATIONS = [
   { value: 'viewer',          label: 'Viewer' },
 ];
 
-// All designations including admin-level (for internal use / display of Sam)
+// All designations including admin-level (for label display of Sam / company admins)
 export const ALL_DESIGNATIONS = [
   { value: 'super_admin',     label: 'Super Admin' },
   { value: 'company_admin',   label: 'Company Admin' },
-  ...DESIGNATIONS.map(d => d),
+  ...DESIGNATIONS,
 ];
 
+// Top-level departments shown in user form.
+// 'Projects' expands into a Division picker (HVAC/Solar/MEP).
 export const DEPARTMENTS = [
-  { value: 'HVAC',     label: 'HVAC' },
-  { value: 'SOLAR',    label: 'Solar' },
-  { value: 'MEP',      label: 'MEP' },
+  { value: 'PROJECTS', label: 'Projects (HVAC / Solar / MEP)' },
   { value: 'SERVICE',  label: 'Service' },
   { value: 'SALES',    label: 'Sales' },
   { value: 'STORE',    label: 'Store / Inventory' },
   { value: 'ACCOUNTS', label: 'Accounts / Finance' },
 ];
 
-// All departments including ADMIN (for internal use / display)
+// All departments including ADMIN + legacy flat ones (for label lookup)
 export const ALL_DEPARTMENTS = [
   { value: 'ADMIN',    label: 'Administration' },
-  ...DEPARTMENTS.map(d => d),
+  ...DEPARTMENTS,
+  { value: 'HVAC',     label: 'HVAC' },
+  { value: 'SOLAR',    label: 'Solar' },
+  { value: 'MEP',      label: 'MEP' },
 ];
 
-// Human-readable label combining designation + department
+// Divisions shown when Department = 'PROJECTS'
+export const DIVISIONS = [
+  { value: 'HVAC',  label: 'HVAC' },
+  { value: 'SOLAR', label: 'Solar' },
+  { value: 'MEP',   label: 'MEP' },
+];
+
+// Human-readable label combining designation + department (+ division)
 export function orgLabel(user) {
   if (!user) return '';
   const d = ALL_DESIGNATIONS.find(x => x.value === user.designation)?.label || user.designation || '';
-  const dep = ALL_DEPARTMENTS.find(x => x.value === user.department)?.label || user.department || '';
+  let dep = ALL_DEPARTMENTS.find(x => x.value === user.department)?.label || user.department || '';
+  // If department is PROJECTS and user has a division, show "Projects — HVAC"
+  if (user.department === 'PROJECTS' && user.division) {
+    const div = DIVISIONS.find(x => x.value === user.division)?.label || user.division;
+    dep = `Projects — ${div}`;
+  }
   if (d && dep) return `${d} — ${dep}`;
   return d || dep || user.role || '—';
 }
 
-// Role → designation+department (for legacy display)
+// Legacy role → org triplet
 export const ROLE_TO_DESDEP = {
   super:       { designation: 'super_admin',   department: 'ADMIN' },
   admin:       { designation: 'company_admin', department: 'ADMIN' },
-  hvac_pm:     { designation: 'manager',       department: 'HVAC' },
-  solar_pm:    { designation: 'manager',       department: 'SOLAR' },
-  mep_pm:      { designation: 'manager',       department: 'MEP' },
-  engineer:    { designation: 'engineer',      department: 'HVAC' },
+  hvac_pm:     { designation: 'manager',       department: 'PROJECTS', division: 'HVAC' },
+  solar_pm:    { designation: 'manager',       department: 'PROJECTS', division: 'SOLAR' },
+  mep_pm:      { designation: 'manager',       department: 'PROJECTS', division: 'MEP' },
+  engineer:    { designation: 'engineer',      department: 'PROJECTS', division: 'HVAC' },
   service_mgr: { designation: 'manager',       department: 'SERVICE' },
   service_eng: { designation: 'engineer',      department: 'SERVICE' },
   sales:       { designation: 'executive',     department: 'SALES' },
@@ -60,9 +75,10 @@ export const ROLE_TO_DESDEP = {
   viewer:      { designation: 'viewer',        department: 'ADMIN' },
 };
 
-// Get {designation, department} from a user (either explicit or derived from role)
 export function getOrg(user) {
-  if (!user) return { designation: '', department: '' };
-  if (user.designation && user.department) return { designation: user.designation, department: user.department };
-  return ROLE_TO_DESDEP[user.role] || { designation: '', department: '' };
+  if (!user) return { designation: '', department: '', division: '' };
+  if (user.designation && user.department) {
+    return { designation: user.designation, department: user.department, division: user.division || '' };
+  }
+  return ROLE_TO_DESDEP[user.role] || { designation: '', department: '', division: '' };
 }
