@@ -122,6 +122,45 @@ const DIVISIONAL_MANAGER_DESIGNATIONS = Object.freeze([
   DESIGNATIONS.HVAC_MANAGER,
 ]);
 
+// ---------------------------------------------------------------------------------------------
+// Phase 5 — Project / ProjectPackage constants (DATABASE_ARCHITECTURE.md "Project / Package model"
+// + rev 4 sub-trade addendum; ACCESS_MATRIX.md PART 7). All frozen — do not extend without
+// updating v3/docs/ first.
+// ---------------------------------------------------------------------------------------------
+
+// Sub-trades, per division (DATABASE_ARCHITECTURE.md rev 4 addendum, exact literal lists). A
+// project/package MAY hold several, but every one must belong to that package's own division —
+// which is also why this is keyed by division rather than being one flat list.
+const SUB_TRADES = Object.freeze({
+  SOLAR: Object.freeze(['ROOFTOP_ON_GRID', 'ROOFTOP_OFF_GRID', 'GROUND_MOUNT', 'HYBRID', 'OTHER']),
+  MEP: Object.freeze(['ELECTRICAL', 'PLUMBING', 'FIRE_FIGHTING', 'OTHER']),
+  HVAC: Object.freeze([
+    'VRF', 'DUCTED_AC', 'SPLIT_AC', 'PIPING', 'PRESSURE_TESTING', 'VACUUM_TESTING',
+    'LEAK_TESTING', 'COMMISSIONING',
+  ]),
+});
+const ALL_SUB_TRADES = Object.freeze([...new Set(Object.values(SUB_TRADES).flat())]);
+
+// Operational project/package lifecycle. This is the LEGACY v2 `Project.status` enum, preserved
+// exactly (v2/server/src/models/Project.js) — v3 reads and writes the same physical `projects`
+// collection, so redefining this field would break the live app. It is a DIFFERENT axis from the
+// Phase 4 governance lifecycle (RECORD_STATES): `status` answers "where is this project in its
+// delivery", `recordState` answers "may this record still be edited/deleted". See
+// models/Project.js for the full reasoning.
+const PROJECT_STATUSES = Object.freeze(['planning', 'active', 'onhold', 'completed', 'cancelled']);
+
+// Legacy `Project.div` -> v3 division. v2's enum is ['MEP','HVAC','Solar','Other'] — mixed-case
+// 'Solar', plus 'Other' which has NO v3 division. An unmapped value is NEVER coerced to a division
+// and NEVER falls back to all three; it surfaces migrationReviewRequired instead (PLAN_ENTITLEMENTS
+// .md §11, DOCUMENT_AUTHORITY.md Ex 5, DATABASE_ARCHITECTURE.md rev 12 legacy rule).
+const LEGACY_DIV_MAP = Object.freeze({
+  MEP: 'MEP',
+  HVAC: 'HVAC',
+  Solar: 'SOLAR',
+  SOLAR: 'SOLAR',
+  // 'Other' is deliberately ABSENT — it is not a division and must never be guessed into one.
+});
+
 // Approval engine — DATABASE_ARCHITECTURE.md ApprovalRequest shape.
 const APPROVAL_STATUSES = Object.freeze(['pending', 'approved', 'rejected', 'executed', 'expired']);
 const APPROVAL_EXECUTION_STATUSES = Object.freeze(['queued', 'running', 'succeeded', 'failed']);
@@ -205,6 +244,10 @@ module.exports = {
   DIVISIONAL_MANAGER_DESIGNATIONS,
   APPROVAL_STATUSES,
   APPROVAL_EXECUTION_STATUSES,
+  SUB_TRADES,
+  ALL_SUB_TRADES,
+  PROJECT_STATUSES,
+  LEGACY_DIV_MAP,
   PLAN_STATUSES,
   PLAN_VISIBILITY,
   SUBSCRIPTION_STATUSES,

@@ -114,6 +114,13 @@ const registry = new Map();
  * @param {string}   [policy.overridePermission] default `${resource}.override` (API_ARCHITECTURE §7)
  * @param {boolean}  [policy.financial]          true => NO delete in any state; reversal endpoints only
  * @param {boolean}  [policy.softDelete]         false => this resource has no delete path at all
+ * @param {string}   [policy.stateField='status'] which field carries the GOVERNANCE state
+ *
+ * `stateField` exists for one specific, documented situation (added in Phase 5): a collection v2
+ * already owns may use `status` for its own operational lifecycle, which v3 must not redefine
+ * because the live app writes it. Such a resource keeps `status` as-is and declares a separate
+ * governance field (e.g. Project/ProjectPackage's `recordState`). The default is `'status'`, so
+ * every resource declared in Phases 1-4 behaves exactly as before.
  */
 function defineResourcePolicy(resource, policy = {}) {
   if (!resource || typeof resource !== 'string') {
@@ -123,6 +130,7 @@ function defineResourcePolicy(resource, policy = {}) {
   const resolved = Object.freeze({
     resource,
     financial,
+    stateField: policy.stateField || 'status',
     softDelete: policy.softDelete !== false,
     overridePermission: policy.overridePermission || `${resource}.override`,
     immutableFields: Object.freeze([
@@ -145,6 +153,7 @@ function getResourcePolicy(resource) {
   return registry.get(resource) || Object.freeze({
     resource,
     financial: false,
+    stateField: 'status',
     softDelete: true,
     overridePermission: `${resource}.override`,
     immutableFields: Object.freeze([...GLOBAL_IMMUTABLE_FIELDS, ...HISTORY_IMMUTABLE_FIELDS]),
@@ -220,6 +229,17 @@ function immutableFieldsFor(resource) {
   return getResourcePolicy(resource).immutableFields;
 }
 
+/**
+ * stateOf — reads a record's GOVERNANCE state through its resource policy, so a resource whose
+ * `status` field belongs to a legacy operational lifecycle (Project/ProjectPackage) is still
+ * evaluated against the right field. Defaults to `record.status`, which is what every Phase 1-4
+ * resource uses.
+ */
+function stateOf(record, resource) {
+  if (!record) return undefined;
+  return record[getResourcePolicy(resource).stateField];
+}
+
 module.exports = {
   RECORD_MUTATION_ACTIONS,
   BUSINESS_ACTIONS,
@@ -237,4 +257,5 @@ module.exports = {
   canDeleteInState,
   canMutateInState,
   immutableFieldsFor,
+  stateOf,
 };

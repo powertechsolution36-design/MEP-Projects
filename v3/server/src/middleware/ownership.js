@@ -13,7 +13,7 @@
 //     holding one must never confer the other (spec §5).
 const { sendError } = require('../utils/ApiError');
 const {
-  canMutateInState, isBusinessAction, isRecordMutationAction, getResourcePolicy,
+  canMutateInState, isBusinessAction, isRecordMutationAction, getResourcePolicy, stateOf,
 } = require('../config/recordPolicy');
 
 /**
@@ -72,9 +72,11 @@ function checkOwnership({ record, user, action = 'edit', resource, overridePermi
     return { allowed: false, reason: 'Not the record owner and no override authority' };
   }
 
-  // Record state — now action-aware, so DELETE is genuinely stricter than EDIT (spec §11) rather
-  // than both sharing the single IMMUTABLE_STATES test.
-  const stateDecision = canMutateInState(record.status, effectiveAction, resource);
+  // Record state — action-aware, so DELETE is genuinely stricter than EDIT (Phase 4 §11) rather
+  // than both sharing the single IMMUTABLE_STATES test. stateOf() reads the resource's declared
+  // governance field, which is `status` everywhere except a resource whose `status` belongs to a
+  // legacy operational lifecycle v2 owns (Project/ProjectPackage -> `recordState`).
+  const stateDecision = canMutateInState(stateOf(record, resource), effectiveAction, resource);
 
   if (hasOverride && !isOwner) {
     // Manager/Admin touching someone else's record via an explicit granted override — NEVER a

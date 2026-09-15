@@ -17,7 +17,7 @@
 //     the operations a module opts into. A resource with no delete path simply never receives
 //     deleteOwnRecord/softDeleteRecord, so there is nothing to call by mistake.
 const { RECORD_STATES, AUDIT_ACTIONS } = require('../config/constants');
-const { getResourcePolicy, canEditInState, canDeleteInState } = require('../config/recordPolicy');
+const { getResourcePolicy, canEditInState, canDeleteInState, stateOf } = require('../config/recordPolicy');
 const { assertNoImmutableFieldChange } = require('../middleware/immutableFields');
 const { recordOwnershipAction } = require('./ownershipService');
 const { audit } = require('./auditService');
@@ -80,13 +80,16 @@ function userId(req) { return req?.user?._id ?? req?.user?.id ?? null; }
  * (API_ARCHITECTURE.md §1 — "requireOwnership() is skipped on CREATE").
  */
 async function createRecord({ req, Model, resource, payload = {} }) {
+  // The governance state lands on whichever field this resource declared (`status` by default;
+  // `recordState` for a resource whose `status` belongs to a legacy operational lifecycle).
+  const stateField = getResourcePolicy(resource).stateField;
   const doc = {
     ...payload,
     co: req.user?.co,
     createdByUserId: userId(req),
     createdByName: req.user?.name ?? null,   // DISPLAY cache only — never an authorization input
     updatedByUserId: userId(req),
-    status: payload.status || RECORD_STATES.DRAFT,
+    [stateField]: payload[stateField] || RECORD_STATES.DRAFT,
   };
   const created = await Model.create(doc);
   await audit({
@@ -109,7 +112,7 @@ async function updateOwnRecord({ req, Model, resource, id, payload = {}, reason,
   // module's declared immutable fields, regardless of what the client sent.
   assertNoImmutableFieldChange(payload, before, resource);
 
-  const state = canEditInState(before.status, resource);
+  const state = canEditInState(stateOf(before, resource), resource);
   if (!state.allowed) throw new RecordServiceError(state.reason, 'RECORD_LOCKED', 403);
 
   if (resolved.requiresCorrection && (!reason || !reason.trim())) {
@@ -142,7 +145,7 @@ async function softDeleteRecord({ req, Model, resource, id, reason, decision }) 
 
   // §11 delete policy — strictly narrower than the edit window, and never available at all on a
   // financial resource (reversal endpoints only).
-  const state = canDeleteInState(before.status, resource);
+  const state = canDeleteInState(stateOf(before, resource), resource);
   if (!state.allowed) throw new RecordServiceError(state.reason, 'DELETE_NOT_PERMITTED', 403);
 
   // API_ARCHITECTURE.md §4 destructive action guard.
@@ -204,17 +207,19 @@ async function restoreRecord({ req, Model, resource, id, reason, decision }) {
 async function submitRecord({ req, Model, resource, id, reason }) {
   const before = req.record || await loadRecord(Model, id);
   if (!before) throw new RecordServiceError(`${resource} not found`, 'NOT_FOUND', 404);
-  if (before.status !== RECORD_STATES.DRAFT && before.status !== RECORD_STATES.REJECTED) {
+  const stateField = getResourcePolicy(resource).stateField;
+  const current = stateOf(before, resource);
+  if (current !== RECORD_STATES.DRAFT && current !== RECORD_STATES.REJECTED) {
     throw new RecordServiceError(
-      `Only a DRAFT or REJECTED ${resource} can be submitted (current: ${before.status})`,
+      `Only a DRAFT or REJECTED ${resource} can be submitted (current: ${current})`,
       'INVALID_STATE', 422,
     );
   }
-  const update = { status: RECORD_STATES.SUBMITTED, updatedByUserId: userId(req) };
+  const update = { [stateField]: RECORD_STATES.SUBMITTED, updatedByUserId: userId(req) };
   const after = await Model.findByIdAndUpdate(id, { $set: update }, { new: true });
   await audit({
     req, action: AUDIT_ACTIONS.SUBMIT, resource, resourceId: id,
-    before: { status: before.status }, after: { status: RECORD_STATES.SUBMITTED }, reason,
+    before: { [stateField]: current }, after: { [stateField]: RECORD_STATES.SUBMITTED }, reason,
   });
   return after;
 }
@@ -231,15 +236,16 @@ async function lockRecord({ req, Model, resource, id, state = RECORD_STATES.LOCK
   if (!lockable.includes(state)) {
     throw new RecordServiceError(`${state} is not a lockable state`, 'INVALID_STATE', 422);
   }
-  const update = { status: state, updatedByUserId: userId(req) };
+  const stateField = getResourcePolicy(resource).stateField;
+  const update = { [stateField]: state, updatedByUserId: userId(req) };
   const after = await Model.findByIdAndUpdate(id, { $set: update }, { new: true });
   await audit({
     req,
     action: state === RECORD_STATES.CLOSED ? AUDIT_ACTIONS.CLOSE : AUDIT_ACTIONS.UPDATE,
     resource,
     resourceId: id,
-    before: { status: before.status },
-    after: { status: state },
+    before: { [stateField]: stateOf(before, resource) },
+    after: { [stateField]: state },
     reason,
   });
   return after;
