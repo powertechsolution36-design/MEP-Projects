@@ -21,9 +21,11 @@ async function main() {
     if (u.designation && u.department) { skipped++; continue; }
     const map = User.ROLE_TO_DESDEP[u.role];
     if (!map) { console.log(`[migrate] Skipped ${u.un}: unknown role "${u.role}"`); skipped++; continue; }
-    await User.updateOne({ _id: u._id }, { $set: { designation: map.designation, department: map.department } });
+    const upd = { designation: map.designation, department: map.department };
+    if (map.division) upd.division = map.division;
+    await User.updateOne({ _id: u._id }, { $set: upd });
     updated++;
-    console.log(`[migrate] ✓ ${u.un} → ${map.designation} / ${map.department}`);
+    console.log(`[migrate] ✓ ${u.un} → ${map.designation} / ${map.department}${map.division ? ' / ' + map.division : ''}`);
   }
 
   console.log(`\n[migrate] Done. Updated: ${updated}, Skipped: ${skipped}`);

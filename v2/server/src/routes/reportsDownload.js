@@ -40,9 +40,10 @@ function scopeQuery(req, extra) {
   const scoped = scopeFilter(req.user, resource, q);
   if (req.user.role === 'super' && req.query.co) scoped.co = req.query.co;
   // Explicit department filter (admin/super only — enforced by scopeFilter for others)
-  if (req.query.department) {
-    const DEPT_DIV = { HVAC: 'HVAC', SOLAR: 'Solar', MEP: 'MEP' };
-    const div = DEPT_DIV[req.query.department];
+  // Explicit division filter (PROJECTS dept managers, admin/super)
+  if (req.query.division) {
+    const DIV_MAP = { HVAC: 'HVAC', SOLAR: 'Solar', MEP: 'MEP' };
+    const div = DIV_MAP[req.query.division];
     if (['enquiries', 'salesOrders', 'projects'].includes(resource) && div) {
       scoped.division = div;
     }

@@ -61,6 +61,54 @@ const AUDIT_ACTIONS = Object.freeze({
 // metadata gets migrationReviewRequired=true, never an automatic full grant).
 const ENTITLEMENT_SOURCES = Object.freeze(['plan', 'addon', 'manual', 'migration']);
 
+// Frozen designation enum — ROLE_HIERARCHY.md §2 (organizational tree) / §4 (validity matrix).
+const DESIGNATIONS = Object.freeze({
+  SUPER_ADMIN: 'super_admin',
+  COMPANY_ADMIN: 'company_admin',
+  SALES_MANAGER: 'sales_manager',
+  SALES_EXECUTIVE: 'sales_executive',
+  PROJECT_MANAGER: 'project_manager',
+  SOLAR_MANAGER: 'solar_manager',
+  MEP_MANAGER: 'mep_manager',
+  HVAC_MANAGER: 'hvac_manager',
+  INVENTORY_MANAGER: 'inventory_manager',
+  SERVICE_MANAGER: 'service_manager',
+  ENGINEER: 'engineer',
+  TECHNICIAN: 'technician',
+  EXECUTIVE: 'executive',
+  VIEWER: 'viewer',
+});
+const DESIGNATION_VALUES = Object.freeze(Object.values(DESIGNATIONS));
+
+// Frozen department enum — ROLE_HIERARCHY.md §2. NOTE: this is the authoritative enum; it does NOT
+// include 'STORE' or 'ACCOUNTS' — those are stale/legacy labels seen in LEGACY_ROLE_COMPATIBILITY.md
+// (store) and ROLE_HIERARCHY.md's own §4 validity-matrix row for `executive|ACCOUNTS`, and are
+// normalized to INVENTORY and FINANCE respectively by services/roleResolver.js. See that file's
+// header comment for the full disclosed reasoning.
+const DEPARTMENTS = Object.freeze({
+  ADMIN: 'ADMIN',
+  PROJECTS: 'PROJECTS',
+  SALES: 'SALES',
+  SOLAR: 'SOLAR',
+  MEP: 'MEP',
+  HVAC: 'HVAC',
+  SERVICE: 'SERVICE',
+  INVENTORY: 'INVENTORY',
+  FINANCE: 'FINANCE',
+});
+const DEPARTMENT_VALUES = Object.freeze(Object.values(DEPARTMENTS));
+
+// Divisional manager designations — used by division/department scope + legacy scopeFilterV3().
+const DIVISIONAL_MANAGER_DESIGNATIONS = Object.freeze([
+  DESIGNATIONS.SOLAR_MANAGER,
+  DESIGNATIONS.MEP_MANAGER,
+  DESIGNATIONS.HVAC_MANAGER,
+]);
+
+// Approval engine — DATABASE_ARCHITECTURE.md ApprovalRequest shape.
+const APPROVAL_STATUSES = Object.freeze(['pending', 'approved', 'rejected', 'executed', 'expired']);
+const APPROVAL_EXECUTION_STATUSES = Object.freeze(['queued', 'running', 'succeeded', 'failed']);
+
 module.exports = {
   PERMISSIONS,
   DIVISIONS,
@@ -69,4 +117,11 @@ module.exports = {
   IMMUTABLE_STATES,
   AUDIT_ACTIONS,
   ENTITLEMENT_SOURCES,
+  DESIGNATIONS,
+  DESIGNATION_VALUES,
+  DEPARTMENTS,
+  DEPARTMENT_VALUES,
+  DIVISIONAL_MANAGER_DESIGNATIONS,
+  APPROVAL_STATUSES,
+  APPROVAL_EXECUTION_STATUSES,
 };

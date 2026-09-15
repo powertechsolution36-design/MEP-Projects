@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { API_BASE, getToken } from '../api/client';
 import { useStore } from '../store/useStore';
-import { DEPARTMENTS } from '../utils/orgModel';
+import { DEPARTMENTS, DIVISIONS } from '../utils/orgModel';
 import Modal from './Modal';
 import { toast } from './Toast';
 
@@ -14,6 +14,7 @@ export default function ReportDownload({ module: fixedModule, label: fixedLabel,
   const [module, setModule] = useState(fixedModule || '');
   const [modules, setModules] = useState([]);
   const [department, setDepartment] = useState('');
+  const [division, setDivision] = useState('');
   const [loading, setLoading] = useState(false);
   const scopedCompany = useStore(s => s.scopedCompany);
   const user = useStore(s => s.user);
@@ -38,6 +39,7 @@ export default function ReportDownload({ module: fixedModule, label: fixedLabel,
       if (period === 'custom') { params.set('from', from); params.set('to', to); }
       if (scopedCompany) params.set('co', scopedCompany);
       if (department) params.set('department', department);
+      if (division) params.set('division', division);
       const res = await fetch(`${API_BASE}/api/reports/download?${params}`, { headers: { Authorization: `Bearer ${getToken()}` } });
       if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.error || `HTTP ${res.status}`); }
       const blob = await res.blob();
@@ -70,9 +72,18 @@ export default function ReportDownload({ module: fixedModule, label: fixedLabel,
             {canPickDept && (
               <div>
                 <label>Department (optional filter)</label>
-                <select value={department} onChange={e => setDepartment(e.target.value)}>
+                <select value={department} onChange={e => { setDepartment(e.target.value); if (e.target.value !== 'PROJECTS') setDivision(''); }}>
                   <option value="">All Departments</option>
                   {DEPARTMENTS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+                </select>
+              </div>
+            )}
+            {canPickDept && department === 'PROJECTS' && (
+              <div>
+                <label>Division</label>
+                <select value={division} onChange={e => setDivision(e.target.value)}>
+                  <option value="">All Divisions</option>
+                  {DIVISIONS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
                 </select>
               </div>
             )}
