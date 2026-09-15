@@ -54,6 +54,23 @@ const AUDIT_ACTIONS = Object.freeze({
   CORRECT: 'CORRECT',
   REVERSE: 'REVERSE',
   OVERRIDE: 'OVERRIDE',
+  // Phase 3 — commercial/entitlement actions (V3 PHASE 3 spec §19). Reuses the same immutable
+  // AuditLog foundation — no separate audit system.
+  PLAN_CREATED: 'PLAN_CREATED',
+  PLAN_UPDATED: 'PLAN_UPDATED',
+  PLAN_ACTIVATED: 'PLAN_ACTIVATED',
+  PLAN_DEACTIVATED: 'PLAN_DEACTIVATED',
+  SUBSCRIPTION_CREATED: 'SUBSCRIPTION_CREATED',
+  SUBSCRIPTION_CHANGED: 'SUBSCRIPTION_CHANGED',
+  SUBSCRIPTION_CANCELLED: 'SUBSCRIPTION_CANCELLED',
+  DIVISION_ENABLED: 'DIVISION_ENABLED',
+  DIVISION_DISABLED: 'DIVISION_DISABLED',
+  FEATURE_ENABLED: 'FEATURE_ENABLED',
+  FEATURE_DISABLED: 'FEATURE_DISABLED',
+  ADDON_ASSIGNED: 'ADDON_ASSIGNED',
+  ADDON_REMOVED: 'ADDON_REMOVED',
+  MANUAL_ENTITLEMENT_GRANTED: 'MANUAL_ENTITLEMENT_GRANTED',
+  MANUAL_ENTITLEMENT_DISABLED: 'MANUAL_ENTITLEMENT_DISABLED',
 });
 
 // Entitlement source enum — exact frozen values only. Never 'LEGACY_FULL' (see DOCUMENT_AUTHORITY.md
@@ -109,6 +126,70 @@ const DIVISIONAL_MANAGER_DESIGNATIONS = Object.freeze([
 const APPROVAL_STATUSES = Object.freeze(['pending', 'approved', 'rejected', 'executed', 'expired']);
 const APPROVAL_EXECUTION_STATUSES = Object.freeze(['queued', 'running', 'succeeded', 'failed']);
 
+// ---------------------------------------------------------------------------------------------
+// Phase 3 — SaaS commercial entitlement constants (PLAN_ENTITLEMENTS.md, frozen).
+// ---------------------------------------------------------------------------------------------
+
+// Plan.status — draft (not yet sellable) / active (sellable) / inactive (deactivated, not
+// versioned out) / archived (superseded by a newer version of the same plan code).
+const PLAN_STATUSES = Object.freeze(['draft', 'active', 'inactive', 'archived']);
+const PLAN_VISIBILITY = Object.freeze(['public', 'internal']); // 'internal' = hidden from the picker (e.g. LEGACY_UNLIMITED)
+
+// Subscription.status — PLAN_ENTITLEMENTS.md §10: "One Subscription active per company at a time
+// ... Historical Subscriptions preserved with status IN ('replaced','expired','cancelled') — NEVER
+// deleted." 'trial' added per §13 trial settings.
+const SUBSCRIPTION_STATUSES = Object.freeze(['trial', 'active', 'replaced', 'expired', 'cancelled']);
+
+// Billing cycle — not literally enumerated in PLAN_ENTITLEMENTS.md; this is the smallest set that
+// covers "billingCycle" as named in the V3 PHASE 3 spec §3/§4. Documented as an interpretation, not
+// pulled from a frozen doc list.
+const BILLING_CYCLES = Object.freeze(['monthly', 'quarterly', 'annual']);
+
+// Company.settings.enforceEntitlements — PLAN_ENTITLEMENTS.md §12.
+const ENFORCEMENT_MODES = Object.freeze([false, 'warn', true]);
+
+// Feature code classification — PLAN_ENTITLEMENTS.md §6, exact literal codes (never invent new
+// feature strings outside this list without updating the doc first).
+const CORE_FEATURES = Object.freeze([
+  'auth.login', 'auth.mfa', 'profile.view', 'notifications.view', 'audit.view.own',
+]);
+const DIVISION_FEATURES = Object.freeze({
+  SOLAR: Object.freeze(['solar.projects', 'solar.boq', 'solar.commissioning', 'solar.warranty']),
+  MEP: Object.freeze(['mep.projects', 'mep.electrical', 'mep.plumbing', 'mep.fire', 'mep.commissioning']),
+  HVAC: Object.freeze([
+    'hvac.projects', 'hvac.vrf', 'hvac.piping', 'hvac.testing.pressure', 'hvac.testing.vacuum',
+    'hvac.testing.leak', 'hvac.commissioning',
+  ]),
+});
+const ADDON_FEATURES = Object.freeze([
+  'client_portal', 'vendor_portal', 'ai_estimator', 'advanced_bi', 'mobile_app',
+  'custom_branding', 'api_access', 'multi_location', 'payroll_integration',
+  'extra_users_pack_10', 'storage_100gb',
+]);
+const ALL_FEATURE_CODES = Object.freeze([
+  ...CORE_FEATURES,
+  ...Object.values(DIVISION_FEATURES).flat(),
+  ...ADDON_FEATURES,
+]);
+
+// Limit keys — PLAN_ENTITLEMENTS.md §2 cache shape (`limits: { users, projects, storageGB,
+// apiCallsPerHour }`) and §API_ARCHITECTURE.md §9 ("per-plan rate limit from Plan.limits.apiCallsPerHour").
+const LIMIT_KEYS = Object.freeze(['users', 'projects', 'storageGB', 'apiCallsPerHour']);
+// Sentinel for "no cap" on a limit — distinct from 0 (not entitled / zero quota). Never confuse
+// "feature enabled" with "unlimited quantity" (V3 PHASE 3 spec §12).
+const UNLIMITED = 'unlimited';
+
+// AddOn division-grant codes — PLAN_ENTITLEMENTS.md §5.
+const DIVISION_ADDON_CODES = Object.freeze({
+  SOLAR: 'DIVISION_SOLAR',
+  MEP: 'DIVISION_MEP',
+  HVAC: 'DIVISION_HVAC',
+});
+
+// The one system-only plan code that migration uses — PLAN_ENTITLEMENTS.md §9. Never sellable,
+// never editable, never shown in the normal Super Admin plan picker.
+const LEGACY_UNLIMITED_PLAN_CODE = 'LEGACY_UNLIMITED';
+
 module.exports = {
   PERMISSIONS,
   DIVISIONS,
@@ -124,4 +205,17 @@ module.exports = {
   DIVISIONAL_MANAGER_DESIGNATIONS,
   APPROVAL_STATUSES,
   APPROVAL_EXECUTION_STATUSES,
+  PLAN_STATUSES,
+  PLAN_VISIBILITY,
+  SUBSCRIPTION_STATUSES,
+  BILLING_CYCLES,
+  ENFORCEMENT_MODES,
+  CORE_FEATURES,
+  DIVISION_FEATURES,
+  ADDON_FEATURES,
+  ALL_FEATURE_CODES,
+  LIMIT_KEYS,
+  UNLIMITED,
+  DIVISION_ADDON_CODES,
+  LEGACY_UNLIMITED_PLAN_CODE,
 };
