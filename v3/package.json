@@ -1,0 +1,18 @@
+{
+  "name": "mep-projects-v3",
+  "version": "0.1.0",
+  "private": true,
+  "description": "V3 dev/test workspace root — spans server/, web/, tests/. The deployed runtime uses v3/server/package.json directly.",
+  "scripts": {
+    "test": "jest --runInBand",
+    "test:watch": "jest --watch"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.0.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": ["**/tests/**/*.test.js"]
+  }
+}
