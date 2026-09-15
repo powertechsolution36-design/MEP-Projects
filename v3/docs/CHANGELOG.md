@@ -313,3 +313,33 @@ Edit/delete authorization based on role/department/division/company membership a
 
 ### Verification result
 ✅ Addition is fully additive — no rev 1–11 decision modified, contradicted, or reopened. Still **FINAL — ARCHITECTURE FROZEN · CODE STATUS: NOT YET IMPLEMENTED**.
+
+---
+
+## 2026-09-15 — Phase 6.0 IMPLEMENTATION record (dynamic permission catalog)
+
+**This is an implementation record, not an architecture revision.** No frozen rev 1–12 decision is
+modified, contradicted or reopened; the three collections below were already specified by
+`DATABASE_ARCHITECTURE.md` §Access/Audit and their endpoints by `ARCHITECTURE.md` §P /
+`API_ARCHITECTURE.md` §2. This entry records that they moved from specified to built.
+
+### Built
+- `v3/server/src/models/Permission.js` — platform catalog of permission codes (no `co`, following the
+  `Plan`/`AddOn` platform-catalog precedent).
+- `v3/server/src/models/RolePermission.js` — per-company, per-designation default map.
+- `v3/server/src/models/UserPermissionOverride.js` — per-company, per-user grant/revoke.
+- Endpoints: `GET /api/v3/permissions`, `GET|PUT /api/v3/roles/:role/permissions`,
+  `GET|PUT /api/v3/users/:id/permissions` — each itself permission-protected (`permissions.view` /
+  `permissions.manage`).
+
+Prior to this phase `services/permissionService.js` resolved permissions from the legacy
+`User.permissions[]` array only, as its own header comment recorded. That array is now the lowest
+layer of an explicit precedence (user revoke > user grant > role revoke > role grant > legacy array),
+retained so that no existing user loses access on deploy — the same progressive-rollout discipline
+`Company.settings.enforceEntitlements` uses for entitlements.
+
+### Noted, not actioned
+`V3_MIGRATION_MAP.md` is **stale**: it still lists `ApprovalRequest.js` and `ProjectPackage.js` as
+"FUTURE (not yet built)" although both were built in Phases 2 and 5 respectively, and it does not yet
+list the Phase 6.0 models. Correcting it is a documentation pass in its own right and was
+deliberately not bundled into this implementation.

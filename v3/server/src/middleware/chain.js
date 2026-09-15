@@ -11,6 +11,7 @@
 // slot (opts.businessValidation) since it is resource-specific and has no reusable shape.
 const { auth } = require('./auth');
 const { enforceTenantScope, loadEntitlements, requireEntitlement } = require('./tenant');
+const { loadPermissions } = require('./permissions');
 const { requirePermission } = require('./authorization');
 const { requireDivision } = require('./division');
 const { requireDepartment } = require('./department');
@@ -58,6 +59,13 @@ function buildProtectedRoute({
   const chain = [auth, enforceTenantScope];
   if (entitlement) chain.push(loadEntitlements, requireEntitlement(entitlement));
   else chain.push(loadEntitlements);
+  // Phase 6.0 — DATA LOADING, not a gate: resolves RolePermission + UserPermissionOverride once for
+  // this request. Sits beside loadEntitlements in the same slot pattern, so the frozen STEP 13 GATE
+  // order below (permission -> division -> department -> project/package -> ownership -> record
+  // state -> immutable fields -> validation) is unchanged. It runs unconditionally — even when a
+  // route declares no `permission` — because requireOwnership()'s override check consults the same
+  // resolved set.
+  chain.push(loadPermissions);
   if (permission) chain.push(requirePermission(permission));
   if (division) chain.push(requireDivision(division));
   if (department) chain.push(requireDepartment(department, departmentOptions || {}));

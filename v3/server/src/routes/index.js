@@ -19,4 +19,10 @@ router.use('/record-corrections', require('./recordCorrections'));
 // endpoints v2 serves in production are untouched (API_ARCHITECTURE.md §10).
 router.use('/projects', require('./projects'));
 
+// Phase 6.0 — dynamic permission catalog administration (ARCHITECTURE.md §P, API_ARCHITECTURE.md §2).
+// V3-ADDITIVE: legacy /api/users is untouched; /api/v3/users exposes only the permission sub-resource.
+router.use('/permissions', require('./permissions'));
+router.use('/roles', require('./roles'));
+router.use('/users', require('./users'));
+
 module.exports = router;

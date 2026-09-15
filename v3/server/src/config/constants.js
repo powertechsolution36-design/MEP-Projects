@@ -71,6 +71,12 @@ const AUDIT_ACTIONS = Object.freeze({
   ADDON_REMOVED: 'ADDON_REMOVED',
   MANUAL_ENTITLEMENT_GRANTED: 'MANUAL_ENTITLEMENT_GRANTED',
   MANUAL_ENTITLEMENT_DISABLED: 'MANUAL_ENTITLEMENT_DISABLED',
+  // Phase 6.0 — dynamic permission catalog administration. Reuses the same immutable AuditLog —
+  // there is no separate permission-audit path (V3 PHASE 6.0 spec §F).
+  PERMISSION_GRANTED: 'PERMISSION_GRANTED',
+  PERMISSION_REVOKED: 'PERMISSION_REVOKED',
+  ROLE_PERMISSION_UPDATED: 'ROLE_PERMISSION_UPDATED',
+  PERMISSION_CATALOG_SEEDED: 'PERMISSION_CATALOG_SEEDED',
 });
 
 // Entitlement source enum — exact frozen values only. Never 'LEGACY_FULL' (see DOCUMENT_AUTHORITY.md

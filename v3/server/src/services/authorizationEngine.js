@@ -94,7 +94,15 @@ function authorize(user, permission, context = {}) {
   if (context.record && context.action && ['edit', 'delete', 'correct'].includes(context.action)) {
     ownershipDecision = checkOwnership({
       record: context.record,
-      user: { id: user._id ?? user.id, co: user.co, role: user.role, permissions: user.permissions },
+      user: {
+        id: user._id ?? user.id,
+        co: user.co,
+        role: user.role,
+        permissions: user.permissions,
+        // Phase 6.0 — carry the resolved dynamic set through, so checkOwnership()'s override check
+        // honours a dynamic grant and, critically, respects a dynamic revoke.
+        _permissionResolution: user._permissionResolution,
+      },
       action: context.action,
       overridePermissionCode: context.overridePermissionCode,
       supportOp: context.supportOp,

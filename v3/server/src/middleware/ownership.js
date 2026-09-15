@@ -12,6 +12,7 @@
 //     through this gate at all. Business authority and record-edit authority are separate axes;
 //     holding one must never confer the other (spec §5).
 const { sendError } = require('../utils/ApiError');
+const { hasPermission } = require('../services/permissionService');
 const {
   canMutateInState, isBusinessAction, isRecordMutationAction, getResourcePolicy, stateOf,
 } = require('../config/recordPolicy');
@@ -61,12 +62,16 @@ function checkOwnership({ record, user, action = 'edit', resource, overridePermi
   }
 
   const isOwner = record.createdByUserId != null && String(record.createdByUserId) === String(user.id);
-  const permissions = user.permissions || [];
   // NOTE: this is an explicit, per-user, per-resource-type GRANT (e.g. 'quotation.override') that a
   // Company Admin assigns deliberately through the permission system — it is never implied by role,
   // job title, or "being a Manager/Admin" alone (STEP 8 hard rule: no generic Manager/Admin bypass).
+  //
+  // PHASE 6.0: routed through hasPermission() instead of reading the raw array, so an override
+  // granted through the dynamic catalog (UserPermissionOverride / RolePermission) is honoured — and,
+  // more importantly, so an override REVOKED there is actually withdrawn. Behaviour for a user
+  // carrying no dynamic resolution is byte-for-byte what it was before (legacy array + '*').
   const permCode = overridePermissionCode || getResourcePolicy(resource).overridePermission;
-  const hasOverride = permissions.includes(permCode) || permissions.includes('*');
+  const hasOverride = hasPermission(user, permCode);
 
   if (!isOwner && !hasOverride) {
     return { allowed: false, reason: 'Not the record owner and no override authority' };
@@ -102,7 +107,15 @@ function requireOwnership({ resource, loadRecord, action = 'edit', overridePermi
       const record = req.record || await loadRecord(req);
       const decision = checkOwnership({
         record,
-        user: req.user && { id: req.user._id, co: req.user.co, role: req.user.role, permissions: req.user.permissions },
+        // `_permissionResolution` travels with the reshaped user so the override check below sees
+        // the SAME dynamic grants/revokes every other gate in this request saw (Phase 6.0).
+        user: req.user && {
+          id: req.user._id,
+          co: req.user.co,
+          role: req.user.role,
+          permissions: req.user.permissions,
+          _permissionResolution: req.user._permissionResolution,
+        },
         action,
         resource,
         overridePermissionCode: permCode,

@@ -53,35 +53,43 @@ describe('requirePermission middleware', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  test('super always passes', () => {
+  // PHASE 6.0 NOTE — requirePermission() became an ASYNC middleware: it now resolves this request's
+  // dynamic RolePermission/UserPermissionOverride set (middleware/permissions.js
+  // ensurePermissionsLoaded) before deciding, so that every route gets dynamic enforcement even when
+  // it assembles its chain by hand instead of through buildProtectedRoute(). Express handles an
+  // async middleware natively (the middleware still calls next() itself), so no route file changed —
+  // only these direct unit invocations must now be awaited. The DECISIONS asserted below are
+  // unchanged from Phase 1: with no dynamic resolution available, the legacy User.permissions[]
+  // compatibility layer still governs, wildcard included.
+  test('super always passes', async () => {
     const req = { user: { role: 'super' } };
     const res = mockRes();
     const next = jest.fn();
-    requirePermission(PERMISSIONS.DELETE)(req, res, next);
+    await requirePermission(PERMISSIONS.DELETE)(req, res, next);
     expect(next).toHaveBeenCalled();
   });
 
-  test('403 when permission missing', () => {
+  test('403 when permission missing', async () => {
     const req = { user: { role: 'engineer', permissions: ['other.perm'] } };
     const res = mockRes();
     const next = jest.fn();
-    requirePermission(PERMISSIONS.EDIT)(req, res, next);
+    await requirePermission(PERMISSIONS.EDIT)(req, res, next);
     expect(res.status).toHaveBeenCalledWith(403);
   });
 
-  test('passes when permission present', () => {
+  test('passes when permission present', async () => {
     const req = { user: { role: 'engineer', permissions: [PERMISSIONS.EDIT] } };
     const res = mockRes();
     const next = jest.fn();
-    requirePermission(PERMISSIONS.EDIT)(req, res, next);
+    await requirePermission(PERMISSIONS.EDIT)(req, res, next);
     expect(next).toHaveBeenCalled();
   });
 
-  test('wildcard permission passes anything', () => {
+  test('wildcard permission passes anything', async () => {
     const req = { user: { role: 'engineer', permissions: ['*'] } };
     const res = mockRes();
     const next = jest.fn();
-    requirePermission('anything.at.all')(req, res, next);
+    await requirePermission('anything.at.all')(req, res, next);
     expect(next).toHaveBeenCalled();
   });
 });
