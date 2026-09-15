@@ -26,6 +26,10 @@ const ApprovalRuleSchema = new mongoose.Schema({
     after: Number, // ms/hours — interpretation left to the caller invoking escalation
     to: { role: String, userId: mongoose.Schema.Types.ObjectId },
   },
+  // Separation of duties (V3 PHASE 4 spec §24) — a requester approving their own request is
+  // PROHIBITED unless a rule opts in explicitly. Default false so a workflow can never permit
+  // self-approval by omission; enforced in services/approvalService.js, not only in the UI.
+  allowSelfApproval: { type: Boolean, default: false },
   systemManaged: { type: Boolean, default: false, index: true },
   active: { type: Boolean, default: true, index: true },
 }, { collection: 'v3_approval_rules', timestamps: true });

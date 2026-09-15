@@ -12,4 +12,7 @@ router.use('/entitlements', require('./entitlements'));
 router.use('/division-entitlements', require('./divisionEntitlements'));
 router.use('/feature-entitlements', require('./featureEntitlements'));
 
+// Phase 4 — global record ownership / audit hardening (API_ARCHITECTURE.md §2 rev 12).
+router.use('/record-corrections', require('./recordCorrections'));
+
 module.exports = router;

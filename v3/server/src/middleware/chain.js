@@ -17,6 +17,7 @@ const { requireDepartment } = require('./department');
 const { requireProjectScope, requirePackageScope } = require('./projectScope');
 const { requireOwnership } = require('./ownership');
 const { requireEditableState } = require('./recordState');
+const { protectImmutableFields } = require('./immutableFields');
 
 /**
  * @param {Object} opts
@@ -32,6 +33,8 @@ const { requireEditableState } = require('./recordState');
  * @param {'edit'|'delete'|'correct'} [opts.ownershipAction]
  * @param {Function[]} [opts.extraScopeMiddleware] - any additional resource-specific scope middleware
  * @param {Function[]} [opts.businessValidation] - resource-specific validation, run last before the handler
+ * @param {boolean} [opts.protectImmutable] - set false to skip immutable-field protection (read routes)
+ * @param {'strip'|'reject'} [opts.immutableFieldMode='strip'] - 'reject' returns 422 on an attempted change
  * @returns {Function[]} an Express middleware array, in the frozen order, ending just before the handler
  */
 function buildProtectedRoute({
@@ -49,6 +52,8 @@ function buildProtectedRoute({
   extraScopeMiddleware = [],
   businessValidation = [],
   checkState = false,
+  protectImmutable,
+  immutableFieldMode = 'strip',
 }) {
   const chain = [auth, enforceTenantScope];
   if (entitlement) chain.push(loadEntitlements, requireEntitlement(entitlement));
@@ -62,6 +67,13 @@ function buildProtectedRoute({
   if (loadRecord) {
     chain.push(requireOwnership({ resource, loadRecord, action: ownershipAction, overridePermissionCode }));
     if (checkState) chain.push(requireEditableState({ resource, loadRecord: () => Promise.resolve(null) })); // req.record already set by requireOwnership
+  }
+  // Phase 4 §12/§16 — immutable system fields (_id / companyId / createdByUserId / createdAt /
+  // approval + audit history / any module-declared field) are protected on every mutating route,
+  // AFTER ownership so the stored record is available for a value-aware comparison in 'reject' mode.
+  // Runs on record-mutation routes only; a read-only route has no payload to protect.
+  if (protectImmutable !== false && (loadRecord || ownershipAction !== 'edit')) {
+    chain.push(protectImmutableFields({ resource, mode: immutableFieldMode }));
   }
   chain.push(...businessValidation);
   return chain;

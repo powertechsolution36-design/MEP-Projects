@@ -59,13 +59,29 @@ async function submit({ req, resource, resourceId, action, payload, ruleIds = []
 }
 
 /**
+ * isSelfApproval — the deciding user is the same person who raised the request (i.e. the creator of
+ * the underlying record). V3 PHASE 4 spec §24: "Creator cannot approve own record when
+ * self-approval is prohibited by workflow." Prohibited by DEFAULT — a rule must opt in explicitly
+ * with `allowSelfApproval: true`, so a workflow can never permit it by omission.
+ */
+function isSelfApproval(user, request) {
+  if (!user || !request || request.requesterId == null) return false;
+  return String(request.requesterId) === String(user._id ?? user.id);
+}
+
+/**
  * A user may decide an ApprovalRequest only if they hold approval authority for it — a permission
  * grant (APPROVE/REJECT), never merely because they own the underlying record. Ownership and
  * approval authority are deliberately separate axes (STEP requirement: "approver permissions
  * separate from ownership").
+ *
+ * PHASE 4 (§24): self-approval is checked FIRST and applies to every role including super — a
+ * Support-Op Super Admin has no standing exemption from a workflow's separation-of-duties rule.
+ * `request` is optional so existing callers that only need the authority check are unaffected.
  */
-function canDecide(user, rule) {
+function canDecide(user, rule, request) {
   if (!user) return false;
+  if (request && isSelfApproval(user, request) && rule?.allowSelfApproval !== true) return false;
   if (user.role === 'super') return true;
   if (rule && Array.isArray(rule.approvers) && rule.approvers.length) {
     return rule.approvers.some((a) => (a.userId && String(a.userId) === String(user._id)) || (a.role && a.role === user.role) || (a.role && a.role === user.designation));
@@ -92,7 +108,12 @@ async function decide({ req, requestId, decision, note, rule, execute }) {
   if (request.status !== 'pending') {
     throw new ApprovalError(`Approval request is already ${request.status} — cannot decide again`, 'ALREADY_DECIDED');
   }
-  if (!canDecide(req.user, rule)) {
+  // Separation of duties (§24) gets its own error code so an API layer can tell "you are not an
+  // approver" apart from "you may not approve your own request".
+  if (isSelfApproval(req.user, request) && rule?.allowSelfApproval !== true) {
+    throw new ApprovalError('Self-approval is not permitted for this workflow', 'SELF_APPROVAL_FORBIDDEN');
+  }
+  if (!canDecide(req.user, rule, request)) {
     throw new ApprovalError('No approval authority for this request', 'FORBIDDEN');
   }
 
@@ -181,4 +202,4 @@ async function invalidatePending({ req, resource, resourceId, reason }) {
   return pending.length;
 }
 
-module.exports = { submit, decide, canDecide, invalidatePending, executeApproved, ApprovalError };
+module.exports = { submit, decide, canDecide, isSelfApproval, invalidatePending, executeApproved, ApprovalError };
