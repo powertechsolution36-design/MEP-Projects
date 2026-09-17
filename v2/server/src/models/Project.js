@@ -6,6 +6,7 @@ const ChkItemSchema = new mongoose.Schema({
   by: String,
   at: Date,
   notes: String,
+  meta: { type: mongoose.Schema.Types.Mixed, default: {} },
 }, { _id: false });
 
 const UpdateSchema = new mongoose.Schema({
@@ -13,6 +14,7 @@ const UpdateSchema = new mongoose.Schema({
   at: { type: Date, default: Date.now },
   text: String,
   photos: [String],
+  meta: { type: mongoose.Schema.Types.Mixed, default: {} },
 }, { _id: false });
 
 const DcSchema = new mongoose.Schema({
@@ -21,6 +23,7 @@ const DcSchema = new mongoose.Schema({
   type: String,
   ref: String,
   note: String,
+  meta: { type: mongoose.Schema.Types.Mixed, default: {} },
 }, { _id: false });
 
 const ProjectSchema = new mongoose.Schema({

@@ -30,6 +30,7 @@ const InvIssueSchema = new mongoose.Schema({
   notes: String,
   issuedBy: String,
   returnRequests: [ReturnRequestSchema],
+  meta: { type: mongoose.Schema.Types.Mixed, default: {} },
 }, { timestamps: true });
 
 module.exports = mongoose.model('InvIssue', InvIssueSchema);

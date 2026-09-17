@@ -2,7 +2,7 @@
    Cache-first for the app shell so the app opens instantly and works offline.
    Bump CACHE_VERSION whenever index.html changes to push an update to installed devices. */
 
-const CACHE_VERSION = 'mep-projects-v5-font-selective';
+const CACHE_VERSION = 'mep-projects-v6-v2-api';
 const SHELL = [
   './',
   './index.html',

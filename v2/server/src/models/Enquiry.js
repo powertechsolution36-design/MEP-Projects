@@ -20,6 +20,7 @@ const EnquirySchema = new mongoose.Schema({
   value: { type: Number, default: 0 },
   owner: String,
   log: [LogSchema],
+  meta: { type: mongoose.Schema.Types.Mixed, default: {} },
 }, { timestamps: true });
 
 module.exports = mongoose.model('Enquiry', EnquirySchema);

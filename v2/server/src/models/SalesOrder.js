@@ -20,6 +20,7 @@ const SalesOrderSchema = new mongoose.Schema({
   total: { type: Number, default: 0 },
   status: { type: String, enum: ['draft', 'confirmed', 'delivered', 'cancelled'], default: 'draft', index: true },
   notes: String,
+  meta: { type: mongoose.Schema.Types.Mixed, default: {} },
 }, { timestamps: true });
 
 module.exports = mongoose.model('SalesOrder', SalesOrderSchema);

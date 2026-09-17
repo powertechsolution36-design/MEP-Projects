@@ -487,185 +487,696 @@ function api(method, path, body) {
   if (TOKEN) opts.headers['Authorization'] = 'Bearer ' + TOKEN;
   if (body) opts.body = JSON.stringify(body);
   return fetch(API_BASE + path, opts).then(function(r) {
-    if (!r.ok) return r.json().then(function(e) { throw new Error(e.error || 'API error ' + r.status); });
-    return r.json();
+    return r.text().then(function(txt){
+      var data=null; try{ data=txt?JSON.parse(txt):{}; }catch(e){ data={error:txt||('API error '+r.status)}; }
+      if(!r.ok) throw new Error(data.error || 'API error ' + r.status);
+      return data;
+    });
   });
 }
 
-// Socket.IO initialization for real-time sync
-function initWebSocket() {
-  if (!TOKEN) return;
-  // Close existing connection if any
-  if (SOCKET) {
-    SOCKET.disconnect();
-    SOCKET = null;
+/* ================= V2 COMPATIBILITY ADAPTER =================
+ * The legacy PWA keeps its own DB shape, its own small integer ids, and all of
+ * its existing screen code. V2 is the authoritative backend.
+ *
+ * WRITE-SAFETY RULES (these are the whole point of this layer):
+ *   1. An UPDATE never rebuilds a V2 document. It sends ONLY the fields that
+ *      (a) appear in that resource's whitelist below AND (b) the user actually
+ *      changed since the record was loaded.
+ *   2. A V2 field the PWA has no real equivalent for is NEVER written, NEVER
+ *      zeroed and NEVER emptied. Notably untouched on every write:
+ *        SalesOrder.items / .subtotal / .tax   (V2 recalculates these; sending
+ *              items would make salesOrders.js recompute subtotal+total to 0)
+ *        Project.value
+ *        Payment.project (a Mongo ref; the PWA only holds a project NAME)
+ *        InvItem.qty (owned by V2's own transaction/issue stock arithmetic —
+ *              InvItem.stock[] is a parallel per-location view and is NEVER
+ *              used to recompute qty, in either direction)
+ *   3. Human-readable V2 text fields are never used as metadata storage and are
+ *      never overwritten on an update:
+ *        Enquiry.subject, SalesOrder.notes, Contract.notes, Project.notes,
+ *        Checklist.desc, InvItem.desc
+ *      Three text fields are written on CREATE ONLY (marked createOnly below),
+ *      where there is no existing value to destroy:
+ *        Payment.notes, InvIssue.notes, InvTransaction.notes
+ *   4. PWA-only fields are persisted under `meta.pwa` on every model that has a
+ *      `meta: Mixed` field, merged into the server's existing meta so no other
+ *      meta key is ever dropped. Array sub-documents carry their PWA-only data
+ *      in their own `meta` (Project.chk[].meta / .updates[].meta / .dc[].meta),
+ *      leaving the V2-owned sub-document fields authoritative and readable.
+ */
+var V2_RES = {
+  companies:'companies', users:'users', enquiries:'enquiries', sos:'sales-orders',
+  projects:'projects', svcCalls:'service-calls', contracts:'contracts', payments:'payments',
+  chklists:'checklists', invCats:'inventory/categories', invLocs:'inventory/locations',
+  invItems:'inventory/items', invIssues:'inventory/issues', invTxns:'inventory/transactions'
+};
+// V2 broadcast resource name -> legacy DB collection (verified against every
+// broadcastUpdate()/broadcastDelete() call in v2/server/src/routes/*).
+var V2_SOCK = {
+  company:'companies', user:'users', enquiry:'enquiries', salesorder:'sos', project:'projects',
+  servicecall:'svcCalls', contract:'contracts', payment:'payments', checklist:'chklists',
+  invcategory:'invCats', invlocation:'invLocs', invitem:'invItems', invissue:'invIssues',
+  invtransaction:'invTxns', notification:'notifs'
+};
+
+/* Private adapter state. Screen code never reads these.
+ *   DB_META.srv[coll][apiId] = the raw V2 document as last seen from the server
+ *   DB_META.pwa[coll][apiId] = the legacy object as it looked right after load
+ * The pwa snapshot is what "changed field" detection diffs against; the srv
+ * snapshot is what lets a meta merge keep the server's other meta keys.
+ */
+var DB_META = { srv:{}, pwa:{} };
+var _syncPending = false, _syncRunning = false;
+var STOCK_DRIFT = [];   // items where sum(stock[]) !== qty; reported, never auto-fixed
+
+function cloneJSON(x){ try{ return JSON.parse(JSON.stringify(x)); }catch(e){ return x; } }
+function apiId(x){ if(!x) return ''; return String(x._apiId || x._id || ''); }
+function isObjId(v){ return typeof v==='string' && /^[0-9a-fA-F]{24}$/.test(v); }
+function num(v){ var n=Number(v); return isFinite(n)?n:0; }
+function dstr(v){ return v?String(v).slice(0,10):''; }
+function sameVal(a,b){ return JSON.stringify(a===undefined?null:a)===JSON.stringify(b===undefined?null:b); }
+function intOrUndef(v){ var n=Number(v); return (v!==''&&v!==null&&v!==undefined&&Number.isInteger(n))?n:undefined; }
+
+/* ---- legacy <-> V2 status vocabularies ---- */
+var ENQ_OUT={Open:'new',Contacted:'contacted',Quoted:'quoted',Won:'won',Lost:'lost'};
+var ENQ_IN={'new':'Open',contacted:'Contacted',quoted:'Quoted',won:'Won',lost:'Lost'};
+var SO_OUT={Draft:'draft',Open:'draft',Confirmed:'confirmed',Delivered:'delivered',Cancelled:'cancelled'};
+var SO_IN={draft:'Draft',confirmed:'Confirmed',delivered:'Delivered',cancelled:'Cancelled'};
+var PRJ_OUT={Ongoing:'active','In Service':'active',Completed:'completed',Cancelled:'cancelled',Onhold:'onhold',Planning:'planning'};
+var PRJ_IN={active:'Ongoing',completed:'Completed',cancelled:'Cancelled',onhold:'Onhold',planning:'Planning'};
+// V2 now carries a real 'scheduled' status, so a booked PM visit no longer has
+// to masquerade as 'assigned'.
+var SVC_OUT={Registered:'open',Assigned:'assigned',Scheduled:'scheduled','In Progress':'inprogress','On Hold':'onhold',Completed:'closed'};
+var SVC_IN={open:'Registered',assigned:'Assigned',scheduled:'Scheduled',inprogress:'In Progress',onhold:'On Hold',closed:'Completed'};
+var SVCTYPE_OUT={Complaint:'breakdown',PM:'amc',Installation:'installation',Inspection:'inspection',Other:'other'};
+var SVCTYPE_IN={breakdown:'Complaint',amc:'PM',installation:'Installation',inspection:'Inspection',other:'Other'};
+var CON_OUT={Active:'active','Expiring Soon':'active',Expired:'expired',Renewed:'renewed',Cancelled:'cancelled'};
+var CON_IN={active:'Active',expired:'Expired',renewed:'Renewed',cancelled:'Cancelled'};
+// PWA `cat` (what kind of cover) -> V2 Contract.type ; PWA `amcType` (how often) -> V2 Contract.freq
+var CONCAT_OUT={AMC:'AMC',CAMC:'CAMC',Warranty:'Warranty','One-time':'One-time',Rental:'Rental'};
+var CONCAT_IN={AMC:'AMC',CAMC:'CAMC',Warranty:'Warranty','One-time':'One-time',Rental:'Rental',Other:'AMC'};
+var CONFREQ_OUT={Monthly:'monthly',Quarterly:'quarterly','Half-Yearly':'halfyearly',Yearly:'yearly'};
+var CONFREQ_IN={monthly:'Monthly',quarterly:'Quarterly',halfyearly:'Half-Yearly',yearly:'Yearly'};
+var PAY_OUT={Pending:'pending',Received:'paid',Partial:'partial',Overdue:'overdue'};
+var PAY_IN={pending:'Pending',paid:'Received',partial:'Pending',overdue:'Pending'};
+/* V2's POST /inventory/transactions applies stock arithmetic from `type`:
+ *   in -> qty+=, out -> qty-=, adjust -> qty= (absolute), transfer -> no change.
+ * The PWA's own ledger entry records the direction in from/to, and its local
+ * moveStock() has already applied exactly that delta, so the coarse V2 type is
+ * derived from the direction rather than from the label. That makes V2's qty
+ * move by the same delta as the PWA's per-location stock, every time:
+ *   ""   -> loc   an inward move            -> 'in'
+ *   loc  -> ""    an outward move           -> 'out'
+ *   loc  -> loc   a relocation              -> 'transfer' (no net change)
+ *   ""   -> ""    a ledger-only entry       -> 'transfer' (no net change)
+ * The last case covers Consumed and Damage / Write-off: that material left the
+ * warehouse when it was issued, so writing it off again would deduct it twice.
+ * 'adjust' is never sent — it would overwrite qty with an absolute value.
+ * The exact PWA label always travels in `subtype`.
+ */
+function txnType(r){
+  var f=r&&r.from, t=r&&r.to;
+  var hasF=!(f===''||f===undefined||f===null||f===0), hasT=!(t===''||t===undefined||t===null||t===0);
+  if(hasT&&!hasF) return 'in';
+  if(hasF&&!hasT) return 'out';
+  return 'transfer';
+}
+var TXN_IN={'in':'Purchase In',out:'Issue',adjust:'Adjustment',transfer:'Transfer'};
+function mapv(table,v,dflt){ var k=table[v]; return k!==undefined?k:(dflt!==undefined?dflt:v); }
+
+/* ============ READERS: V2 document -> legacy PWA object ============ */
+function legacyOf(x){ return (x && x.meta && x.meta.pwa) || {}; }
+function subMeta(x){ return (x && x.meta) || {}; }
+function base(x){ return Object.assign({}, x, { _apiId:String(x._id) }); }
+
+function fromV2Company(x){ var L=legacyOf(x);
+  return Object.assign(base(x),{ name:x.name||'', code:x.code||'', addr:x.address||'', phone:x.phone||'',
+    email:x.email||'', gst:x.gstin||'', logo:x.logo||'', divs:x.divs||['MEP','HVAC','Solar'],
+    city:L.city||'', tagline:L.tagline||'', contacts:L.contacts||[{n:'',ph:''},{n:'',ph:''}],
+    subRate:L.subRate||'', subCycle:L.subCycle||'Monthly', subStart:L.subStart||'', subEnd:L.subEnd||'',
+    trialEnd:L.trialEnd||'', since:L.since||dstr(x.createdAt),
+    status:L.status||(x.disabled?'Suspended':'Active') });
+}
+function fromV2User(x){
+  var role = x.role==='store'?'inventory' : x.role==='accounts'?'finance' : x.role;
+  return Object.assign(base(x),{ role:role, pw:'********' });
+}
+function fromV2Enquiry(x){ var L=legacyOf(x);
+  return Object.assign(base(x),{ name:x.client||'', contact:x.contact||'', phone:x.phone||'',
+    email:x.email||'', seg:x.source||'', remark:x.desc||'', value:x.value||0, owner:x.owner||'',
+    status:mapv(ENQ_IN,x.status,'Open'),
+    siteType:L.siteType||'', cap:L.cap||'', ref:L.ref||'', rating:num(L.rating),
+    review:L.review||'', done:L.done||'', nextDate:L.nextDate||'', next:L.next||'',
+    lostReason:L.lostReason||'', lostDate:L.lostDate||'',
+    log:(x.log||[]).map(function(l){ return { d:dstr(l.at), t:l.note||l.action||'' }; }) });
+}
+function fromV2SO(x){ var L=legacyOf(x);
+  return Object.assign(base(x),{ no:x.no, date:dstr(x.date), project:L.project||x.client||'',
+    div:L.div||'', start:L.start||'', end:L.end||'', addr:L.addr||'',
+    contacts:L.contacts||(x.contact?[{n:x.client||'',dg:'',ph:x.contact,em:''}]:[{n:'',dg:'',ph:'',em:''},{n:'',dg:'',ph:'',em:''}]),
+    salesTeam:L.salesTeam||'', projTeam:L.projTeam||'', crucial:L.crucial||'',
+    hsSell:num(L.hsSell), hsPur:num(L.hsPur), lsCost:num(L.lsCost),
+    lsTarget:num(L.lsTarget), lsActual:num(L.lsActual), terms:L.terms||'',
+    total:x.total||0, status:mapv(SO_IN,x.status,'Draft'), pay:L.pay||[] });
+}
+function fromV2Project(x){ var L=legacyOf(x);
+  var chk=(x.chk||[]).map(function(c){ var m=subMeta(c);
+    return { text:c.title||'', sign:m.sign||'', done:!!c.done, date:m.date||dstr(c.at)||'',
+             pmSign:!!m.pmSign, remark:c.notes||'', photos:m.photos||[],
+             appr:m.appr||null, plan:m.plan||'' }; });
+  var updates=(x.updates||[]).map(function(u){ var m=subMeta(u);
+    return { d:dstr(u.at), done:m.done!==undefined?m.done:(u.text||''), nd:m.nd||'', next:m.next||'', by:u.by||'' }; });
+  var dc=(x.dc||[]).map(function(d){ var m=subMeta(d);
+    return { no:m.no!==undefined?m.no:(d.ref||''), date:m.date||dstr(d.at), item:m.item||'',
+             qty:num(m.qty), unit:m.unit||'', ret:!!m.ret, rqty:num(m.rqty),
+             by:d.by||'', remark:d.note||'' }; });
+  return Object.assign(base(x),{ name:x.name||'', customer:x.client||'', site:x.site||'', div:x.div||'',
+    status:L.status||mapv(PRJ_IN,x.status,'Ongoing'), start:dstr(x.start), end:dstr(x.target),
+    engs:x.engs||[], pm:x.pm||'', soNo:L.soNo!=null?L.soNo:0, siteType:L.siteType||'', cap:L.cap||'',
+    stage:L.stage||'', vendor:L.vendor||'', timelineSet:!!L.timelineSet, chkName:L.chkName||'',
+    chk:chk, updates:updates, dc:dc });
+}
+function fromV2Svc(x){ var L=legacyOf(x);
+  return Object.assign(base(x),{ psc:x.psc, customer:x.client||'', site:x.site||'', contact:x.contact||'',
+    phone:x.phone||'', type:L.type||mapv(SVCTYPE_IN,x.type,'Other'),
+    status:mapv(SVC_IN,x.status,'Registered'), eng:x.eng||'',
+    date:dstr(x.scheduled), time:L.time||'', complaint:L.complaint||x.desc||'', desc:x.desc||'',
+    actions:x.actions||'', regDate:L.regDate||dstr(x.createdAt),
+    report:L.report||null, sig:L.sig||'',
+    contractId:x.contract?String(x.contract):(L.contractId||0) });
+}
+function fromV2Contract(x){ var L=legacyOf(x);
+  return Object.assign(base(x),{ no:x.no||'', customer:x.client||'', site:x.site||'',
+    amcType:L.amcType||mapv(CONFREQ_IN,x.freq,'Quarterly'),
+    cat:mapv(CONCAT_IN,x.type,'AMC'),
+    start:dstr(x.start), end:dstr(x.end), amount:x.value||0,
+    status:mapv(CON_IN,x.status,'Active'),
+    phone:L.phone||'', email:L.email||'', cap:L.cap||'',
+    fromProject:x.fromProject?String(x.fromProject):(L.fromProject||0),
+    svcs:(x.svcs||[]).map(function(v,i){ var mm=(L.svcMonths||[])[i];
+      return { m:mm||(v.due?String(v.due).slice(0,7):''),
+               done:v.done?(dstr(v.doneAt)||dstr(v.due)):'', eng:v.eng||'', notes:v.notes||'' }; }) });
+}
+function fromV2Payment(x){ var L=legacyOf(x);
+  return Object.assign(base(x),{ client:x.client||'', person:x.client||'',
+    project:L.projectName||'', phone:L.phone||'',
+    amount:x.amount||0, invNo:x.invNo||'', invDate:dstr(x.invDate), due:dstr(x.due),
+    status:mapv(PAY_IN,x.status,'Pending'),
+    remark:L.remark||x.notes||'', lastCall:L.lastCall||'', disc:L.disc||'',
+    nextCall:L.nextCall||'', rcvDate:L.rcvDate||'', raised:L.raised||null,
+    soNo:(x.soNo===undefined||x.soNo===null)?'':x.soNo,
+    mi:(x.milestoneIndex===undefined||x.milestoneIndex===null)?undefined:x.milestoneIndex,
+    paid:(x.paid||[]).map(function(p){ return { amt:p.amt, date:dstr(p.at), mode:p.mode||'',
+      ref:p.ref||'', remark:p.remark||'', inv:!!p.invoiced, by:p.by||'' }; }) });
+}
+function fromV2Checklist(x){ var L=legacyOf(x);
+  return Object.assign(base(x),{ name:x.name||'', div:x.div||'', def:!!x.isDefault,
+    by:L.by||'', date:L.date||dstr(x.createdAt),
+    items:(x.items||[]).map(function(i){ return { text:i.title||'', sign:!!i.sign, required:!!i.required }; }) });
+}
+function fromV2InvItem(x){
+  // Per-location map from V2's stock[] when it has been populated; otherwise the
+  // legacy single-location fallback so a pre-existing V2 item still shows stock.
+  var stock={}, n=0;
+  (x.stock||[]).forEach(function(s){ if(!s||!s.location) return; stock[String(s.location)]=num(s.qty); n++; });
+  if(!n && x.location) stock[String(x.location)]=num(x.qty);
+  return Object.assign(base(x),{ code:x.code||'', name:x.name||'', cat:x.cat?String(x.cat):'',
+    unit:x.unit||'nos', min:x.minQty||0, rate:x.rate||0, qty:num(x.qty),
+    location:x.location?String(x.location):'', stock:stock, ret:!!x.returnable, desc:x.desc||'' });
+}
+function fromV2InvIssue(x){ var L=legacyOf(x);
+  var line=(x.items&&x.items[0])||{};
+  var q=num(line.qty), r=num(line.returnedQty), c=num(line.consumedQty);
+  return Object.assign(base(x),{ item:line.item?String(line.item):'', qty:q, rqty:r, used:c,
+    staff:x.staff||'', site:x.site||'', projId:x.project?String(x.project):'',
+    loc:x.location?String(x.location):'', date:L.date||dstr(x.createdAt),
+    ret:!!L.ret, by:x.issuedBy||'', remark:L.remark||x.notes||'',
+    retReq:!!L.retReq, retReqQty:num(L.retReqQty), retReqDate:L.retReqDate||'', retReqNote:L.retReqNote||'',
+    status:'' });   // recomputed below by issStatus(), which is the PWA's own rule
+}
+function fromV2InvTxn(x){
+  return Object.assign(base(x),{ date:dstr(x.createdAt), type:x.subtype||mapv(TXN_IN,x.type,'Adjustment'),
+    item:x.item?String(x.item):'', qty:x.qty||0, rate:x.rate||0, ref:x.ref||'', by:x.by||'',
+    from:x.fromLocation?String(x.fromLocation):'', to:x.toLocation?String(x.toLocation):'',
+    remark:x.notes||'' });
+}
+function fromV2Notif(x){
+  return Object.assign(base(x),{ id:String(x._id), text:x.body||x.title||'', title:x.title||'',
+    date:dstr(x.createdAt), roles:x.roles||['*'], read:(x.read||[]).map(String) });
+}
+var V2_READ = { companies:fromV2Company, users:fromV2User, enquiries:fromV2Enquiry, sos:fromV2SO,
+  projects:fromV2Project, svcCalls:fromV2Svc, contracts:fromV2Contract, payments:fromV2Payment,
+  chklists:fromV2Checklist, invCats:base, invLocs:base, invItems:fromV2InvItem,
+  invIssues:fromV2InvIssue, invTxns:fromV2InvTxn, notifs:fromV2Notif };
+function fromV2Collection(coll,x){ return (V2_READ[coll]||base)(x); }
+
+/* ============ WRITE WHITELISTS ============
+ * [legacyField, v2Field, transform?, opts?]  — transform receives (value, record).
+ * opts.createOnly: send this field on CREATE only (used for the three V2 text
+ *   fields that have no existing value on a brand-new document but are real
+ *   human-readable fields afterwards).
+ * `meta:true` means the V2 model really has `meta: Mixed`; PWA-only fields are
+ *   then persisted under meta.pwa, merged into the server's existing meta.
+ * `required` fields are always included on CREATE (V2 schema requires them).
+ */
+var V2_WRITE = {
+  companies:{ meta:true, required:['name'],
+    fields:[['name','name'],['code','code'],['addr','address'],['phone','phone'],['email','email'],
+            ['gst','gstin'],['logo','logo'],['divs','divs'],
+            ['status','disabled',function(v){ return v==='Suspended'; }]],
+    legacy:['city','tagline','contacts','subRate','subCycle','subStart','subEnd','trialEnd','since','status'] },
+
+  users:{ required:['un','name'],
+    fields:[['un','un'],['name','name'],['email','email'],['phone','phone'],['disabled','disabled'],
+            ['role','role',function(v){ return v==='inventory'?'store':v==='finance'?'accounts':v; }],
+            ['pw','pw',function(v){ return (v && v!=='********')?v:undefined; }]] },
+  // designation/department/division are NEVER written: User.pre('validate') derives
+  // `role` from them, so sending a stale pair would silently change the role.
+
+  enquiries:{ meta:true, required:['client'],
+    fields:[['name','client'],['contact','contact'],['phone','phone'],['email','email'],
+            ['seg','source'],['remark','desc'],['value','value',num],
+            ['status','status',function(v){ return mapv(ENQ_OUT,v,'new'); }],['owner','owner'],
+            ['log','log',function(v){ return (v||[]).map(function(l){ return { at:l.d||undefined,
+              by:l.by||'', action:l.action||'', note:l.t||'' }; }); }]],
+    legacy:['siteType','cap','ref','rating','review','done','nextDate','next','lostReason','lostDate'] },
+  // Enquiry.subject is NOT in the list on purpose — it is a real V2 text field.
+
+  sos:{ meta:true, required:['client'],
+    fields:[['project','client'],['status','status',function(v){ return mapv(SO_OUT,v,'draft'); }],
+            ['total','total',num],
+            ['contacts','contact',function(v){ var c=(v||[])[0]; return c?(c.ph||''):undefined; }]],
+    legacy:['project','div','start','end','addr','contacts','salesTeam','projTeam','crucial',
+            'hsSell','hsPur','lsCost','lsTarget','lsActual','terms','pay'] },
+  // items / subtotal / tax are NEVER sent: salesOrders.js recalc() only runs when
+  // `items` is an array in the body, so omitting it leaves all money fields intact.
+  // `total` travels only when the PWA's typed total actually changed.
+  // notes is a real V2 text field and is never written.
+
+  projects:{ meta:true, required:['name'],
+    fields:[['name','name'],['customer','client'],['site','site'],['div','div'],
+            ['status','status',function(v){ return mapv(PRJ_OUT,v,'planning'); }],
+            ['start','start'],['end','target'],['engs','engs'],['pm','pm'],
+            ['chk','chk',function(v){ return (v||[]).map(function(c){ return { title:c.text||'',
+              done:!!c.done, by:(c.appr&&c.appr.by)||'', at:c.date||undefined, notes:c.remark||'',
+              meta:{ sign:c.sign||'', pmSign:!!c.pmSign, photos:c.photos||[],
+                     appr:c.appr||null, date:c.date||'', plan:c.plan||'' } }; }); }],
+            ['updates','updates',function(v){ return (v||[]).map(function(u){ return { by:u.by||'',
+              at:u.d||undefined, text:u.done||'', photos:u.photos||[],
+              meta:{ done:u.done||'', nd:u.nd||'', next:u.next||'' } }; }); }],
+            ['dc','dc',function(v){ return (v||[]).map(function(d){ return { by:d.by||'',
+              at:d.date||undefined, type:d.ret?'Returnable':'Consumable', ref:String(d.no||''),
+              note:d.remark||'',
+              meta:{ no:d.no||'', date:d.date||'', item:d.item||'', qty:num(d.qty),
+                     unit:d.unit||'', ret:!!d.ret, rqty:num(d.rqty) } }; }); }]],
+    legacy:['soNo','siteType','cap','stage','vendor','timelineSet','chkName','status'] },
+  // Project.value and Project.notes are never sent — preserved from the V2 record.
+  // chk/updates/dc round-trip their V2-owned fields, so re-sending the array does
+  // not lose data written by the V2 web client.
+
+  svcCalls:{ meta:true, required:[],
+    fields:[['customer','client'],['site','site'],['contact','contact'],['phone','phone'],
+            ['type','type',function(v){ return mapv(SVCTYPE_OUT,v,'other'); }],
+            ['status','status',function(v){ return mapv(SVC_OUT,v,'open'); }],
+            ['eng','eng'],['desc','desc'],['actions','actions'],
+            ['date','scheduled',function(v,r){ return v?(v+(r.time?' '+r.time:'')):undefined; }],
+            ['contractId','contract',function(v){ return serverRef(DB.contracts,v); }]],
+    legacy:['type','time','regDate','report','sig','contractId','complaint'] },
+
+  contracts:{ meta:true, required:['client'],
+    fields:[['no','no'],['customer','client'],['site','site'],
+            ['cat','type',function(v){ return mapv(CONCAT_OUT,v,'AMC'); }],
+            ['amcType','freq',function(v){ return mapv(CONFREQ_OUT,v,'quarterly'); }],
+            ['start','start'],['end','end'],['amount','value',num],
+            ['status','status',function(v){ return mapv(CON_OUT,v,'active'); }],
+            ['fromProject','fromProject',function(v){ return serverRef(DB.projects,v); }],
+            ['svcs','svcs',function(v){ return (v||[]).map(function(s){ return { due:s.m?s.m+'-01':undefined,
+              done:!!s.done, doneAt:s.done||undefined, eng:s.eng||'', notes:s.notes||'' }; }); }]],
+    legacy:['phone','email','cap','amcType','cat',
+            ['svcMonths',function(r){ return (r.svcs||[]).map(function(s){ return s.m||''; }); }]] },
+  // Contract.notes is never written.
+
+  payments:{ meta:true, required:['client'],
+    fields:[['person','client'],['amount','amount',num],['invNo','invNo'],['invDate','invDate'],
+            ['due','due'],['status','status',function(v){ return mapv(PAY_OUT,v,'pending'); }],
+            ['soNo','soNo',intOrUndef],['mi','milestoneIndex',intOrUndef],
+            ['remark','notes',undefined,{createOnly:true}],
+            ['paid','paid',function(v){ return (v||[]).map(function(p){ return { at:p.date||undefined,
+              amt:num(p.amt), mode:p.mode||'', ref:p.ref||'', by:p.by||'',
+              remark:p.remark||'', invoiced:!!p.inv }; }); }]],
+    legacy:['projectName','phone','lastCall','disc','nextCall','rcvDate','raised','remark'] },
+  // Payment.project is a Mongo ref; the PWA only holds a project NAME (sometimes
+  // "<site> (PSC-n)", which is no project at all), so it is never written.
+  // Payment.notes is seeded once on create and never overwritten afterwards.
+
+  chklists:{ meta:true, required:['name'],
+    fields:[['name','name'],['div','div'],['def','isDefault',function(v){ return !!v; }],
+            ['items','items',function(v){ return (v||[]).map(function(i){ return { title:i.text||i.title||'',
+              required:!!i.required, sign:!!i.sign }; }); }]],
+    legacy:['by','date'] },
+  // Checklist.desc is never written. isDefault is NOT enforced unique per
+  // division — the PWA already tolerates several and takes the first.
+
+  invCats:{ required:['name'], fields:[['name','name']] },
+  invLocs:{ required:['name'], fields:[['name','name'],['address','address']] },
+
+  invItems:{ required:['name'],
+    fields:[['code','code'],['name','name'],['unit','unit'],['min','minQty',num],['rate','rate',num],
+            ['ret','returnable',function(v){ return !!v; }],
+            ['cat','cat',function(v){ return serverRef(DB.invCats,v); }],
+            ['location','location',function(v){ return serverRef(DB.invLocs,v); }],
+            ['stock','stock',function(v){ var out=[];
+              Object.keys(v||{}).forEach(function(k){ var loc=serverRef(DB.invLocs,k);
+                if(loc) out.push({ location:loc, qty:num(v[k]) }); });
+              return out; }]] },
+  // InvItem.qty is owned by V2's own stock arithmetic (issues + transactions) and
+  // is NEVER written from here — stock[] is a parallel per-location view only.
+  // InvItem.desc is never written.
+
+  invIssues:{ meta:true, required:['staff'],
+    fields:[['staff','staff'],['site','site'],
+            ['projId','project',function(v){ return serverRef(DB.projects,v)||undefined; }],
+            ['loc','location',function(v){ return serverRef(DB.invLocs,v); }],
+            ['status','status',function(v,r){ var q=num(r.qty),rr=num(r.rqty),c=num(r.used);
+              return (rr+c>=q&&q>0)?'closed':(rr>0||c>0?'partial':'open'); }],
+            ['remark','notes',undefined,{createOnly:true}],
+            ['by','issuedBy']],
+    // V2's issue status is a function of the quantities, so it must be re-sent
+    // whenever a quantity moves even if the legacy status string is unchanged.
+    derived:{ status:['item','qty','rqty','used'] },
+    legacy:['ret','remark','date','retReq','retReqQty','retReqDate','retReqNote'],
+    lines:true },
+  // Quantities travel through items[0]: qty / returnedQty / consumedQty, which is
+  // exactly the PWA's qty - rqty - used balance.
+
+  invTxns:{ required:[], createOnly:true,
+    fields:[['item','item',function(v){ return serverRef(DB.invItems,v); }],
+            ['type','type',function(v,r){ return txnType(r); }],
+            ['type','subtype',function(v){ return v||''; }],
+            ['from','fromLocation',function(v){ return serverRef(DB.invLocs,v); }],
+            ['to','toLocation',function(v){ return serverRef(DB.invLocs,v); }],
+            ['qty','qty',num],['rate','rate',num],['ref','ref'],['by','by'],
+            ['remark','notes',undefined,{createOnly:true}]] }
+  // History is append-only: existing transactions are never PUT and never DELETEd.
+};
+
+/* Resolve a legacy local id back to the Mongo id V2 expects for a reference. */
+function serverRef(arr,v){
+  if(v===undefined||v===null||v==='') return undefined;
+  if(isObjId(v)) return v;
+  var hit=(arr||[]).find(function(x){ return String(x.id)===String(v); });
+  return hit?apiId(hit):undefined;
+}
+/* legacy[] entries are either a plain key or [metaKey, fn(record)] for a value
+ * the PWA computes rather than stores. */
+function legacyKeys(spec){ return (spec.legacy||[]).map(function(e){ return Array.isArray(e)?e[0]:e; }); }
+function legacySrcKeys(spec){
+  var out=[]; (spec.legacy||[]).forEach(function(e){ if(!Array.isArray(e)) out.push(e); });
+  return out;
+}
+
+function changedKeys(coll,cur,snap){
+  var out=[]; var spec=V2_WRITE[coll];
+  var keys=spec.fields.map(function(f){ return f[0]; }).concat(legacySrcKeys(spec));
+  if(spec.lines) keys=keys.concat(['item','qty','rqty','used']);
+  if(coll==='payments') keys=keys.concat(['project']);          // meta.projectName source
+  if(coll==='contracts') keys=keys.concat(['svcs']);            // meta.svcMonths source
+  keys.forEach(function(k){ if(out.indexOf(k)<0 && !sameVal(cur[k], snap?snap[k]:undefined)) out.push(k); });
+  return out;
+}
+
+/* Build the minimal body. isNew=true -> include whitelist + required fields. */
+function buildBody(coll,cur,snap,isNew){
+  var spec=V2_WRITE[coll], body={}, changed=isNew?null:changedKeys(coll,cur,snap);
+  if(changed && spec.derived){
+    Object.keys(spec.derived).forEach(function(target){
+      if(changed.indexOf(target)<0 && spec.derived[target].some(function(t){ return changed.indexOf(t)>=0; }))
+        changed.push(target);
+    });
   }
-
-  SOCKET = io(API_BASE, {
-    auth: { token: TOKEN },
-    transports: ['websocket', 'polling'],
-    reconnection: true,
-    reconnectionAttempts: Infinity,
-    reconnectionDelay: 3000,
-    reconnectionDelayMax: 10000
+  spec.fields.forEach(function(f){
+    var lk=f[0], vk=f[1], xf=f[2], opt=f[3]||{};
+    if(opt.createOnly && !isNew) return;
+    if(!isNew && changed.indexOf(lk)<0) return;
+    var val = xf ? xf(cur[lk],cur) : cur[lk];
+    if(val===undefined) return;
+    body[vk]=val;
   });
-
-  SOCKET.on('connect', function() {
-    console.log('[WebSocket] Connected');
-    SOCKET_CONNECTED = true;
-    toast('🔄 Connected to live data sync');
-  });
-
-  SOCKET.on('connected', function(msg) {
-    console.log('[WebSocket] Authenticated:', msg.clientId);
-  });
-
-  SOCKET.on('data:update', function(msg) {
-    applyRemoteUpdate(msg);
-  });
-
-  SOCKET.on('data:delete', function(msg) {
-    applyRemoteDelete(msg);
-  });
-
-  SOCKET.on('data:bulk', function(msg) {
-    applyRemoteBulk(msg);
-  });
-
-  SOCKET.on('pong', function() {
-    // Keep-alive response received
-  });
-
-  SOCKET.on('connect_error', function(error) {
-    console.error('[WebSocket] Connection error:', error.message);
-    SOCKET_CONNECTED = false;
-  });
-
-  SOCKET.on('disconnect', function(reason) {
-    console.log('[WebSocket] Disconnected:', reason);
-    SOCKET_CONNECTED = false;
-    if (reason !== 'io client disconnect') {
-      toast('⚠️ Live sync disconnected - reconnecting...');
+  (spec.required||[]).forEach(function(vk){
+    if(isNew && body[vk]===undefined){
+      var f=spec.fields.find(function(z){ return z[1]===vk; });
+      var val=f?(f[2]?f[2](cur[f[0]],cur):cur[f[0]]):undefined;
+      body[vk]= val===undefined?'':val;
     }
   });
+  if(spec.lines && (isNew || changed.indexOf('item')>=0 || changed.indexOf('qty')>=0 ||
+      changed.indexOf('rqty')>=0 || changed.indexOf('used')>=0)){
+    var it=(DB.invItems||[]).find(function(z){ return String(z.id)===String(cur.item); })||{};
+    body.items=[{ item:serverRef(DB.invItems,cur.item), name:it.name||'', qty:num(cur.qty),
+                  unit:it.unit||'', returnedQty:num(cur.rqty), consumedQty:num(cur.used) }];
+  }
+  if(spec.meta){
+    var srcKeys=legacySrcKeys(spec).concat(coll==='payments'?['project']:[]).concat(coll==='contracts'?['svcs']:[]);
+    var legacyChanged = isNew || srcKeys.some(function(k){ return changed.indexOf(k)>=0; });
+    if(legacyChanged){
+      var srv=(DB_META.srv[coll]||{})[apiId(cur)]||{};
+      var meta=Object.assign({}, srv.meta||{});
+      meta.pwa=Object.assign({}, meta.pwa||{});
+      (spec.legacy||[]).forEach(function(e){
+        if(Array.isArray(e)) meta.pwa[e[0]]=e[1](cur);
+        else meta.pwa[e]=cur[e];
+      });
+      if(coll==='payments') meta.pwa.projectName=cur.project||'';
+      body.meta=meta;
+    }
+  }
+  return body;
+}
 
-  SOCKET.on('reconnect', function(attemptNumber) {
-    console.log('[WebSocket] Reconnected after', attemptNumber, 'attempts');
-    SOCKET_CONNECTED = true;
-    toast('🔄 Live sync restored');
+/* ============ LOAD ============ */
+function rekeyLocalIds(coll,arr){
+  var used={}, next=0;
+  (arr||[]).forEach(function(x){ var n=Number(x&&x.id); if(Number.isInteger(n)&&n>0){ used[n]=true; if(n>next)next=n; } });
+  (arr||[]).forEach(function(x){ if(!x) return; var n=Number(x.id);
+    if(!Number.isInteger(n)||n<=0){ do{ n=++next; }while(used[n]); used[n]=true; x.id=n; } else { x.id=n; } });
+}
+function localRef(arr,v){
+  if(v===undefined||v===null||v==='') return v;
+  var hit=(arr||[]).find(function(x){ return apiId(x)===String(v); });
+  if(hit) return hit.id;
+  var n=Number(v); if(Number.isInteger(n)&&n>0){ hit=(arr||[]).find(function(z){ return Number(z.id)===n; }); if(hit) return hit.id; }
+  return v;
+}
+function normalizeLegacyRefs(){
+  ['invCats','invLocs','invItems','invIssues','invTxns','projects','contracts','svcCalls'].forEach(function(k){ DB[k]=DB[k]||[]; });
+  DB.invItems.forEach(function(i){
+    i.cat=localRef(DB.invCats,i.cat); i.location=localRef(DB.invLocs,i.location);
+    var st={}; Object.keys(i.stock||{}).forEach(function(k){ st[String(localRef(DB.invLocs,k))]=i.stock[k]; }); i.stock=st;
+  });
+  DB.invIssues.forEach(function(x){ x.item=localRef(DB.invItems,x.item); x.loc=localRef(DB.invLocs,x.loc); x.projId=localRef(DB.projects,x.projId); });
+  DB.invTxns.forEach(function(x){ x.item=localRef(DB.invItems,x.item); x.from=localRef(DB.invLocs,x.from); x.to=localRef(DB.invLocs,x.to); });
+  DB.contracts.forEach(function(c){ c.fromProject=localRef(DB.projects,c.fromProject); });
+  DB.svcCalls.forEach(function(s){ s.contractId=localRef(DB.contracts,s.contractId); });
+}
+/* The PWA's own status rule is the authority for an issue's status string. */
+function restoreIssueStatuses(){
+  (DB.invIssues||[]).forEach(function(x){ try{ x.status=issStatus(x); }catch(e){ x.status='Issued'; } });
+}
+/* InvItem.qty (V2, authoritative) vs sum(stock[]) (per-location view). A mismatch
+ * is recorded and surfaced — never silently reconciled in either direction. */
+function checkStockDrift(){
+  STOCK_DRIFT=[];
+  (DB.invItems||[]).forEach(function(i){
+    var keys=Object.keys(i.stock||{}); if(!keys.length) return;
+    var t=0; keys.forEach(function(k){ t+=num(i.stock[k]); });
+    if(t!==num(i.qty)) STOCK_DRIFT.push({ id:i.id, name:i.name, stockTotal:t, qty:num(i.qty) });
+  });
+  if(STOCK_DRIFT.length) console.warn('[V2 stock] per-location total differs from V2 qty for '+
+    STOCK_DRIFT.length+' item(s); V2 qty is authoritative:',STOCK_DRIFT);
+}
+/* After a load every record has been re-keyed to a small integer id. DB.seq must
+ * start ABOVE the highest id in use or the next locally-created record would
+ * collide with a record loaded from V2 (and then be treated as an edit of it). */
+var SEQ_OF={so:'sos',enq:'enquiries',proj:'projects',pay:'payments',call:'svcCalls',user:'users',
+  contract:'contracts',notif:'notifs',company:'companies',chk:'chklists',invItem:'invItems',
+  invCat:'invCats',invLoc:'invLocs',invIssue:'invIssues',invTxn:'invTxns'};
+function syncSeq(){
+  DB.seq=DB.seq||{};
+  Object.keys(SEQ_OF).forEach(function(k){
+    var max=0;(DB[SEQ_OF[k]]||[]).forEach(function(x){var n=Number(x&&x.id);if(Number.isInteger(n)&&n>max)max=n;});
+    DB.seq[k]=Math.max(num(DB.seq[k]),max);
+  });
+  var psc=0;(DB.svcCalls||[]).forEach(function(x){var n=Number(x&&x.psc);if(Number.isInteger(n)&&n>psc)psc=n;});
+  DB.seq.psc=Math.max(num(DB.seq.psc),psc);
+  // SalesOrder.no is a V2 field of its own and must never re-use a number.
+  var sono=0;(DB.sos||[]).forEach(function(x){var n=Number(x&&x.no);if(Number.isInteger(n)&&n>sono)sono=n;});
+  DB.seq.so=Math.max(num(DB.seq.so),sono);
+}
+function snapshotAll(){
+  DB_META.pwa={};
+  Object.keys(V2_RES).forEach(function(coll){
+    DB_META.pwa[coll]={};
+    (DB[coll]||[]).forEach(function(x){ var id=apiId(x); if(id) DB_META.pwa[coll][id]=cloneJSON(x); });
+  });
+}
+function loadFromAPI(){
+  return api('GET','/api/bulk').then(function(d){
+    var SRC={ companies:'companies', users:'users', enquiries:'enquiries', sos:'salesOrders',
+      projects:'projects', svcCalls:'serviceCalls', contracts:'contracts', payments:'payments',
+      notifs:'notifications', chklists:'checklists', invCats:'invCategories', invLocs:'invLocations',
+      invItems:'invItems', invIssues:'invIssues', invTxns:'invTransactions' };
+    Object.keys(SRC).forEach(function(coll){
+      var raw=d[SRC[coll]]||[];
+      DB_META.srv[coll]={};
+      raw.forEach(function(r){ DB_META.srv[coll][String(r._id)]=cloneJSON(r); });
+      DB[coll]=raw.map(function(r){ return fromV2Collection(coll,r); });
+    });
+    Object.keys(V2_RES).forEach(function(coll){ rekeyLocalIds(coll,DB[coll]); });
+    normalizeLegacyRefs();
+    restoreIssueStatuses();
+    checkStockDrift();
+    var sd=seedDB(); if(!DB.templates) DB.templates=sd.templates;
+    syncSeq();
+    snapshotAll();
   });
 }
 
+/* ============ SAVE ============ */
+function save(){
+  if(!API_MODE||!TOKEN) return;
+  _syncPending=true;
+  if(_syncRunning) return;
+  _syncRunning=true;
+  (function run(){
+    if(!_syncPending){ _syncRunning=false; return; }
+    _syncPending=false;
+    syncToAPI().then(run, function(e){ console.error('[V2 sync]',e); run(); });
+  })();
+}
+function noteSaved(coll,rec){
+  var id=apiId(rec); if(!id) return;
+  DB_META.pwa[coll]=DB_META.pwa[coll]||{};
+  DB_META.pwa[coll][id]=cloneJSON(rec);
+}
+function noteServer(coll,doc){
+  if(!doc||!doc._id) return;
+  DB_META.srv[coll]=DB_META.srv[coll]||{};
+  DB_META.srv[coll][String(doc._id)]=cloneJSON(doc);
+}
+function syncOne(coll){
+  var spec=V2_WRITE[coll], res=V2_RES[coll], cur=DB[coll]||[], snaps=DB_META.pwa[coll]||{};
+  var jobs=[], failures=[];
+  function fail(label,e){ failures.push(label+': '+e.message); }
 
-function applyRemoteUpdate(msg) {
-  var entityType = msg.entityType;
-  var entity = msg.entity;
-  if (!entity) return;
-
-  // Map MongoDB _id to id
-  if (entity._id) {
-    entity.id = entity._id;
-    delete entity._id;
-  }
-
-  // Find and update or add entity
-  var collections = {
-    'company': 'companies',
-    'user': 'users',
-    'enquiry': 'enquiries',
-    'salesorder': 'sos',
-    'project': 'projects',
-    'servicecall': 'svcCalls',
-    'contract': 'contracts',
-    'payment': 'payments',
-    'notification': 'notifs',
-    'checklist': 'chklists',
-    'category': 'invCats',
-    'location': 'invLocs',
-    'invitem': 'invItems',
-    'issue': 'invIssues',
-    'transaction': 'invTxns'
-  };
-
-  var collName = collections[entityType];
-  if (!collName || !DB[collName]) return;
-
-  var idx = DB[collName].findIndex(function(x) { return x.id === entity.id; });
-  if (idx >= 0) {
-    DB[collName][idx] = entity;  // Update existing
-  } else {
-    DB[collName].push(entity);  // Add new
-  }
-
-  // Refresh current view if entity is visible
-  if (VIEW) {
-    try {
-      var html = window['v' + VIEW.charAt(0).toUpperCase() + VIEW.slice(1)]();
-      if (html) {
-        var viewEl = document.getElementById('view');
-        if (viewEl) viewEl.innerHTML = html;
+  cur.forEach(function(rec){
+    var id=apiId(rec);
+    if(!id){
+      // CREATE
+      if(coll==='invTxns' && rec.type==='Issue') return;   // V2 creates this itself on issue
+      if(coll==='companies'){
+        var admin=(DB.users||[]).find(function(u){ return String(u.co)===String(rec.id) && u.role==='admin' && !apiId(u); });
+        if(!admin||!admin.un||!admin.pw||admin.pw==='********'){
+          failures.push('company "'+(rec.name||'')+'": admin username/password required by V2');
+          return;
+        }
+        var cbody=buildBody(coll,rec,null,true);
+        cbody.admin={ name:admin.name, un:admin.un, pw:admin.pw, email:admin.email||'', phone:admin.phone||'' };
+        jobs.push(api('POST','/api/'+res,cbody).then(function(r){
+          if(r&&r.company&&r.company._id){ rec._apiId=String(r.company._id); rec._id=String(r.company._id); noteServer(coll,r.company); noteSaved(coll,rec); }
+          if(admin&&r&&r.admin&&r.admin._id){ admin._apiId=String(r.admin._id); admin._id=String(r.admin._id); admin.co=String(r.company._id); noteServer('users',r.admin); noteSaved('users',admin); }
+        },function(e){ fail('company "'+(rec.name||'')+'"',e); }));
+        return;
       }
-    } catch (e) {
-      console.warn('Could not refresh view:', e.message);
+      jobs.push(api('POST','/api/'+res,buildBody(coll,rec,null,true)).then(function(r){
+        if(r&&r._id){ rec._apiId=String(r._id); rec._id=String(r._id); noteServer(coll,r); noteSaved(coll,rec); }
+      },function(e){ fail(coll+' create',e); }));
+      return;
     }
-  }
+    // UPDATE — minimal body, changed whitelisted fields only.
+    if(spec.createOnly) return;                     // transactions are append-only
+    var body=buildBody(coll,rec,snaps[id],false);
+    if(!Object.keys(body).length) return;           // nothing the PWA owns changed
+    jobs.push(api('PUT','/api/'+res+'/'+encodeURIComponent(id),body).then(function(r){
+      if(r&&r._id) noteServer(coll,r);
+      noteSaved(coll,rec);
+    },function(e){ fail(coll+' update',e); }));
+  });
 
-  console.log('[WebSocket] Applied update:', entityType, entity.id);
+  // DELETE — only records that were loaded from V2 and are now gone locally.
+  if(!spec.createOnly){
+    var live={}; cur.forEach(function(x){ var i=apiId(x); if(i) live[i]=true; });
+    Object.keys(snaps).forEach(function(id){
+      if(live[id]) return;
+      jobs.push(api('DELETE','/api/'+res+'/'+encodeURIComponent(id)).then(function(){
+        delete DB_META.pwa[coll][id];
+      },function(e){ fail(coll+' delete',e); }));
+    });
+  }
+  return Promise.all(jobs).then(function(){ return failures; });
+}
+function syncToAPI(){
+  if(!TOKEN) return Promise.resolve();
+  // Parents before children so a new reference always resolves to a real Mongo id:
+  // projects before contracts (Contract.fromProject) and contracts before service
+  // calls (ServiceCall.contract).
+  var order=['companies','users','invCats','invLocs','invItems','chklists','projects','enquiries','sos',
+             'contracts','svcCalls','payments','invIssues','invTxns'];
+  var all=[], p=Promise.resolve();
+  order.forEach(function(coll){
+    if(coll==='companies' && !(U&&U.role==='super')) return;
+    p=p.then(function(){ return syncOne(coll).then(function(f){ all=all.concat(f); }); });
+  });
+  return p.then(function(){
+    if(all.length){
+      console.error('[V2 sync] failed writes:',all);
+      toast('⚠️ Not saved: '+all[0]+(all.length>1?' (+'+(all.length-1)+' more)':''));
+    }
+  });
 }
 
-function applyRemoteDelete(msg) {
-  var entityType = msg.entityType;
-  var entityId = msg.entityId;
-  if (!entityId) return;
-
-  var collections = {
-    'company': 'companies',
-    'user': 'users',
-    'enquiry': 'enquiries',
-    'salesorder': 'sos',
-    'project': 'projects',
-    'servicecall': 'svcCalls',
-    'contract': 'contracts',
-    'payment': 'payments',
-    'notification': 'notifs',
-    'checklist': 'chklists',
-    'category': 'invCats',
-    'location': 'invLocs',
-    'invitem': 'invItems',
-    'issue': 'invIssues',
-    'transaction': 'invTxns'
-  };
-
-  var collName = collections[entityType];
-  if (!collName || !DB[collName]) return;
-
-  var idx = DB[collName].findIndex(function(x) { return x.id === entityId; });
-  if (idx >= 0) {
-    DB[collName].splice(idx, 1);
-  }
-
-  // Refresh current view
-  if (VIEW) {
-    try {
-      var html = window['v' + VIEW.charAt(0).toUpperCase() + VIEW.slice(1)]();
-      if (html) {
-        var viewEl = document.getElementById('view');
-        if (viewEl) viewEl.innerHTML = html;
-      }
-    } catch (e) {
-      console.warn('Could not refresh view:', e.message);
-    }
-  }
-
-  console.log('[WebSocket] Applied delete:', entityType, entityId);
+/* ============ SOCKET.IO (V2 events) ============ */
+function initWebSocket(){
+  if(!TOKEN) return;
+  if(SOCKET){ SOCKET.disconnect(); SOCKET=null; }
+  SOCKET=io(API_BASE,{auth:{token:TOKEN},transports:['websocket','polling'],reconnection:true,
+    reconnectionAttempts:Infinity,reconnectionDelay:3000,reconnectionDelayMax:10000});
+  SOCKET.on('connect',function(){ SOCKET_CONNECTED=true; console.log('[WebSocket] Connected'); toast('🔄 Connected to live data sync'); });
+  SOCKET.on('ready',function(m){ console.log('[WebSocket] Session ready',m&&m.user?m.user.id:''); });
+  Object.keys(V2_SOCK).forEach(function(evt){
+    SOCKET.on(evt+':update',function(doc){ if(doc) applyRemoteUpdate({entityType:evt,entity:doc}); });
+    SOCKET.on(evt+':delete',function(m){ applyRemoteDelete({entityType:evt,entityId:m&&m._id}); });
+  });
+  SOCKET.on('connect_error',function(e){ console.error('[WebSocket] Connection error:',e.message); SOCKET_CONNECTED=false; });
+  SOCKET.on('disconnect',function(r){ SOCKET_CONNECTED=false; console.log('[WebSocket] Disconnected:',r);
+    if(r!=='io client disconnect') toast('⚠️ Live sync disconnected - reconnecting...'); });
+  SOCKET.on('reconnect',function(n){ SOCKET_CONNECTED=true; toast('🔄 Live sync restored'); });
 }
-
-function applyRemoteBulk(msg) {
-  // Full data refresh - useful when user connects multiple times
-  if (msg.data) {
-    Object.assign(DB, msg.data);
-    if (VIEW) nav(VIEW, PARAM);
-  }
+function refreshView(){
+  if(!VIEW) return;
+  try{ var fn=window['v'+VIEW.charAt(0).toUpperCase()+VIEW.slice(1)];
+    if(typeof fn==='function'){ var el=document.getElementById('view'); if(el) el.innerHTML=fn(); } }catch(e){}
+}
+function applyRemoteUpdate(msg){
+  var coll=V2_SOCK[msg.entityType]; if(!coll||!msg.entity) return;
+  noteServer(coll,msg.entity);
+  var rec=fromV2Collection(coll,msg.entity), id=apiId(rec), arr=DB[coll]||[];
+  var i=arr.findIndex(function(x){ return apiId(x)===id; });
+  if(i>=0){ rec.id=arr[i].id; arr[i]=rec; } else { rekeyLocalIds(coll,arr.concat([rec])); arr.push(rec); }
+  DB[coll]=arr;
+  if(coll==='invItems'||coll==='invIssues'||coll==='invTxns'||coll==='invCats'||coll==='invLocs'||
+     coll==='contracts'||coll==='svcCalls'||coll==='projects') normalizeLegacyRefs();
+  if(coll==='invIssues') restoreIssueStatuses();
+  if(DB_META.pwa[coll]) DB_META.pwa[coll][id]=cloneJSON(rec);
+  refreshView();
+}
+function applyRemoteDelete(msg){
+  var coll=V2_SOCK[msg.entityType]; if(!coll||!msg.entityId) return;
+  var id=String(msg.entityId);
+  DB[coll]=(DB[coll]||[]).filter(function(x){ return apiId(x)!==id; });
+  if(DB_META.pwa[coll]) delete DB_META.pwa[coll][id];
+  if(DB_META.srv[coll]) delete DB_META.srv[coll][id];
+  refreshView();
 }
 
 /* ================= CORE ================= */
@@ -676,69 +1187,6 @@ function load(){
   // Initialize empty DB - no localStorage persistence for data anymore
   // Only keep token for immediate login experience
   DB=seedDB();seedProjects(DB);
-}
-
-function loadFromAPI(){
-  return api('GET','/api/data').then(function(d){
-    // Map MongoDB _id to id for compatibility with all view code
-    function mapIds(arr){
-      if(!arr)return[];
-      return arr.map(function(x){var o=Object.assign({},x);o.id=o._id;delete o._id;return o});
-    }
-    DB.companies=mapIds(d.companies);
-    DB.users=mapIds(d.users);
-    DB.enquiries=mapIds(d.enquiries);
-    DB.sos=mapIds(d.sos);
-    DB.projects=mapIds(d.projects);
-    DB.svcCalls=mapIds(d.svcCalls);
-    DB.contracts=mapIds(d.contracts);
-    DB.payments=mapIds(d.payments);
-    DB.notifs=mapIds(d.notifs);
-    DB.chklists=mapIds(d.checklists||[]);
-    DB.invCats=mapIds(d.invCats||[]);
-    DB.invLocs=mapIds(d.invLocs||[]);
-    DB.invItems=mapIds(d.invItems||[]);
-    DB.invIssues=mapIds(d.invIssues||[]);
-    DB.invTxns=mapIds(d.invTxns||[]);
-    // Keep templates and seq from seed for compatibility
-    if(!DB.templates){var sd=seedDB();DB.templates=sd.templates}
-    if(!DB.seq){DB.seq={psc:0,so:0,enq:0,proj:0,pay:0,call:0,user:0,contract:0,notif:0,company:0,chk:0,invItem:0,invCat:0,invLoc:0,invIssue:0,invTxn:0}}
-  });
-}
-
-// No more localStorage persistence - data only in memory and synced via WebSocket/API
-function save(){
-  // NO DEBOUNCING - Send updates immediately to server
-  if(!API_MODE||!TOKEN)return;
-  // Clear any pending timers
-  clearTimeout(_syncTimer);
-  // Send to server immediately
-  syncToAPI();
-}
-
-function syncToAPI(){
-  if(!TOKEN)return;
-  // Send current state to server (no debouncing, immediate sync)
-  var payload={
-    enquiries:DB.enquiries,
-    sos:DB.sos,
-    projects:DB.projects,
-    svcCalls:DB.svcCalls,
-    contracts:DB.contracts,
-    payments:DB.payments,
-    notifs:DB.notifs,
-    checklists:DB.chklists,
-    invCats:DB.invCats,
-    invLocs:DB.invLocs,
-    invItems:DB.invItems,
-    invIssues:DB.invIssues,
-    invTxns:DB.invTxns
-  };
-  if(U&&U.role==='super')payload.companies=DB.companies;
-  api('POST','/api/data/sync',payload).catch(function(e){
-    console.warn('Sync error (will retry):', e.message);
-    // Will be retried on next save() call
-  });
 }
 
 function resetDemo(){if(confirm("Reset all demo data?")){localStorage.removeItem("pt_db_v12");TOKEN=null;location.reload()}}
@@ -753,13 +1201,14 @@ function co(){return DB.companies.find(function(c){return c.id===U.co||c._id===U
 function mine(arr){return arr.filter(function(x){return x.co===U.co||x.co===String(U.co)})}
 function gv(id){var e=document.getElementById(id);return e?e.value.trim():""}
 function notify(roles,text){
-  var n={co:U.co,roles:roles,text:text,date:today(),read:[]};
   if(API_MODE&&TOKEN){
-    api('POST','/api/notifications',n).then(function(r){n._id=r._id;n.id=r._id;DB.notifs.push(n);saveLocal()}).catch(function(){DB.notifs.push(n);save()});
-  } else {DB.seq.notif++;n.id=DB.seq.notif;DB.notifs.push(n);save()}
+    api('POST','/api/notifications',{title:'MEP PROJECTS',body:String(text||''),type:'info',roles:roles})
+      .then(function(r){ DB.notifs.push(fromV2Notif(r)); })
+      .catch(function(e){ console.error('[notify]',e); toast('⚠️ Notification not saved'); });
+  } else { DB.seq.notif++; DB.notifs.push({id:DB.seq.notif,co:U.co,roles:roles,text:text,date:today(),read:[]}); }
 }
 function myNotifs(){return DB.notifs.filter(function(n){return (n.co===U.co||n.co===String(U.co))&&(n.roles.indexOf(U.role)>=0||n.roles.indexOf("*")>=0)})}
-function unread(){return myNotifs().filter(function(n){return (n.read||[]).indexOf(U.id)<0&&(n.read||[]).indexOf(String(U.id))<0}).length}
+function unread(){var uid=apiId(U);return myNotifs().filter(function(n){var r=n.read||[];return r.indexOf(uid)<0&&r.indexOf(U.id)<0&&r.indexOf(String(U.id))<0}).length}
 
 /* ---- division access control ---- */
 var ALL_DIVS=["HVAC","Solar","MEP"];
@@ -833,8 +1282,11 @@ function doLogin(){
     try{localStorage.setItem("pt_token",TOKEN)}catch(e){}
     var u=r.user;
     u.id=u.id||u._id;
-    // Load all data from API
-    return loadFromAPI().then(function(){login(u)});
+    // Load all data from API, then adopt the legacy-shaped local user record
+    return loadFromAPI().then(function(){
+      var lu=DB.users.find(function(x){return apiId(x)===String(u._id||u.id)});
+      login(lu||u);
+    });
   }).catch(function(err){
     // If API fails, try localStorage fallback
     console.warn('API login failed:',err.message);
@@ -1237,7 +1689,8 @@ function subToggle(){var e=document.getElementById("c_s");var b=document.getElem
 function mCompany(id){
  var c=id?DB.companies.find(function(x){return x.id===id}):{name:"",city:"",addr:"",gst:"",divs:["HVAC"],status:"Trial",phone:"",email:"",tagline:"",contacts:[{n:"",ph:""},{n:"",ph:""}],subRate:"",subCycle:"Monthly",subStart:"",subEnd:""};
  var ct=c.contacts||[{n:"",ph:""},{n:"",ph:""}];var t1=ct[0]||{n:"",ph:""},t2=ct[1]||{n:"",ph:""};
- var adm=id?DB.users.find(function(u){return u.co===id&&u.role==="admin"}):null;
+ var c0=id?DB.companies.find(function(x){return x.id===id}):null;
+ var adm=id?DB.users.find(function(u){return (u.co===id||(c0&&String(u.co)===apiId(c0)))&&u.role==="admin"}):null;
  var cdv=c.divs||["HVAC","Solar","MEP"];
  modal('<h3>'+(id?"Edit":"Add")+' Company</h3><div class="grid2">'+
  '<div><label>Company Name</label><input id="c_n" value="'+esc(c.name)+'"></div>'+
@@ -1278,7 +1731,8 @@ function saveCompany(id){
  if(id){var c=DB.companies.find(function(x){return x.id===id});
   if(st==="Trial"&&c.status!=="Trial")d.trialEnd=addDays(today(),15);
   Object.assign(c,d);
-  var adm=DB.users.find(function(u){return u.co===id&&u.role==="admin"});
+  var c0=DB.companies.find(function(x){return x.id===id})||{};
+  var adm=DB.users.find(function(u){return (u.co===id||String(u.co)===apiId(c0))&&u.role==="admin"});
   if(adm&&gv("c_un")){adm.un=gv("c_un");adm.pw=gv("c_pw")}}
  else{DB.seq.company++;var nid=DB.seq.company;
   d.trialEnd=st==="Trial"?addDays(today(),15):"";
@@ -1291,7 +1745,8 @@ function setCoStatus(id,s){var c=DB.companies.find(function(x){return x.id===id}
 function delCompany(id){if(id===1){toast("Cannot remove the primary company in demo");return}
  if(!confirm("Remove company and all its data?"))return;
  DB.companies=DB.companies.filter(function(x){return x.id!==id});
- ["users","enquiries","sos","projects","svcCalls","contracts","payments","notifs"].forEach(function(k){DB[k]=DB[k].filter(function(x){return x.co!==id})});
+ var c0=DB.companies.find(function(x){return x.id===id})||{};var serverCo=apiId(c0);
+ ["users","enquiries","sos","projects","svcCalls","contracts","payments","notifs"].forEach(function(k){DB[k]=DB[k].filter(function(x){return x.co!==id&&(!serverCo||String(x.co)!==serverCo)})});
  save();nav("companies");
 }
 
@@ -1331,7 +1786,14 @@ function delUser(id){if(confirm("Remove this login?")){DB.users=DB.users.filter(
 /* ================= NOTIFICATIONS ================= */
 function vNotifs(){
  var list=myNotifs().slice().reverse();
- list.forEach(function(n){if(n.read.indexOf(U.id)<0)n.read.push(U.id)});save();
+ var uid=apiId(U);
+ list.forEach(function(n){
+  var r=n.read=n.read||[];
+  if(r.indexOf(uid)<0&&r.indexOf(U.id)<0){
+   r.push(uid||U.id);
+   if(API_MODE&&TOKEN&&apiId(n))api('PATCH','/api/notifications/'+encodeURIComponent(apiId(n))+'/read').catch(function(e){console.error('[notif read]',e)});
+  }
+ });
  var h='<div class="panel"><h2>Notifications</h2>';
  if(!list.length)h+='<div class="subtle">No notifications yet.</div>';
  list.forEach(function(n){h+='<div class="nitem"><div>'+esc(n.text)+'</div><div class="d">'+n.date+'</div></div>'});
@@ -2350,7 +2812,7 @@ function invTxns(){return DB.invTxns.filter(function(x){return x.co===U.co})}
 function itemById(id){return DB.invItems.filter(function(x){return x.id===Number(id)})[0]}
 function catName(id){var c=DB.invCats.filter(function(x){return x.id===Number(id)})[0];return c?c.name:"—"}
 function locName(id){var l=DB.invLocs.filter(function(x){return x.id===Number(id)})[0];return l?l.name:"—"}
-function totQty(it){var t=0;for(var k in (it.stock||{}))t+=Number(it.stock[k])||0;return t}
+function totQty(it){var s=(it&&it.stock)||{},n=0,t=0;for(var k in s){n++;t+=Number(s[k])||0}return n?t:(Number(it&&it.qty)||0)}
 function issuedQty(it){ // qty currently lying with staff (tools + unused consumables)
  return invIssues().filter(function(x){return x.item===it.id}).reduce(function(a,b){return a+issBal(b)},0);
 }
@@ -3528,7 +3990,10 @@ if(!isStandalone()&&DEFERRED_PROMPT)pwaShowInstall(true);
       TOKEN=t;
       api('GET','/api/auth/me').then(function(r){
         var u=r.user;u.id=u._id;
-        return loadFromAPI().then(function(){login(u)});
+        return loadFromAPI().then(function(){
+          var lu=DB.users.find(function(x){return apiId(x)===String(u._id||u.id)});
+          login(lu||u);
+        });
       }).catch(function(){TOKEN=null;localStorage.removeItem("pt_token")});
     }
   }catch(e){}

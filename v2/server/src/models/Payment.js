@@ -6,6 +6,8 @@ const PaidSchema = new mongoose.Schema({
   mode: String,
   ref: String,
   by: String,
+  remark: String,
+  invoiced: { type: Boolean, default: false },
 }, { _id: false });
 
 const PaymentSchema = new mongoose.Schema({
@@ -19,6 +21,9 @@ const PaymentSchema = new mongoose.Schema({
   status: { type: String, enum: ['pending', 'partial', 'paid', 'overdue'], default: 'pending', index: true },
   paid: [PaidSchema],
   notes: String,
+  soNo: { type: Number, index: true },
+  milestoneIndex: { type: Number },
+  meta: { type: mongoose.Schema.Types.Mixed, default: {} },
 }, { timestamps: true });
 
 module.exports = mongoose.model('Payment', PaymentSchema);

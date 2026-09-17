@@ -9,13 +9,14 @@ const ServiceCallSchema = new mongoose.Schema({
   phone: { type: String, trim: true },
   type: { type: String, enum: ['breakdown', 'amc', 'installation', 'inspection', 'other'], default: 'breakdown', index: true },
   priority: { type: String, enum: ['low', 'normal', 'high', 'urgent'], default: 'normal' },
-  status: { type: String, enum: ['open', 'assigned', 'inprogress', 'onhold', 'closed'], default: 'open', index: true },
+  status: { type: String, enum: ['open', 'assigned', 'scheduled', 'inprogress', 'onhold', 'closed'], default: 'open', index: true },
   eng: { type: String, index: true },
   scheduled: Date,
   desc: String,
   actions: String,
   parts: [{ name: String, qty: Number, unit: String }],
   closedAt: Date,
+  contract: { type: mongoose.Schema.Types.ObjectId, ref: 'Contract' },
   meta: { type: mongoose.Schema.Types.Mixed, default: {} },
 }, { timestamps: true });
 

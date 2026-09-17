@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const ItemSchema = new mongoose.Schema({
   title: String,
   required: { type: Boolean, default: false },
+  sign: { type: Boolean, default: false },
 }, { _id: false });
 
 const ChecklistSchema = new mongoose.Schema({
@@ -11,6 +12,8 @@ const ChecklistSchema = new mongoose.Schema({
   div: { type: String, index: true },
   desc: String,
   items: [ItemSchema],
+  isDefault: { type: Boolean, default: false },
+  meta: { type: mongoose.Schema.Types.Mixed, default: {} },
 }, { timestamps: true });
 
 module.exports = mongoose.model('Checklist', ChecklistSchema);
