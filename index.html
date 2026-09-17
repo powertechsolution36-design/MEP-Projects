@@ -489,7 +489,7 @@ function api(method, path, body) {
   return fetch(API_BASE + path, opts).then(function(r) {
     return r.text().then(function(txt){
       var data=null; try{ data=txt?JSON.parse(txt):{}; }catch(e){ data={error:txt||('API error '+r.status)}; }
-      if(!r.ok) throw new Error(data.error || 'API error ' + r.status);
+      if(!r.ok) { var err=new Error(data.error || 'API error ' + r.status); err.status=r.status; throw err; }
       return data;
     });
   });
@@ -3982,19 +3982,46 @@ function isStandalone(){
 load();renderQuick();pwaRegister();pwaOffline();
 if(!isStandalone()&&DEFERRED_PROMPT)pwaShowInstall(true);
 
-// Auto-login if token exists
+// Auto-login if token exists — network/server failures never clear the session;
+// only an explicit 401 from V2 does (invalid/expired token). See phase report FIX 1.
 (function(){
   try{
     var t=localStorage.getItem("pt_token");
     if(t&&API_MODE){
       TOKEN=t;
-      api('GET','/api/auth/me').then(function(r){
-        var u=r.user;u.id=u._id;
-        return loadFromAPI().then(function(){
-          var lu=DB.users.find(function(x){return apiId(x)===String(u._id||u.id)});
-          login(lu||u);
+      var bootTries=0;
+      var bootAttempt=function(){
+        if(!navigator.onLine){
+          toast("Offline — will sign in automatically when the connection returns");
+          window.addEventListener("online",function retryBoot(){
+            window.removeEventListener("online",retryBoot);bootAttempt();
+          });
+          return;
+        }
+        toast(bootTries?"Reconnecting…":"Signing in…");
+        api('GET','/api/auth/me').then(function(r){
+          var u=r.user;u.id=u._id;
+          return loadFromAPI().then(function(){
+            var lu=DB.users.find(function(x){return apiId(x)===String(u._id||u.id)});
+            login(lu||u);
+          });
+        }).catch(function(e){
+          if(e&&e.status===401){
+            // V2 explicitly rejected the token itself — the session really is invalid.
+            TOKEN=null;localStorage.removeItem("pt_token");
+            return;
+          }
+          // Any other failure (fetch/network error, server unreachable, timeout) never
+          // has an HTTP status here, so it is treated as connectivity, not an invalid
+          // session: keep the token and retry once the browser reports being online.
+          bootTries++;
+          toast("Offline — will sign in automatically when the connection returns");
+          window.addEventListener("online",function retryBoot(){
+            window.removeEventListener("online",retryBoot);bootAttempt();
+          });
         });
-      }).catch(function(){TOKEN=null;localStorage.removeItem("pt_token")});
+      };
+      bootAttempt();
     }
   }catch(e){}
 })();
