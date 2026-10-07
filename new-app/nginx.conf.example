@@ -1,0 +1,75 @@
+# ── MEP New App — Nginx Reverse Proxy Configuration ──
+#
+# Copy this file to /etc/nginx/sites-available/mep-new-app
+# then: sudo ln -s /etc/nginx/sites-available/mep-new-app /etc/nginx/sites-enabled/
+# then: sudo nginx -t && sudo systemctl reload nginx
+#
+# Replace YOUR_DOMAIN with your actual domain name.
+# SSL certificates: use certbot (Let's Encrypt) for free HTTPS.
+
+# HTTP → HTTPS redirect
+server {
+    listen 80;
+    server_name YOUR_DOMAIN;
+    return 301 https://$host$request_uri;
+}
+
+# HTTPS server
+server {
+    listen 443 ssl http2;
+    server_name YOUR_DOMAIN;
+
+    # SSL certificates (Let's Encrypt / certbot)
+    ssl_certificate     /etc/letsencrypt/live/YOUR_DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/YOUR_DOMAIN/privkey.pem;
+
+    # SSL hardening
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers 'ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305';
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+
+    # Security headers
+    add_header X-Frame-Options DENY always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    # Frontend static files (Vite build output)
+    root /var/www/mep-new-app/frontend/dist;
+    index index.html;
+
+    # Gzip
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml;
+    gzip_min_length 256;
+
+    # API proxy → Node.js backend (PM2)
+    location /api/ {
+        proxy_pass http://127.0.0.1:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Timeouts
+        proxy_connect_timeout 30s;
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
+
+        # Disable buffering for streaming responses
+        proxy_buffering off;
+    }
+
+    # SPA fallback — all non-API, non-file routes → index.html
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Cache static assets
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+}

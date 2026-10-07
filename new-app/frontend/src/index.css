@@ -1,0 +1,138 @@
+:root {
+  --color-bg: #f4f6f8;
+  --color-surface: #ffffff;
+  --color-border: #d9dee3;
+  --color-primary: #1a5fb4;
+  --color-primary-dark: #123f7a;
+  --color-text: #1c2733;
+  --color-text-muted: #5b6b7a;
+  --color-danger: #b3261e;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+button {
+  cursor: pointer;
+  font: inherit;
+}
+
+/* ---------- Login ---------- */
+.login-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.login-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 32px;
+  width: 100%;
+  max-width: 380px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+.login-card h1 { margin: 0 0 4px; font-size: 22px; }
+.login-subtitle { margin: 0 0 20px; color: var(--color-text-muted); font-size: 14px; }
+.field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; font-size: 14px; }
+.field input[type="text"],
+.field input[type="password"],
+.field input:not([type]) {
+  padding: 9px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 14px;
+}
+.checkbox-field { flex-direction: row; align-items: center; gap: 8px; }
+.login-card button[type="submit"] {
+  width: 100%;
+  padding: 10px;
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 15px;
+  margin-top: 6px;
+}
+.login-card button[type="submit"]:disabled { opacity: 0.6; cursor: default; }
+.alert { padding: 8px 10px; border-radius: 6px; font-size: 13px; margin-bottom: 14px; }
+.alert-error { background: #fdeceb; color: var(--color-danger); border: 1px solid #f3c6c2; }
+.login-help { margin-top: 16px; font-size: 12px; color: var(--color-text-muted); }
+.login-help ul { margin: 8px 0 0; padding-left: 18px; }
+
+/* ---------- Shell ---------- */
+.shell { min-height: 100vh; display: flex; flex-direction: column; }
+.shell-header {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  background: var(--color-primary-dark);
+  color: #fff;
+}
+.shell-brand { font-weight: 600; font-size: 15px; }
+.shell-user { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+.shell-role-badge {
+  background: rgba(255, 255, 255, 0.15);
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+.link-button {
+  background: none;
+  border: none;
+  color: #fff;
+  text-decoration: underline;
+  padding: 0;
+  font-size: 13px;
+}
+.shell-body { flex: 1; display: flex; min-height: 0; }
+.shell-nav {
+  width: 220px;
+  flex-shrink: 0;
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+  padding: 12px 0;
+  overflow-y: auto;
+}
+.nav-item {
+  display: block;
+  padding: 10px 16px;
+  color: var(--color-text);
+  text-decoration: none;
+  font-size: 14px;
+}
+.nav-item:hover { background: #eef2f6; }
+.nav-item.active { background: #e3edf9; color: var(--color-primary); font-weight: 600; }
+.shell-content { flex: 1; padding: 24px; overflow-y: auto; }
+
+/* ---------- Dashboard / stubs ---------- */
+.user-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 16px 20px;
+  max-width: 420px;
+  margin-bottom: 16px;
+}
+.user-card dl { display: grid; grid-template-columns: 110px 1fr; row-gap: 6px; margin: 0; font-size: 14px; }
+.user-card dt { color: var(--color-text-muted); }
+.dashboard-note { color: var(--color-text-muted); font-size: 13px; max-width: 560px; }
+.coming-soon { color: var(--color-text-muted); }
+.full-page-loading { display: flex; align-items: center; justify-content: center; min-height: 100vh; color: var(--color-text-muted); }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 640px) {
+  .shell-body { flex-direction: column; }
+  .shell-nav { width: 100%; display: flex; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--color-border); }
+  .nav-item { white-space: nowrap; }
+}
