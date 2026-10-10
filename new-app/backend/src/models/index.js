@@ -27,4 +27,6 @@ module.exports = {
   InventoryTransaction: require('./InventoryTransaction'),
   Counter: require('./Counter').Counter,
   AuthSession: require('./AuthSession'),
+  Plan: require('./Plan'),
+  Subscription: require('./Subscription'),
 };

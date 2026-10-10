@@ -165,10 +165,13 @@ test('audit-correction scope guard: only the auth/company foundation plus the au
   // (userRoutes.js/userService.js) was authorized and implemented in this
   // task -- see new-app/docs/E2E_PASS_3_8_MASTER_RECONCILIATION.md's
   // FIX-3.8-01 and new-app/docs/API_CONTRACT.md's Users section.
+  // UPDATE (Subscription Integration Repair): subscriptionRoutes.js and
+  // subscriptionService.js were authorized and wired in the subscription
+  // integration repair task.
   assert.deepEqual(routeFiles, [
     'authRoutes.js', 'checklistTemplateRoutes.js', 'companyRoutes.js', 'contractRoutes.js', 'enquiryRoutes.js',
     'inventoryRoutes.js', 'notificationRoutes.js', 'paymentRoutes.js',
-    'projectRoutes.js', 'salesOrderRoutes.js', 'serviceCallRoutes.js', 'userRoutes.js',
+    'projectRoutes.js', 'salesOrderRoutes.js', 'serviceCallRoutes.js', 'subscriptionRoutes.js', 'userRoutes.js',
   ]);
   assert.deepEqual(serviceFiles, [
     'checklistTemplateService.js',
@@ -182,6 +185,7 @@ test('audit-correction scope guard: only the auth/company foundation plus the au
     'salesOrderCascade.js',
     'salesOrderService.js',
     'serviceCallService.js',
+    'subscriptionService.js',
     'userService.js',
   ]);
 });

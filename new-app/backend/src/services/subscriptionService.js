@@ -53,12 +53,16 @@ async function updatePlan(code, patch, deps) {
 
 async function seedDefaultPlans(deps) {
   const existing = await deps.planRepo.listAll();
-  if (existing.length > 0) return existing;
+  const existingCodes = new Set(existing.map((p) => p.code));
   const created = [];
   for (const p of DEFAULT_PLANS) {
-    created.push(await deps.planRepo.create({ ...p, status: 'active', version: 1, pricing: {} }));
+    if (!existingCodes.has(p.code)) {
+      created.push(await deps.planRepo.create({ ...p, status: 'active', version: 1, pricing: {} }));
+    }
   }
-  return created;
+  // Return the full catalog (existing untouched + newly created)
+  if (created.length === 0) return existing;
+  return deps.planRepo.listAll();
 }
 
 // ── Subscription management ──

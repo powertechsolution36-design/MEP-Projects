@@ -17,6 +17,8 @@ const {
   InventoryItem,
   InventoryIssue,
   InventoryTransaction,
+  Plan,
+  Subscription,
 } = require('../models');
 const { Counter } = require('../models/Counter');
 
@@ -652,6 +654,68 @@ const counterRepo = {
   },
 };
 
+// ── Plan catalog ──
+
+const planRepo = {
+  async listAll() {
+    const docs = await Plan.find({}).lean();
+    return docs.map(toPlainLean);
+  },
+  async findByCode(code) {
+    const doc = await Plan.findOne({ code: code.toUpperCase() }).lean();
+    return toPlainLean(doc);
+  },
+  async create(data) {
+    try {
+      const doc = await Plan.create(data);
+      return toPlain(doc);
+    } catch (err) {
+      wrapDuplicateKeyError(err, 'A plan with that code already exists.', 'PLAN_CODE_DUPLICATE');
+    }
+  },
+  async updateByCode(code, patch) {
+    const doc = await Plan.findOneAndUpdate(
+      { code: code.toUpperCase() },
+      { $set: patch },
+      { new: true }
+    ).lean();
+    return toPlainLean(doc);
+  },
+};
+
+// ── Subscription (one per company) ──
+
+const subscriptionRepo = {
+  async findByCompany(companyId) {
+    const doc = await Subscription.findOne({ companyId }).lean();
+    return toPlainLean(doc);
+  },
+  async create(data) {
+    const doc = await Subscription.create(data);
+    return toPlain(doc);
+  },
+  /**
+   * Update an existing subscription. Handles the `$push` operator used by
+   * subscriptionService.createOrUpdateSubscription (line 121) — separates
+   * `$push` from the flat field data so Mongoose applies the array append
+   * correctly instead of storing `$push` as a literal field name.
+   */
+  async update(id, data) {
+    const ops = {};
+    const rest = {};
+    for (const [key, value] of Object.entries(data)) {
+      if (key === '$push') {
+        ops.$push = value;
+      } else {
+        rest[key] = value;
+      }
+    }
+    if (Object.keys(rest).length > 0) ops.$set = rest;
+    const doc = await Subscription.findByIdAndUpdate(id, ops, { new: true }).lean();
+    return toPlainLean(doc);
+  },
+};
+
 /**
  * Runs fn(txnDeps) inside a real MongoDB transaction (a Mongoose session),
  * committing on success and aborting on any thrown error. Used by the
@@ -693,4 +757,6 @@ module.exports = {
   inventoryItemRepo,
   inventoryIssueRepo,
   inventoryTransactionRepo,
+  planRepo,
+  subscriptionRepo,
 };

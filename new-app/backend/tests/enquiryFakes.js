@@ -41,6 +41,8 @@ function createEnquiryFakeStore(seed = {}) {
     inventoryItems: (seed.inventoryItems || []).map((i) => ({ stockByLocation: {}, ...i })),
     inventoryIssues: seed.inventoryIssues || [],
     inventoryTransactions: seed.inventoryTransactions || [],
+    plans: seed.plans || [],
+    subscriptions: seed.subscriptions || [],
   };
 
   function snapshot() {
@@ -63,6 +65,8 @@ function createEnquiryFakeStore(seed = {}) {
     state.inventoryItems = snap.inventoryItems;
     state.inventoryIssues = snap.inventoryIssues;
     state.inventoryTransactions = snap.inventoryTransactions;
+    state.plans = snap.plans;
+    state.subscriptions = snap.subscriptions;
   }
 
   const enquiryRepo = {
@@ -608,6 +612,61 @@ function createEnquiryFakeStore(seed = {}) {
     },
   };
 
+  const planRepo = {
+    async listAll() {
+      return state.plans.map((p) => ({ ...p }));
+    },
+    async findByCode(code) {
+      const doc = state.plans.find((p) => p.code === code.toUpperCase());
+      return doc ? { ...doc } : null;
+    },
+    async create(data) {
+      const existing = state.plans.find((p) => p.code === (data.code || '').toUpperCase());
+      if (existing) {
+        const err = new Error('A plan with that code already exists.');
+        err.code = 'PLAN_CODE_DUPLICATE';
+        throw err;
+      }
+      const doc = { id: nextId('plan'), ...data };
+      state.plans.push(doc);
+      return { ...doc };
+    },
+    async updateByCode(code, patch) {
+      const doc = state.plans.find((p) => p.code === code.toUpperCase());
+      if (!doc) return null;
+      Object.assign(doc, patch);
+      return { ...doc };
+    },
+  };
+
+  const subscriptionRepo = {
+    async findByCompany(companyId) {
+      const doc = state.subscriptions.find((s) => String(s.companyId) === String(companyId));
+      return doc ? cloneDeep(doc) : null;
+    },
+    async create(data) {
+      const doc = { id: nextId('sub'), ...data };
+      state.subscriptions.push(doc);
+      return cloneDeep(doc);
+    },
+    async update(id, data) {
+      const doc = state.subscriptions.find((s) => matchesId(s, id));
+      if (!doc) return null;
+      // Handle $push operator the same way the Mongoose adapter does
+      for (const [key, value] of Object.entries(data)) {
+        if (key === '$push') {
+          for (const [field, entry] of Object.entries(value)) {
+            doc[field] = doc[field] || [];
+            doc[field].push(entry);
+          }
+        } else {
+          doc[key] = value;
+        }
+      }
+      return cloneDeep(doc);
+    },
+  };
+
   const counterRepo = {
     async getNextSequence(companyId, name) {
       const key = `${companyId}:${name}`;
@@ -648,6 +707,8 @@ function createEnquiryFakeStore(seed = {}) {
     companyRepo,
     counterRepo,
     withTransaction,
+    planRepo,
+    subscriptionRepo,
     inventoryCategoryRepo,
     inventoryLocationRepo,
     inventoryItemRepo,

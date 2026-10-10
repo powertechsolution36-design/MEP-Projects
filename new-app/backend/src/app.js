@@ -16,6 +16,7 @@ const { createServiceCallRouter } = require('./routes/serviceCallRoutes');
 const { createInventoryRouter } = require('./routes/inventoryRoutes');
 const { createChecklistTemplateRouter } = require('./routes/checklistTemplateRoutes');
 const { createNotificationRouter } = require('./routes/notificationRoutes');
+const { createSubscriptionRouter } = require('./routes/subscriptionRoutes');
 const { startDelayCheckScheduler } = require('./jobs/delayCheckScheduler');
 const {
   enquiryRepo,
@@ -34,6 +35,8 @@ const {
   inventoryItemRepo,
   inventoryIssueRepo,
   inventoryTransactionRepo,
+  planRepo,
+  subscriptionRepo,
 } = require('./repositories/businessRepositories.mongoose');
 
 /**
@@ -94,6 +97,8 @@ function createApp(overrideConfig) {
     inventoryItemRepo,
     inventoryIssueRepo,
     inventoryTransactionRepo,
+    planRepo,
+    subscriptionRepo,
   };
 
   const app = express();
@@ -112,6 +117,7 @@ function createApp(overrideConfig) {
   app.use('/api/inventory', createInventoryRouter(businessDeps));
   app.use('/api/checklist-templates', createChecklistTemplateRouter(businessDeps));
   app.use('/api/notifications', createNotificationRouter(businessDeps));
+  app.use('/api/subscriptions', createSubscriptionRouter(businessDeps));
 
   app.startDelayCheckScheduler = (options) => startDelayCheckScheduler(businessDeps, options);
 
