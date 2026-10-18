@@ -1,6 +1,7 @@
 'use strict';
 
 const { ServiceError } = require('../errors');
+const { assertDivisionEntitled, getEffectiveDivisions } = require('./subscriptionService');
 const cascade = require('./salesOrderCascade');
 
 /**
@@ -75,7 +76,32 @@ function redactCostForRole(so, role) {
   if (!COST_HIDDEN_ROLES.includes(role)) return so;
   const clone = { ...so };
   for (const field of COST_FIELDS) delete clone[field];
+  delete clone.margins; // derived from the cost fields, so it is cost data too
   return clone;
+}
+
+/**
+ * Derived margin figures for a SalesOrder.
+ *
+ * PWA FACT (index.html:2047, and the identical expression in `dlSOs`,
+ * index.html:3426):
+ *   High Side Margin = hsSell - hsPur
+ *   Low Side Margin  = lsCost - (lsActual || lsTarget || 0)
+ *   Total Margin     = the two added together
+ *
+ * The `lsActual || lsTarget` fallback is deliberate and is preserved: an
+ * accessories job with no actual expense recorded yet is measured against
+ * its target expense, not treated as pure margin. Note this means an
+ * actual expense of exactly 0 also falls back to the target.
+ *
+ * Margin is never stored — it is derived on read, exactly as in the PWA
+ * (`saveSO` persists only the six raw inputs). Equipment/Accessories are
+ * this app's names for the PWA's High Side/Low Side.
+ */
+function computeMargins(so) {
+  const equipmentMargin = (so.highSideSelling || 0) - (so.highSidePurchase || 0);
+  const accessoriesMargin = (so.lowSideCost || 0) - (so.lowSideActualExpense || so.lowSideTargetExpense || 0);
+  return { equipmentMargin, accessoriesMargin, totalMargin: equipmentMargin + accessoriesMargin };
 }
 
 /**
@@ -105,6 +131,8 @@ async function createSalesOrder(input, actorAuth, deps) {
   // no Enquiry is consulted at all for this path.
   const draft = cascade.buildSalesOrderDraft(null, overrides, actorName);
   cascade.validateSalesOrderDraft(draft);
+  // PWA FACT (mSO division options = myDivs(), index.html:1990); enforced server-side.
+  await assertDivisionEntitled(actorAuth.companyId, draft.division, deps);
 
   return deps.withTransaction(deps, async (txnDeps) => {
     const { session } = txnDeps;
@@ -120,7 +148,13 @@ async function getSalesOrder(id, actorAuth, deps) {
   if (!so) {
     throw new ServiceError('SalesOrder not found.', 'NOT_FOUND', 404);
   }
-  return redactCostForRole(so, actorAuth.role);
+  // PWA FACT (vSO "Open Project →", index.html:2036): the SO links to the
+  // project its cascade created.
+  const project = deps.projectRepo ? await deps.projectRepo.findBySalesOrderId(actorAuth.companyId, so.id) : null;
+  // PWA FACT (vSO, index.html:2042-2047): the Costing panel shows the three
+  // derived margins alongside the raw figures, behind the same role gate.
+  const withMargins = { ...so, margins: computeMargins(so) };
+  return { ...redactCostForRole(withMargins, actorAuth.role), projectId: project ? project.id : null };
 }
 
 /**
@@ -158,6 +192,9 @@ async function editSalesOrder(id, patchInput, actorAuth, deps) {
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'projectName') && !patch.projectName) {
     throw new ServiceError('Project name is required.', 'VALIDATION_ERROR', 400); // PWA FACT: `if(!gv("so_pn")){toast(...)}`
+  }
+  if (patch.division && patch.division !== existing.division) {
+    await assertDivisionEntitled(actorAuth.companyId, patch.division, deps);
   }
   if (patch.contacts && patch.contacts.length > 2) {
     throw new ServiceError('A sales order has at most 2 contacts (PWA FACT).', 'VALIDATION_ERROR', 400);
@@ -202,6 +239,12 @@ function applySalesOrderFilters(rows, filters) {
  * uses (see `computePaySummaryFromFlags` vs. `computeReconciledPaySummary`
  * below). This is a deliberately preserved PWA quirk, not a bug to fix.
  */
+/** PWA FACT (vSOs / dlSOs `hasDiv(x.div)`, index.html:1970, 3419). */
+async function onlyEntitledDivisions(actorAuth, rows, deps) {
+  const divisions = await getEffectiveDivisions(actorAuth.companyId, deps);
+  return rows.filter((x) => divisions.includes(x.division));
+}
+
 function computePaySummaryFromFlags(so) {
   const milestones = so.paymentMilestones || [];
   const received = milestones.filter((m) => m.received).reduce((a, m) => a + (m.amount || 0), 0);
@@ -212,7 +255,7 @@ function computePaySummaryFromFlags(so) {
 async function listSalesOrders(actorAuth, { filters = {} } = {}, deps) {
   assertCompanyContext(actorAuth);
   assertRole(actorAuth, VIEW_ROLES, 'view SalesOrders');
-  const all = await deps.salesOrderRepo.listByCompany(actorAuth.companyId);
+  const all = await onlyEntitledDivisions(actorAuth, await deps.salesOrderRepo.listByCompany(actorAuth.companyId), deps);
   const scoped = applySalesOrderFilters(all, filters);
   return scoped.map((so) => ({ ...redactCostForRole(so, actorAuth.role), paySummary: computePaySummaryFromFlags(so) }));
 }
@@ -264,7 +307,7 @@ async function computeReconciledPaySummary(companyId, so, deps) {
 async function exportSalesOrdersCsv(actorAuth, { filters = {} } = {}, deps) {
   assertCompanyContext(actorAuth);
   assertRole(actorAuth, VIEW_ROLES, 'export SalesOrder reports');
-  const all = await deps.salesOrderRepo.listByCompany(actorAuth.companyId);
+  const all = await onlyEntitledDivisions(actorAuth, await deps.salesOrderRepo.listByCompany(actorAuth.companyId), deps);
   const rows = applySalesOrderFilters(all, filters);
 
   const lines = [];
@@ -273,8 +316,12 @@ async function exportSalesOrdersCsv(actorAuth, { filters = {} } = {}, deps) {
   lines.push('');
   const header = [
     'SO No', 'Division', 'Project', 'Site Address', 'Start', 'End', 'Sales Team', 'Project Team',
-    'Contact 1', 'Phone 1', 'Contact 2', 'Phone 2', 'Total Cost', 'High Side Selling',
-    'High Side Purchase', 'Low Side Cost', 'Low Side Target Exp', 'Low Side Actual Exp',
+    // OWNER DECISION (Oct 2026): the PWA's "High Side"/"Low Side" wording is
+    // replaced by "Equipment"/"Accessories" everywhere in this app, the CSV
+    // included, so the exported file matches what the screens say. Column
+    // order and arithmetic are unchanged from the PWA (index.html:3421).
+    'Contact 1', 'Phone 1', 'Contact 2', 'Phone 2', 'Total Cost', 'Equipment Selling',
+    'Equipment Purchase', 'Accessories Cost', 'Accessories Target Exp', 'Accessories Actual Exp',
     'Total Margin', 'Received', 'Pending', 'Terms',
   ];
   lines.push(header.map(csvEscape).join(','));
@@ -285,7 +332,7 @@ async function exportSalesOrdersCsv(actorAuth, { filters = {} } = {}, deps) {
   for (const x of rows) {
     const c1 = (x.contacts && x.contacts[0]) || {};
     const c2 = (x.contacts && x.contacts[1]) || {};
-    const margin = (x.highSideSelling || 0) - (x.highSidePurchase || 0) + ((x.lowSideCost || 0) - (x.lowSideActualExpense || x.lowSideTargetExpense || 0));
+    const { totalMargin: margin } = computeMargins(x);
     // eslint-disable-next-line no-await-in-loop
     const ps = await computeReconciledPaySummary(actorAuth.companyId, x, deps);
     totalCost += x.totalCost || 0;
@@ -305,6 +352,7 @@ async function exportSalesOrdersCsv(actorAuth, { filters = {} } = {}, deps) {
 }
 
 module.exports = {
+  computeMargins,
   createSalesOrder,
   getSalesOrder,
   editSalesOrder,

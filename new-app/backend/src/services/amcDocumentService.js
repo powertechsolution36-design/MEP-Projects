@@ -423,6 +423,29 @@ async function saveTemplate(companyId, templateData, deps) {
  * - Company profile (logo, address, bank, signature)
  * - Template wording
  */
+// "₹ 1,23,456" — the same Indian-grouped rupee format the app shows elsewhere.
+function formatRupees(n) {
+  return '₹ ' + (Number(n) || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+}
+
+// Contract length for {{contractPeriod}}, from the contract's own dates
+// (previously the AMC cadence, e.g. "Quarterly", was substituted here,
+// producing "... is 50000 for Quarterly"). Whole years read "1 Year" /
+// "2 Years"; anything else reads in months. '' when a date is missing.
+function contractPeriodText(start, end) {
+  if (!start || !end) return '';
+  const s = new Date(start);
+  const e = new Date(end);
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime()) || e < s) return '';
+  const days = Math.round((e - s) / 86400000) + 1;
+  const months = Math.max(1, Math.round(days / 30.44));
+  if (months % 12 === 0) {
+    const y = months / 12;
+    return `${y} Year${y > 1 ? 's' : ''}`;
+  }
+  return `${months} Month${months > 1 ? 's' : ''}`;
+}
+
 async function generateAmcDocument(companyId, contractId, templateType, deps) {
   const contract = await deps.contractRepo.findById(companyId, contractId);
   if (!contract) throw new ServiceError('Contract not found.', 'NOT_FOUND', 404);
@@ -484,8 +507,8 @@ async function generateAmcDocument(companyId, contractId, templateType, deps) {
         ...s,
         content: (s.content || '')
           .replace(/\{\{company_name\}\}/g, company.displayName || company.name || '')
-          .replace(/\{\{contractAmount\}\}/g, String(contract.amount || 0))
-          .replace(/\{\{contractPeriod\}\}/g, contract.amcType || '')
+          .replace(/\{\{contractAmount\}\}/g, formatRupees(contract.amount))
+          .replace(/\{\{contractPeriod\}\}/g, contractPeriodText(contract.startDate, contract.endDate))
           .replace(/\{\{startDate\}\}/g, contract.startDate ? new Date(contract.startDate).toLocaleDateString('en-IN') : '')
           .replace(/\{\{endDate\}\}/g, contract.endDate ? new Date(contract.endDate).toLocaleDateString('en-IN') : ''),
       })),
@@ -514,4 +537,6 @@ module.exports = {
   saveTemplate,
   generateAmcDocument,
   listTemplates,
+  contractPeriodText,
+  formatRupees,
 };

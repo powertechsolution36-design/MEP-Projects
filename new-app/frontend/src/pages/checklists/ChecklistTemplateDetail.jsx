@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, apiRequest } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
-import '../enquiries/enquiry.css';
 
 /**
  * Single checklist template detail — PWA `vChklist()` exact reproduction.

@@ -48,9 +48,16 @@ const { createPaymentRouter } = require('./routes/paymentRoutes');
 const { createProjectRouter } = require('./routes/projectRoutes');
 const { createContractRouter } = require('./routes/contractRoutes');
 const { createServiceCallRouter } = require('./routes/serviceCallRoutes');
+const { createDailyTaskRouter } = require('./routes/dailyTaskRoutes');
 const { createInventoryRouter } = require('./routes/inventoryRoutes');
 const { createChecklistTemplateRouter } = require('./routes/checklistTemplateRoutes');
 const { createNotificationRouter } = require('./routes/notificationRoutes');
+const { createSubscriptionRouter } = require('./routes/subscriptionRoutes');
+const { createQuotationRouter } = require('./routes/quotationRoutes');
+const { createItemNameRouter } = require('./routes/itemNameRoutes');
+const { createAmcDocumentRouter } = require('./routes/amcDocumentRoutes');
+const { createPaymentTermTemplateRouter } = require('./routes/paymentTermTemplateRoutes');
+const { createDashboardRouter } = require('./routes/dashboardRoutes');
 const { startDelayCheckScheduler } = require('./jobs/delayCheckScheduler');
 const { hashPassword, verifyPassword } = require('./auth/passwordHasher');
 
@@ -79,9 +86,15 @@ function nextId(prefix, counterRef, key) {
  *    POST /api/companies works end-to-end too.
  */
 function createDevRepositories() {
-  const store = createEnquiryFakeStore();
+  // An explicit (empty) company list: the fake store otherwise invents a
+  // "Test Company" for ANY unknown id, so the dev/e2e server would answer
+  // 200 where production (Mongoose) answers 404 for a missing company.
+  // Companies are added by seedDevData() and POST /api/companies.
+  const store = createEnquiryFakeStore({ companies: [] });
   const idCounters = { company: 0 };
   const sessions = new Map();
+  const dailyTasks = [];
+  let dailyTaskCounter = 0;
   let sessionCounter = 0;
 
   const userRepo = {
@@ -94,6 +107,9 @@ function createDevRepositories() {
     async findById(id) {
       const match = store.state.users.find((u) => String(u.id) === String(id));
       return match ? { ...match } : null;
+    },
+    async findLoginCandidates(username) {
+      return store.state.users.filter((u) => u.username === username).map((u) => ({ ...u }));
     },
   };
 
@@ -114,6 +130,11 @@ function createDevRepositories() {
     async revokeSession(id) {
       const session = sessions.get(id);
       if (session) session.revokedAt = new Date();
+    },
+    async revokeAllForUser(userId, exceptSessionId) {
+      for (const session of sessions.values()) {
+        if (String(session.userId) === String(userId) && session.id !== exceptSessionId) session.revokedAt = new Date();
+      }
     },
   };
 
@@ -137,8 +158,19 @@ function createDevRepositories() {
     async updateFields(id, fields) {
       const idx = store.state.companies.findIndex(c => String(c.id) === String(id));
       if (idx < 0) return null;
-      Object.assign(store.state.companies[idx], fields);
-      return { ...store.state.companies[idx] };
+      const target = store.state.companies[idx];
+      // Apply dotted keys ('bankDetails.bankName') the way MongoDB $set does,
+      // as used by the Company Profile update.
+      for (const [key, value] of Object.entries(fields)) {
+        const parts = key.split('.');
+        let node = target;
+        for (const part of parts.slice(0, -1)) {
+          if (!node[part] || typeof node[part] !== 'object') node[part] = {};
+          node = node[part];
+        }
+        node[parts[parts.length - 1]] = value;
+      }
+      return JSON.parse(JSON.stringify(target));
     },
   };
 
@@ -157,6 +189,36 @@ function createDevRepositories() {
     contractRepo: store.contractRepo,
     serviceCallRepo: store.serviceCallRepo,
     notificationRepo: store.notificationRepo,
+    dailyTaskRepo: {
+      async deleteManyByCompany(companyId) {
+        for (let i = dailyTasks.length - 1; i >= 0; i -= 1) {
+          if (String(dailyTasks[i].companyId) === String(companyId)) dailyTasks.splice(i, 1);
+        }
+      },
+      async create(data) {
+        dailyTaskCounter += 1;
+        const item = { ...data, id: `daily_task_${dailyTaskCounter}`, createdAt: new Date(), updatedAt: new Date() };
+        dailyTasks.push(item);
+        return { ...item };
+      },
+      async findById(companyId, id) {
+        const item = dailyTasks.find((x) => String(x.companyId) === String(companyId) && String(x.id) === String(id));
+        return item ? { ...item } : null;
+      },
+      async listByCompany(companyId, filters = {}) {
+        return dailyTasks
+          .filter((x) => String(x.companyId) === String(companyId))
+          .filter((x) => !filters.assigneeUserId || String(x.assigneeUserId) === String(filters.assigneeUserId))
+          .filter((x) => !filters.taskDate || new Date(x.taskDate).toISOString().slice(0, 10) === new Date(filters.taskDate).toISOString().slice(0, 10))
+          .slice().reverse().map((x) => ({ ...x }));
+      },
+      async transition(companyId, id, expectedStatus, patch) {
+        const item = dailyTasks.find((x) => String(x.companyId) === String(companyId) && String(x.id) === String(id) && x.status === expectedStatus);
+        if (!item) return null;
+        Object.assign(item, patch, { updatedAt: new Date() });
+        return { ...item };
+      },
+    },
     checklistTemplateRepo: store.checklistTemplateRepo,
     counterRepo: store.counterRepo,
     withTransaction: store.withTransaction,
@@ -165,6 +227,12 @@ function createDevRepositories() {
     inventoryItemRepo: store.inventoryItemRepo,
     inventoryIssueRepo: store.inventoryIssueRepo,
     inventoryTransactionRepo: store.inventoryTransactionRepo,
+    planRepo: store.planRepo,
+    subscriptionRepo: store.subscriptionRepo,
+    itemNameRepo: store.itemNameRepo,
+    quotationRepo: store.quotationRepo,
+    amcTemplateRepo: store.amcTemplateRepo,
+    paymentTermTemplateRepo: store.paymentTermTemplateRepo,
   };
 }
 
@@ -179,6 +247,12 @@ function createDevRepositories() {
 function createDevApp(deps, config) {
   const fullDeps = { ...deps, config };
   const app = express();
+  // Same per-route body limit as src/app.js (Company Profile images).
+  app.use('/api/companies/my-profile', express.json({ limit: '5mb' }));
+  // Checklist photos / approval signatures (projects) and the client
+  // signature on service-call completion are base64 images too.
+  app.use('/api/projects', express.json({ limit: '5mb' }));
+  app.use('/api/service-calls', express.json({ limit: '5mb' }));
   app.use(express.json());
 
   app.get('/api/health', (req, res) => res.status(200).json({ ok: true, mode: 'dev-fake-repositories' }));
@@ -191,9 +265,16 @@ function createDevApp(deps, config) {
   app.use('/api/projects', createProjectRouter(fullDeps));
   app.use('/api/contracts', createContractRouter(fullDeps));
   app.use('/api/service-calls', createServiceCallRouter(fullDeps));
+  app.use('/api/daily-tasks', createDailyTaskRouter(fullDeps));
   app.use('/api/inventory', createInventoryRouter(fullDeps));
   app.use('/api/checklist-templates', createChecklistTemplateRouter(fullDeps));
   app.use('/api/notifications', createNotificationRouter(fullDeps));
+  app.use('/api/subscriptions', createSubscriptionRouter(fullDeps));
+  app.use('/api/quotations', createQuotationRouter(fullDeps));
+  app.use('/api/item-names', createItemNameRouter(fullDeps));
+  app.use('/api/amc-documents', createAmcDocumentRouter(fullDeps));
+  app.use('/api/payment-term-templates', createPaymentTermTemplateRouter(fullDeps));
+  app.use('/api/dashboard', createDashboardRouter(fullDeps));
 
   app.startDelayCheckScheduler = (options) => startDelayCheckScheduler(fullDeps, options);
 
@@ -220,7 +301,11 @@ const SEED_USERS = [
 
 async function seedDevData(deps) {
   const { store } = deps;
-  store.state.companies.push({ id: DEMO_COMPANY_ID, name: 'MEP Powertech (Dev)', active: true });
+  // divisions: dev-only demo data so division-entitled modules (e.g.
+  // quotations) are usable against this in-memory server.
+  store.state.companies.push({
+    id: DEMO_COMPANY_ID, name: 'MEP Powertech (Dev)', active: true, divisions: ['HVAC', 'Solar', 'MEP'],
+  });
 
   let userN = 0;
   for (const u of SEED_USERS) {

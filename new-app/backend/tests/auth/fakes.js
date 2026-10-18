@@ -29,11 +29,17 @@ function createInMemoryStore(seedUsers = [], seedCompanies = []) {
       const match = users.find((u) => u.id === id);
       return match ? { ...match } : null;
     },
+    async findLoginCandidates(username) {
+      return users.filter((u) => u.username === username).map((u) => ({ ...u }));
+    },
   };
 
   const userWriteRepo = {
     async existsByCompanyAndUsername(companyId, username) {
       return users.some((u) => u.companyId === companyId && u.username === username);
+    },
+    async existsByUsername(username, exceptUserId) {
+      return users.some((u) => u.username === username && u.id !== exceptUserId);
     },
     async create(userData) {
       const doc = { id: nextId('user'), active: true, ...userData };
@@ -88,6 +94,11 @@ function createInMemoryStore(seedUsers = [], seedCompanies = []) {
     async revokeSession(id) {
       const session = sessions.get(id);
       if (session) session.revokedAt = new Date();
+    },
+    async revokeAllForUser(userId, exceptSessionId) {
+      for (const session of sessions.values()) {
+        if (session.userId === userId && session.id !== exceptSessionId && !session.revokedAt) session.revokedAt = new Date();
+      }
     },
     // test helper, not part of the production interface
     _getRaw(id) {

@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { money, today } from '../../utils/format';
 import DivisionSelector from '../../components/DivisionSelector';
-import '../enquiries/enquiry.css';
 
 /**
  * Create / Edit Quotation — Equipment + Accessories line items.
@@ -200,8 +199,14 @@ export default function QuotationCreate() {
     const eqTotal = equipmentItems.reduce((s, i) => s + (i.qty || 0) * ((i.supplyRate || 0) + (i.installationRate || 0)), 0);
     const accTotal = accessoriesItems.reduce((s, i) => s + (i.qty || 0) * ((i.supplyRate || 0) + (i.installationRate || 0)), 0);
     const subtotal = eqTotal + accTotal;
-    const gst = form.gstPercent != null ? form.gstPercent : 18;
-    const gstAmount = Math.round(subtotal * gst / 100);
+    const gst = form.gstPercent === '' || form.gstPercent == null ? 18 : Number(form.gstPercent);
+    // Solar: GST is the sum of each line's own GST % (same rule as the server).
+    const gstAmount = form.division === 'Solar'
+      ? [...equipmentItems, ...accessoriesItems].reduce((s, i) => {
+          const base = (i.qty || 0) * ((i.supplyRate || 0) + (i.installationRate || 0));
+          return s + Math.round(base * (i.gstPercent != null ? Number(i.gstPercent) : 18) / 100);
+        }, 0)
+      : Math.round(subtotal * gst / 100);
     return { eqTotal, accTotal, subtotal, gstAmount, grandTotal: subtotal + gstAmount };
   }
 
@@ -256,7 +261,7 @@ export default function QuotationCreate() {
     try {
       const payload = {
         ...form,
-        gstPercent: Number(form.gstPercent) || 18,
+        gstPercent: form.gstPercent === '' || form.gstPercent == null ? 18 : Number(form.gstPercent), // 0% allowed
         equipmentItems: equipmentItems.filter(i => i.description),
         accessoriesItems: accessoriesItems.filter(i => i.description),
         paymentTerms: paymentTerms.filter(t => t.label || t.wording),

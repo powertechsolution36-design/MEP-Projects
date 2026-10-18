@@ -25,6 +25,11 @@ const userRepo = {
     const doc = await User.findById(id).lean();
     return doc ? mapUser(doc) : null;
   },
+  /** Every account with this exact username (normally 0 or 1). */
+  async findLoginCandidates(username) {
+    const docs = await User.find({ username }).limit(5).lean();
+    return docs.map(mapUser);
+  },
 };
 
 function mapUser(doc) {
@@ -56,6 +61,12 @@ const sessionRepo = {
     if (!sessionId) return;
     await AuthSession.findByIdAndUpdate(sessionId, { revokedAt: new Date() });
   },
+  /** Revokes every still-active session of a user (password change / removal). */
+  async revokeAllForUser(userId, exceptSessionId) {
+    const filter = { userId, revokedAt: null };
+    if (exceptSessionId) filter._id = { $ne: exceptSessionId };
+    await AuthSession.updateMany(filter, { $set: { revokedAt: new Date() } });
+  },
 };
 
 const companyRepo = {
@@ -86,6 +97,12 @@ const userWriteRepo = {
   async existsByCompanyAndUsername(companyId, username) {
     const existing = await User.findOne({ companyId, username }).lean();
     return Boolean(existing);
+  },
+  /** Platform-wide username check (usernames are globally unique). */
+  async existsByUsername(username, exceptUserId) {
+    const filter = { username };
+    if (exceptUserId) filter._id = { $ne: exceptUserId };
+    return Boolean(await User.exists(filter));
   },
   async create(userData) {
     // FIX-6-02: User has a unique (companyId, username) index. userService.js

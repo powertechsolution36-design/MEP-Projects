@@ -112,7 +112,29 @@ test('createUser — a PM role is rejected if the company does not subscribe to 
   assert.equal(user.role, 'hvac_pm');
 });
 
-test('createUser — duplicate username within the SAME company is rejected; the SAME username in a DIFFERENT company is fine', async () => {
+// Integration regression (found by e2e/completion/integration-api.js): the
+// rejection above surfaced over HTTP as a 500 "Internal error." because the
+// division rule threw a plain Error. It must be a 400 validation error, on
+// create and on a role change alike.
+test('createUser / updateUser — a PM role outside the company divisions is a 400 VALIDATION_ERROR (not a 500)', async () => {
+  const store = await seedStore();
+  const co2Admin = auth({ userId: 'admin2', companyId: 'co2' });
+  await assert.rejects(
+    () => userService.createUser({ name: 'X', username: 'x_pm', password: 'pw123456', role: 'solar_pm' }, co2Admin, deps(store)),
+    (err) => err.status === 400 && err.code === 'VALIDATION_ERROR' && /requires the company to subscribe/.test(err.message)
+  );
+  const user = await userService.createUser({ name: 'Y', username: 'y_sales', password: 'pw123456', role: 'sales' }, co2Admin, deps(store));
+  await assert.rejects(
+    () => userService.updateUser(user.id, { role: 'mep_pm' }, co2Admin, deps(store)),
+    (err) => err.status === 400 && err.code === 'VALIDATION_ERROR'
+  );
+});
+
+// UPDATE (Completion order -- owner-approved decision): users log in with
+// username + password only (PWA parity, index.html:1293; the PWA's own
+// saveCompany/saveUser reject a Login ID "already in use" anywhere), so a
+// username is now unique across ALL companies, not just within one.
+test('createUser — duplicate username within the SAME company is rejected, and (global uniqueness) so is the SAME username in a DIFFERENT company', async () => {
   const store = await seedStore();
   await userService.createUser({ name: 'A', username: 'dupe', password: 'pw123456', role: 'sales' }, auth(), deps(store));
   await assert.rejects(
@@ -120,8 +142,12 @@ test('createUser — duplicate username within the SAME company is rejected; the
     /already taken/
   );
   const otherCoAdmin = auth({ userId: 'admin2', companyId: 'co2' });
-  const ok = await userService.createUser({ name: 'C', username: 'dupe', password: 'pw123456', role: 'hvac_pm' }, otherCoAdmin, deps(store));
-  assert.equal(ok.username, 'dupe');
+  await assert.rejects(
+    () => userService.createUser({ name: 'C', username: 'dupe', password: 'pw123456', role: 'hvac_pm' }, otherCoAdmin, deps(store)),
+    /already in use/
+  );
+  const ok = await userService.createUser({ name: 'C', username: 'dupe2', password: 'pw123456', role: 'hvac_pm' }, otherCoAdmin, deps(store));
+  assert.equal(ok.username, 'dupe2');
 });
 
 /* ================= list / get ================= */

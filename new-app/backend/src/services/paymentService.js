@@ -1,6 +1,7 @@
 'use strict';
 
 const { ServiceError } = require('../errors');
+const { reportHeaderRows } = require('./reportHeader');
 
 /**
  * Payment / Finance business/application layer.
@@ -86,10 +87,81 @@ async function getPayment(id, actorAuth, deps) {
   return payment;
 }
 
+/**
+ * Display enrichment for a Payment record.
+ *
+ * The PWA stored display values straight on the payment (`x.soNo`,
+ * `p.by`, `x.raised.by` are all plain strings). This backend stores durable
+ * references instead (`salesOrderId`, `recordedByUserId`, `editedByUserId`,
+ * `raisedToFinance.raisedByUserId`), so the names the PWA's screens print
+ * are resolved here, on read, once per request:
+ *
+ *   orderNumber                       <- PWA `x.soNo`      (index.html:3725)
+ *   partPayments[].recordedByName     <- PWA `p.by`        (index.html:3880)
+ *   partPayments[].editedByName       <- PWA `p.editedBy`  (index.html:3880)
+ *   raisedToFinance.raisedByName      <- PWA `x.raised.by` (index.html:3728)
+ *
+ * Nothing is removed and no stored field changes: these are additive,
+ * derived fields. A name that can no longer be resolved (deleted user)
+ * falls back to the stored role, then to an empty string — never to an id,
+ * which would leak an internal identifier onto the screen.
+ */
+function enrichPaymentForDisplay(payment, { orderNumberById, nameById }) {
+  const out = { ...payment };
+  out.orderNumber = payment.salesOrderId ? orderNumberById.get(String(payment.salesOrderId)) || null : null;
+  out.partPayments = (payment.partPayments || []).map((p) => ({
+    ...p,
+    recordedByName: p.recordedByUserId ? nameById.get(String(p.recordedByUserId)) || '' : '',
+    editedByName: p.editedByUserId ? nameById.get(String(p.editedByUserId)) || '' : '',
+  }));
+  if (payment.raisedToFinance) {
+    const r = payment.raisedToFinance;
+    out.raisedToFinance = {
+      ...r,
+      raisedByName: (r.raisedByUserId && nameById.get(String(r.raisedByUserId))) || r.raisedByRole || '',
+    };
+  }
+  return out;
+}
+
+/** The lookup maps `enrichPaymentForDisplay` needs, fetched once per request. */
+async function buildPaymentLookups(companyId, deps) {
+  const [salesOrders, users] = await Promise.all([
+    deps.salesOrderRepo && deps.salesOrderRepo.listByCompany ? deps.salesOrderRepo.listByCompany(companyId) : [],
+    deps.userRepoForEnquiry && deps.userRepoForEnquiry.listByCompany ? deps.userRepoForEnquiry.listByCompany(companyId) : [],
+  ]);
+  return {
+    orderNumberById: new Map(salesOrders.map((s) => [String(s.id), s.orderNumber])),
+    nameById: new Map(users.map((u) => [String(u.id), u.name])),
+  };
+}
+
+/**
+ * PWA FACT (`dlPayments`, index.html:3487 and the pending table's own
+ * `hit(x,[...])`, index.html:3707): the payments search runs over project,
+ * person, phone, remark, discussion, SO number, amount and status, with
+ * `hit()`'s per-word AND matching (index.html:1819-1824) — every
+ * whitespace-separated word of the query must appear somewhere in the row.
+ */
+function paymentMatchesQuery(payment, q) {
+  const words = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const blob = [
+    payment.projectOrReference, payment.personName, payment.phone, payment.remark,
+    payment.discussionNotes, payment.orderNumber, payment.amount, payment.status,
+  ]
+    .filter((v) => v !== undefined && v !== null)
+    .join(' ')
+    .toLowerCase();
+  return words.every((w) => blob.includes(w));
+}
+
 async function listPayments(actorAuth, { status } = {}, deps) {
   assertCompanyContext(actorAuth);
   assertRole(actorAuth, LEDGER_ROLES, 'view Payments');
-  return deps.paymentRepo.listByCompany(actorAuth.companyId, { status });
+  const rows = await deps.paymentRepo.listByCompany(actorAuth.companyId, { status });
+  const lookups = await buildPaymentLookups(actorAuth.companyId, deps);
+  return rows.map((r) => enrichPaymentForDisplay(r, lookups));
 }
 
 /**
@@ -309,11 +381,11 @@ async function deletePaymentRecord(paymentId, actorAuth, deps) {
  * onto the SO's own `paymentMilestones[mi].amount` (PWA FACT:
  * `if(x.soNo){...so.pay[x.mi].a=amt}`) — but per that same locked decision,
  * this direction is NOT mirrored by an SO-side edit (see
- * salesOrderService.js's `editSalesOrder`), and — PWA FACT, verified
- * literally in `savePayEdit` — this function does NOT call
- * `syncPayStatus()` after changing the amount, so `status`/`rcv` are
- * intentionally NOT recomputed here even though the balance changed. This
- * is preserved exactly as a PWA quirk, not corrected.
+ * salesOrderService.js's `editSalesOrder`).
+ * CORRECTION (Completion order): the earlier claim that `savePayEdit` does
+ * not call `syncPayStatus()` was wrong -- MEP_PROJECTS_PWA/index.html:3844
+ * calls `syncPayStatus(x)` right after the amount change, so status /
+ * received date / the SO milestone's `received` flag are recomputed here.
  */
 async function editMilestone(paymentId, input, actorAuth, deps) {
   assertCompanyContext(actorAuth);
@@ -349,8 +421,8 @@ async function editMilestone(paymentId, input, actorAuth, deps) {
     if (amount !== undefined && payment.salesOrderId) {
       await txnDeps.salesOrderRepo.setMilestoneAmount(actorAuth.companyId, payment.salesOrderId, payment.milestoneIndex, Number(amount), session);
     }
-    // Deliberately no syncPayStatus() call here — see doc comment above.
-    return updated;
+    // PWA FACT (savePayEdit, index.html:3844): syncPayStatus(x).
+    return syncPayStatus(actorAuth.companyId, updated, txnDeps, session);
   });
 }
 
@@ -432,8 +504,13 @@ async function raiseToFinance(salesOrderId, milestoneIndex, input, actorAuth, de
       note: note || '',
     };
     const existingDisc = payment.discussionNotes || '';
-    const discussionNotes = `${existingDisc ? existingDisc + ' | ' : ''}[${todayDate().toISOString().slice(0, 10)}] Raised: ${note || ''}`;
-    const updated = await txnDeps.paymentRepo.update(actorAuth.companyId, payment.id, { raisedToFinance, discussionNotes }, session);
+    const actorName = actorAuth.name || actorAuth.role;
+    // PWA FACT (doRaise, index.html:2290-2291): "[date] Raised by <name>: note",
+    // and the next follow-up call defaults to the collect-by date.
+    const discussionNotes = `${existingDisc ? existingDisc + ' | ' : ''}[${todayDate().toISOString().slice(0, 10)}] Raised by ${actorName}: ${note || ''}`;
+    const patchRaise = { raisedToFinance, discussionNotes };
+    if (!payment.nextCallDate && dueByDate) patchRaise.nextCallDate = dueByDate;
+    const updated = await txnDeps.paymentRepo.update(actorAuth.companyId, payment.id, patchRaise, session);
 
     await txnDeps.notificationRepo.create(
       {
@@ -480,21 +557,25 @@ function formatDateForCsv(value) {
  * ["TOTAL","","","",t,r,b])` exactly: a blank line, then a short 7-field
  * row (PWA's own `dlCSV` never pads short rows).
  */
-async function exportPendingPaymentsCsv(actorAuth, deps) {
+async function exportPendingPaymentsCsv(actorAuth, { search = '' } = {}, deps) {
   assertCompanyContext(actorAuth);
   assertRole(actorAuth, LEDGER_ROLES, 'export payment reports');
-  const rows = await deps.paymentRepo.listByCompany(actorAuth.companyId);
-  const salesOrders = deps.salesOrderRepo ? await deps.salesOrderRepo.listByCompany(actorAuth.companyId) : [];
-  const soOrderNumberById = new Map(salesOrders.map((s) => [String(s.id), s.orderNumber]));
-  let nameById = new Map();
-  if (deps.userRepoForEnquiry && deps.userRepoForEnquiry.listByCompany) {
-    const users = await deps.userRepoForEnquiry.listByCompany(actorAuth.companyId);
-    nameById = new Map(users.map((u) => [String(u.id), u.name]));
-  }
+  const all = await deps.paymentRepo.listByCompany(actorAuth.companyId);
+  const lookups = await buildPaymentLookups(actorAuth.companyId, deps);
+  const soOrderNumberById = lookups.orderNumberById;
+  const nameById = lookups.nameById;
+  const company = deps.companyRepo ? await deps.companyRepo.findById(actorAuth.companyId) : null;
+  // PWA FACT (dlPayments, index.html:3487): the export carries the screen's
+  // own search, so the file matches what the person is looking at.
+  const rows = all
+    .map((r) => enrichPaymentForDisplay(r, lookups))
+    .filter((r) => paymentMatchesQuery(r, search));
 
   const lines = [];
-  lines.push(csvEscape('PAYMENTS REPORT'));
-  lines.push('');
+  // PWA FACT (rptHead, index.html:3417): title + company, generated-by, filter, blank.
+  for (const row of reportHeaderRows('Payments Report', { company, actorAuth, search })) {
+    lines.push(row.map(csvEscape).join(','));
+  }
   lines.push(
     [
       'Project', 'SO No', 'Person', 'Phone', 'Milestone Amount', 'Received', 'Balance', 'Status',
@@ -544,14 +625,23 @@ async function exportPendingPaymentsCsv(actorAuth, deps) {
 async function exportReceiptsCsv(actorAuth, deps) {
   assertCompanyContext(actorAuth);
   assertRole(actorAuth, LEDGER_ROLES, 'export payment reports');
-  const all = await deps.paymentRepo.listByCompany(actorAuth.companyId);
+  const [all, salesOrders, users, company] = await Promise.all([
+    deps.paymentRepo.listByCompany(actorAuth.companyId),
+    deps.salesOrderRepo.listByCompany(actorAuth.companyId),
+    deps.userRepoForEnquiry && deps.userRepoForEnquiry.listByCompany ? deps.userRepoForEnquiry.listByCompany(actorAuth.companyId) : [],
+    deps.companyRepo ? deps.companyRepo.findById(actorAuth.companyId) : null,
+  ]);
+  // PWA FACT (dlReceipts, index.html:3892-3899): SO No is the order number,
+  // Entered By is the person's name, title carries the company name.
+  const soNo = new Map(salesOrders.map((s) => [String(s.id), s.orderNumber]));
+  const userName = new Map(users.map((u) => [String(u.id), u.name]));
   const receipts = [];
   for (const x of all) {
     for (const p of x.partPayments || []) receipts.push({ x, p });
   }
 
   const lines = [];
-  lines.push(csvEscape('PAYMENT RECEIPTS LEDGER'));
+  lines.push(csvEscape(`PAYMENT RECEIPTS LEDGER${company && company.name ? ` — ${company.name}` : ''}`));
   lines.push('');
   lines.push(
     ['Date', 'Project', 'SO No', 'Person', 'Phone', 'Amount Received', 'Mode', 'Reference', 'Invoice Issued', 'Milestone Amount', 'Milestone Balance', 'Status', 'Entered By', 'Remark']
@@ -563,9 +653,9 @@ async function exportReceiptsCsv(actorAuth, deps) {
     total += Number(p.amount) || 0;
     lines.push(
       [
-        formatDateForCsv(p.date), x.projectOrReference, x.salesOrderId || '', x.personName, x.phone, p.amount,
+        formatDateForCsv(p.date), x.projectOrReference, x.salesOrderId ? soNo.get(String(x.salesOrderId)) || '' : '', x.personName, x.phone, p.amount,
         p.mode || '', p.reference || '', p.invoiceIssued ? 'Yes' : 'No', x.amount, computeBalance(x), x.status,
-        p.recordedByUserId || '', p.remark || '',
+        userName.get(String(p.recordedByUserId)) || '', p.remark || '',
       ].map(csvEscape).join(',')
     );
   }
@@ -589,6 +679,8 @@ module.exports = {
   // exported for tests / reuse
   computeReceived,
   computeBalance,
+  enrichPaymentForDisplay,
+  paymentMatchesQuery,
   syncPayStatus,
   LEDGER_ROLES,
   RAISE_ROLES,

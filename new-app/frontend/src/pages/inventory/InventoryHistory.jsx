@@ -1,8 +1,8 @@
-import { useState } from 'react';
-import { getStoredToken } from '../../api/client';
+import { useState, useEffect } from 'react';
+import { api, getStoredToken } from '../../api/client';
 import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../auth/AuthContext';
-import '../enquiries/enquiry.css';
+import { fmtDate } from '../../utils/format';
 
 /**
  * Inventory Transaction History — PWA transaction log exact reproduction.
@@ -19,8 +19,18 @@ const MANAGE_ROLES = ['inventory', 'admin'];
 export default function InventoryHistory() {
   const { user } = useAuth();
   const [error, setError] = useState(null);
+  const [txns, setTxns] = useState([]);
+  const [search, setSearch] = useState('');
 
   const canManage = MANAGE_ROLES.includes(user?.role);
+
+  // PWA FACT (vInvHistory): the ledger is shown on screen, newest first.
+  useEffect(() => {
+    if (!canManage) return;
+    api.get('/api/inventory/transactions')
+      .then(d => setTxns(d.transactions || []))
+      .catch(err => setError(err.message));
+  }, [canManage]);
 
   async function handleExport() {
     setError(null);
@@ -67,16 +77,25 @@ export default function InventoryHistory() {
       {error && <p style={{ color: 'red' }}>{error}</p>}
 
       <div className="panel">
-        <p className="muted">
-          Inventory transactions are append-only. Use the CSV export to view the full
-          transaction history including all 8 types: Purchase In, Opening Stock,
-          Damage / Write-off, Adjustment, Issue, Return, Transfer In, Transfer Out.
-        </p>
-        <p className="muted" style={{ marginTop: 8 }}>
-          Stock adjustments are made from the <strong>Stock</strong> page.
-          Issues and returns are managed from their respective pages.
-          Transfers are done from the <strong>Stock Transfer</strong> page.
-        </p>
+        <div className="search-bar">
+          <input placeholder="Search item, type, location, reference..." value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead><tr><th>Date</th><th>Type</th><th>Item</th><th>Qty</th><th>From</th><th>To</th><th>Reference</th><th>By</th><th>Remark</th></tr></thead>
+            <tbody>
+              {txns.filter(t => !search || [t.type, t.itemName, t.itemCode, t.fromLocationName, t.toLocationName, t.referenceText, t.recordedByName, t.remark]
+                .join(' ').toLowerCase().includes(search.toLowerCase())).map(t => (
+                <tr key={t.id}>
+                  <td>{fmtDate(t.date)}</td><td>{t.type}</td><td><b>{t.itemName}</b></td><td>{t.quantity} {t.unit}</td>
+                  <td>{t.fromLocationName || '—'}</td><td>{t.toLocationName || '—'}</td><td>{t.referenceText || '—'}</td>
+                  <td>{t.recordedByName}</td><td>{t.remark || '—'}</td>
+                </tr>
+              ))}
+              {txns.length === 0 && <tr><td colSpan={9} className="muted">No transactions yet.</td></tr>}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

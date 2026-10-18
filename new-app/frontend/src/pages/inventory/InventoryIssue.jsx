@@ -3,7 +3,7 @@ import { api, getStoredToken } from '../../api/client';
 import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../auth/AuthContext';
 import { fmtDate } from '../../utils/format';
-import '../enquiries/enquiry.css';
+import { ReturnModal, MarkUsedModal, issueBalance, issueStatusClass } from './IssueActions';
 
 /**
  * Issue Material — PWA `vIssue()` exact reproduction.
@@ -15,28 +15,9 @@ import '../enquiries/enquiry.css';
 
 const MANAGE_ROLES = ['inventory', 'admin'];
 
-function issBal(issue) {
-  return Math.max(0, (Number(issue.quantityIssued) || 0) - (Number(issue.quantityReturned) || 0) - (Number(issue.quantityUsed) || 0));
-}
-
-function issStatus(issue) {
-  if (issBal(issue) <= 0) {
-    if ((Number(issue.quantityReturned) || 0) > 0) {
-      return (Number(issue.quantityUsed) || 0) > 0 ? 'Returned / Used' : 'Returned';
-    }
-    return 'Consumed';
-  }
-  if ((Number(issue.quantityReturned) || 0) > 0) return 'Partially Returned';
-  if (issue.returnRequested) return 'Return Requested';
-  return 'Issued';
-}
-
-function statusClass(s) {
-  if (s === 'Issued') return 'status-open';
-  if (s === 'Return Requested') return 'status-pending';
-  if (s === 'Partially Returned') return 'status-won';
-  if (s === 'Returned' || s === 'Returned / Used' || s === 'Consumed') return 'status-received';
-  return '';
+function totalQty(item) {
+  const sbl = item.stockByLocation || {};
+  return Object.values(sbl).reduce((s, v) => s + (Number(v) || 0), 0);
 }
 
 export default function InventoryIssue() {
@@ -44,19 +25,19 @@ export default function InventoryIssue() {
   const [items, setItems] = useState([]);
   const [locations, setLocations] = useState([]);
   const [users, setUsers] = useState([]);
+  const [sites, setSites] = useState([]);
   const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [search, setSearch] = useState('');
 
+  const today = new Date().toISOString().slice(0, 10);
+  const emptyForm = { itemId: '', quantity: '1', staffId: '', siteIndex: '0', fromLocationId: '', date: today, remark: '' };
   const [showIssue, setShowIssue] = useState(false);
-  const [issueForm, setIssueForm] = useState({
-    itemId: '', quantity: '', staffId: '', site: '', fromLocationId: '', remark: '',
-  });
+  const [issueForm, setIssueForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
-
-  /* Mark Used modal */
-  const [showMarkUsed, setShowMarkUsed] = useState(null);
-  const [markUsedQty, setMarkUsedQty] = useState('');
+  const [returnTarget, setReturnTarget] = useState(null);
+  const [usedTarget, setUsedTarget] = useState(null);
 
   const canManage = MANAGE_ROLES.includes(user?.role);
 
@@ -64,22 +45,18 @@ export default function InventoryIssue() {
     setLoading(true);
     setError(null);
     try {
-      const [itemsData, locData, issData] = await Promise.all([
+      const [itemsData, locData, issData, staffData, siteData] = await Promise.all([
         api.get('/api/inventory/items'),
         api.get('/api/inventory/locations'),
-        api.get('/api/inventory/reports/issued.csv').then(() => null).catch(() => null), // skip CSV load
+        api.get('/api/inventory/issues'),
+        api.get('/api/inventory/recipient-candidates').catch(() => ({ candidates: [] })),
+        api.get('/api/inventory/site-options').catch(() => ({ sites: [] })),
       ]);
       setItems(itemsData.items || []);
       setLocations(locData.locations || []);
-
-      /* Load all issues — we use the dashboard endpoint indirectly.
-         Actually, there's no "list all issues" endpoint. Issues are per-item.
-         Use the my-material pattern but for managers, or build from items.
-         Actually - the issued.csv export is admin/inventory only, but there's no
-         JSON list-all-issues endpoint. We'll use /my-material for the user's view
-         and for managers, show via items. */
-      /* For the issue page, we just show the issue form and recent issues.
-         Let's load engineer candidates as staff recipients. */
+      setIssues(issData.issues || []);
+      setUsers(staffData.candidates || []);
+      setSites(siteData.sites || []);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -87,26 +64,19 @@ export default function InventoryIssue() {
     }
   }, []);
 
-  /* Load staff candidates for issue dropdown */
-  useEffect(() => {
-    api.get('/api/inventory/recipient-candidates')
-      .then(data => setUsers(data.candidates || []))
-      .catch(() => {});
-  }, []);
+  useEffect(() => { if (canManage) load(); }, [load, canManage]);
 
-  useEffect(() => { load(); }, [load]);
+  const inStock = items.filter(i => totalQty(i) > 0);
 
-  function itemName(id) {
-    const item = items.find(x => (x.id || x._id) === id);
-    return item ? `${item.name} (${item.code || '—'})` : String(id);
-  }
-  function locName(id) {
-    const l = locations.find(x => (x.id || x._id) === id);
-    return l ? l.name : String(id);
-  }
-  function userName(id) {
-    const u = users.find(x => x.id === id);
-    return u ? u.name : String(id);
+  function openIssue() {
+    if (!inStock.length) { alert('No stock available to issue'); return; }
+    setIssueForm({
+      ...emptyForm,
+      itemId: inStock[0].id,
+      fromLocationId: locations[0]?.id || '',
+      staffId: users[0]?.id || '',
+    });
+    setShowIssue(true);
   }
 
   async function handleIssue(e) {
@@ -114,36 +84,18 @@ export default function InventoryIssue() {
     setSaving(true);
     setError(null);
     try {
+      const site = sites[Number(issueForm.siteIndex)] || { label: '', projectId: null };
       await api.post('/api/inventory/issues', {
         itemId: issueForm.itemId,
         quantity: Number(issueForm.quantity) || 0,
         staffId: issueForm.staffId,
-        site: issueForm.site || undefined,
+        site: site.label,
+        projectId: site.projectId || undefined,
         fromLocationId: issueForm.fromLocationId,
+        date: issueForm.date || undefined,
         remark: issueForm.remark || undefined,
       });
       setShowIssue(false);
-      setIssueForm({ itemId: '', quantity: '', staffId: '', site: '', fromLocationId: '', remark: '' });
-      alert('Material issued successfully.');
-      await load();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleMarkUsed(e) {
-    e.preventDefault();
-    setSaving(true);
-    setError(null);
-    try {
-      const issueId = showMarkUsed.id || showMarkUsed._id;
-      await api.post(`/api/inventory/issues/${issueId}/mark-used`, {
-        quantity: Number(markUsedQty) || 0,
-      });
-      setShowMarkUsed(null);
-      setMarkUsedQty('');
       await load();
     } catch (err) {
       setError(err.message);
@@ -158,6 +110,7 @@ export default function InventoryIssue() {
         API_BASE_URL + '/api/inventory/reports/issued.csv',
         { headers: { Authorization: `Bearer ${getStoredToken()}` } }
       );
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const blob = await resp.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -173,48 +126,67 @@ export default function InventoryIssue() {
   if (!canManage) {
     return (
       <div className="enq-page">
-        <div className="panel">
-          <p className="muted">You do not have permission to issue material.</p>
-        </div>
+        <div className="panel"><p className="muted">You do not have permission to issue material.</p></div>
       </div>
     );
   }
 
+  const q = search.trim().toLowerCase();
+  const rows = q
+    ? issues.filter(x => [x.staffName, x.site, x.date && fmtDate(x.date), x.status, x.remark, x.issuedByName, x.itemName, x.itemCode]
+        .join(' ').toLowerCase().includes(q))
+    : issues;
+
   return (
     <div className="enq-page">
       <div className="enq-header">
-        <h2>Issue Material</h2>
+        <h2>Issue Material to Staff</h2>
         <div className="enq-actions">
-          <button className="btn pri" onClick={() => setShowIssue(true)}>+ Issue Material</button>
-          <button className="btn sec" onClick={handleExport}>CSV Export</button>
+          <button className="btn pri" onClick={openIssue}>+ Issue Material</button>
+          <button className="btn sec" onClick={handleExport}>⬇ Report</button>
         </div>
       </div>
+      <p className="muted">Choose the staff member and the site — both come from the system. Issued material shows on that person's own login under <b>My Material</b>.</p>
 
       {error && <p style={{ color: 'red' }}>{error}</p>}
       {loading && <p className="muted">Loading...</p>}
 
-      {/* Issue items table — for now we show the items with stock info for selection guidance */}
       {!loading && (
         <div className="panel">
-          <h3>Available Items</h3>
+          <div className="search-bar">
+            <input placeholder="Search staff, site, item, status..." value={search} onChange={e => setSearch(e.target.value)} />
+            <span className="muted">{rows.length} of {issues.length}</span>
+          </div>
           <div className="table-wrap">
             <table className="data-table">
               <thead>
-                <tr><th>Code</th><th>Name</th><th>Unit</th><th>Total Qty</th></tr>
+                <tr><th>Date</th><th>Item</th><th>Type</th><th>Qty</th><th>Staff</th><th>Site</th><th>From Location</th><th>Returned</th><th>Balance</th><th>Status</th><th>Issued By</th><th></th></tr>
               </thead>
               <tbody>
-                {items.map(item => {
-                  let qty = 0;
-                  if (item.stockByLocation) {
-                    const vals = item.stockByLocation instanceof Map ? Array.from(item.stockByLocation.values()) : Object.values(item.stockByLocation);
-                    qty = vals.reduce((s, v) => s + (Number(v) || 0), 0);
-                  }
+                {rows.length === 0 && <tr><td colSpan={12} className="muted">No material issued yet.</td></tr>}
+                {rows.map(x => {
+                  const bal = issueBalance(x);
                   return (
-                    <tr key={item.id || item._id}>
-                      <td>{item.code || '—'}</td>
-                      <td>{item.name}</td>
-                      <td>{item.unit}</td>
-                      <td>{qty}</td>
+                    <tr key={x.id} style={bal > 0 ? { background: '#fffaf0' } : undefined}>
+                      <td>{fmtDate(x.date)}</td>
+                      <td><b>{x.itemName}</b><div className="muted">{x.itemCode}</div></td>
+                      <td>{x.returnable ? 'Returnable' : 'Non-returnable'}</td>
+                      <td>{x.quantityIssued} {x.unit}</td>
+                      <td><b>{x.staffName}</b></td>
+                      <td>{x.site}</td>
+                      <td>{x.fromLocationName}</td>
+                      <td>{Number(x.quantityReturned) || '—'}</td>
+                      <td>{bal > 0 ? bal : '—'}</td>
+                      <td><span className={`status-badge ${issueStatusClass(x.status)}`}>{x.status}</span></td>
+                      <td>{x.issuedByName}</td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        {bal > 0 && (
+                          <>
+                            <button className="btn sm pri" onClick={() => setReturnTarget(x)}>Return</button>{' '}
+                            <button className="btn sm sec" onClick={() => setUsedTarget(x)}>Mark Used</button>
+                          </>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -224,7 +196,6 @@ export default function InventoryIssue() {
         </div>
       )}
 
-      {/* Issue Modal */}
       {showIssue && (
         <div className="modal-overlay" onClick={() => setShowIssue(false)}>
           <div className="modal modal-wide" onClick={e => e.stopPropagation()}>
@@ -233,39 +204,56 @@ export default function InventoryIssue() {
               <div className="form-grid">
                 <div className="filter-field"><label>Item *</label>
                   <select value={issueForm.itemId} onChange={e => setIssueForm(p => ({ ...p, itemId: e.target.value }))} required>
-                    <option value="">— Select Item —</option>
-                    {items.map(i => <option key={i.id || i._id} value={i.id || i._id}>{i.name} ({i.code || '—'})</option>)}
-                  </select>
-                </div>
-                <div className="filter-field"><label>Quantity *</label>
-                  <input type="number" value={issueForm.quantity} onChange={e => setIssueForm(p => ({ ...p, quantity: e.target.value }))} required min="1" />
-                </div>
-                <div className="filter-field"><label>Staff *</label>
-                  <select value={issueForm.staffId} onChange={e => setIssueForm(p => ({ ...p, staffId: e.target.value }))} required>
-                    <option value="">— Select Staff —</option>
-                    {users.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
+                    {inStock.map(i => (
+                      <option key={i.id} value={i.id}>
+                        {i.code ? `${i.code} — ` : ''}{i.name} ({totalQty(i)} {i.unit} available){i.returnable ? ' · returnable' : ''}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="filter-field"><label>From Location *</label>
                   <select value={issueForm.fromLocationId} onChange={e => setIssueForm(p => ({ ...p, fromLocationId: e.target.value }))} required>
-                    <option value="">— Select Location —</option>
-                    {locations.map(l => <option key={l.id || l._id} value={l.id || l._id}>{l.name}</option>)}
+                    {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                   </select>
                 </div>
-                <div className="filter-field"><label>Site</label>
-                  <input type="text" value={issueForm.site} onChange={e => setIssueForm(p => ({ ...p, site: e.target.value }))} />
+                <div className="filter-field"><label>Quantity *</label>
+                  <input type="number" min="1" value={issueForm.quantity} onChange={e => setIssueForm(p => ({ ...p, quantity: e.target.value }))} required />
                 </div>
-                <div className="filter-field"><label>Remark</label>
+                <div className="filter-field"><label>Date</label>
+                  <input type="date" value={issueForm.date} onChange={e => setIssueForm(p => ({ ...p, date: e.target.value }))} />
+                </div>
+                <div className="filter-field"><label>Issue To (staff) *</label>
+                  <select value={issueForm.staffId} onChange={e => setIssueForm(p => ({ ...p, staffId: e.target.value }))} required>
+                    {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
+                </div>
+                <div className="filter-field"><label>Site / Project *</label>
+                  <select value={issueForm.siteIndex} onChange={e => setIssueForm(p => ({ ...p, siteIndex: e.target.value }))}>
+                    {sites.map((s, i) => <option key={i} value={i}>{s.label}</option>)}
+                  </select>
+                </div>
+                <div className="filter-field full-width"><label>Remark</label>
                   <input type="text" value={issueForm.remark} onChange={e => setIssueForm(p => ({ ...p, remark: e.target.value }))} />
                 </div>
               </div>
               <div className="modal-actions">
                 <button type="button" className="btn sec" onClick={() => setShowIssue(false)}>Cancel</button>
-                <button type="submit" className="btn pri" disabled={saving}>{saving ? 'Issuing...' : 'Issue'}</button>
+                <button type="submit" className="btn pri" disabled={saving}>{saving ? 'Issuing...' : 'Issue Material'}</button>
               </div>
             </form>
           </div>
         </div>
+      )}
+
+      {returnTarget && (
+        <ReturnModal issue={returnTarget} locations={locations}
+          onClose={() => setReturnTarget(null)}
+          onDone={() => { setReturnTarget(null); load(); }} />
+      )}
+      {usedTarget && (
+        <MarkUsedModal issue={usedTarget}
+          onClose={() => setUsedTarget(null)}
+          onDone={() => { setUsedTarget(null); load(); }} />
       )}
     </div>
   );

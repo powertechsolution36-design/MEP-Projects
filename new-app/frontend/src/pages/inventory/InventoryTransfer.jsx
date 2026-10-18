@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
-import '../enquiries/enquiry.css';
 
 /**
  * Stock Transfer — PWA `vTransfer()` exact reproduction.

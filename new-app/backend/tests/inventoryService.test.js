@@ -167,12 +167,23 @@ test('lowStockItems — combines Low and Out (level > 0)', () => {
   assert.equal(service.lowStockItems(items).length, 2);
 });
 
-test('stock-mutation primitive clamps a location to zero rather than going negative', async () => {
+// UPDATE (Completion order, concurrency/integrity): the primitive used to
+// clamp an over-large decrement to zero (mirroring the PWA's moveStock()
+// floor). In the PWA every caller pre-checks availability, so the floor was
+// only reachable by a concurrent race -- where clamping silently hides an
+// over-issue. The real repo now applies a decrement only if the location
+// still holds enough stock (atomic conditional update) and rejects it
+// otherwise; single-user behaviour is unchanged because callers pre-check.
+test('stock-mutation primitive never takes a location below zero: an over-large decrement is rejected and stock is unchanged', async () => {
   const store = baseStore();
   const a = auth();
   const { item, location } = await seedItemWithStock(store, a, { openingQty: 10 });
-  const updated = await store.inventoryItemRepo.incrementStockAtLocation('co1', item.id, location.id, -999);
-  assert.equal(service.stockAtLocation(updated, location.id), 0);
+  await assert.rejects(
+    () => store.inventoryItemRepo.incrementStockAtLocation('co1', item.id, location.id, -999),
+    /Insufficient stock/
+  );
+  const after = await store.inventoryItemRepo.findById('co1', item.id);
+  assert.equal(service.stockAtLocation(after, location.id), 10);
 });
 
 test('issueMaterial — validates against stock at the chosen location, decreases stock exactly once, writes Issue transaction, fires issue notification', async () => {

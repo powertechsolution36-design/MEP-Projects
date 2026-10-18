@@ -2,7 +2,7 @@
 
 const express = require('express');
 const service = require('../services/userService');
-const { ServiceError } = require('../errors');
+const { ServiceError, mapPersistenceError } = require('../errors');
 const { createAuthMiddleware } = require('../middleware/authMiddleware');
 const { requireCompanyContext, rejectClientSuppliedCompanyId } = require('../middleware/tenantGuard');
 
@@ -33,6 +33,8 @@ function createUserRouter(deps) {
         if (err instanceof ServiceError) {
           return res.status(err.status).json({ error: err.message, code: err.code });
         }
+        const mapped = mapPersistenceError(err);
+        if (mapped) return res.status(mapped.status).json({ error: mapped.message, code: mapped.code });
         // eslint-disable-next-line no-console
         console.error('[userRoutes]', err);
         return res.status(500).json({ error: 'Internal error.' });

@@ -57,7 +57,11 @@ const paymentSchema = new Schema(
   {
     companyId: { type: Schema.Types.ObjectId, ref: 'Company', required: true }, // PWA `co`
     projectOrReference: { type: String, required: true }, // PWA `project`
-    personName: { type: String, required: true }, // PWA `person`
+    // PWA `person` -- NOT required: the PWA creates milestone payments with
+    // `person:(so.contacts[0]||{}).n||""` (index.html:2026, 2286) and the
+    // manual payment form only requires project + amount (index.html:3910),
+    // so a blank contact name is valid PWA data.
+    personName: { type: String, default: '' },
     phone: { type: String }, // PWA `phone`
     amount: { type: Number, required: true }, // PWA `amount`
     remark: { type: String }, // PWA `remark`

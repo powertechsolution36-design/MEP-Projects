@@ -4,7 +4,6 @@ import { useAuth } from '../../auth/AuthContext';
 import { api } from '../../api/client';
 import { money, fmtDate } from '../../utils/format';
 import DivisionSelector from '../../components/DivisionSelector';
-import '../enquiries/enquiry.css';
 
 /**
  * Quotation Detail — view, edit, duplicate, delete, print/PDF.
@@ -25,7 +24,9 @@ export default function QuotationDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const canEdit = ['admin', 'sales'].includes(user?.role);
+  // Mirrors quotationRoutes.js: create/edit/duplicate = admin, sales, finance; delete = admin, sales.
+  const canEdit = ['admin', 'sales', 'finance'].includes(user?.role);
+  const canDelete = ['admin', 'sales'].includes(user?.role);
 
   const [quotation, setQuotation] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -99,12 +100,18 @@ export default function QuotationDetail() {
     setList(prev => { const c = [...prev]; c[idx] = { ...c[idx], [key]: value }; return c; });
   }
 
-  function calcTotals(eqList, accList, gst) {
+  function calcTotals(eqList, accList, gst, division) {
     const eqTotal = eqList.reduce((s, i) => s + (i.qty || 0) * ((i.supplyRate || 0) + (i.installationRate || 0)), 0);
     const accTotal = accList.reduce((s, i) => s + (i.qty || 0) * ((i.supplyRate || 0) + (i.installationRate || 0)), 0);
     const subtotal = eqTotal + accTotal;
-    const g = gst != null ? gst : 18;
-    const gstAmount = Math.round(subtotal * g / 100);
+    const g = gst === '' || gst == null ? 18 : Number(gst);
+    // Solar: GST is the sum of each line's own GST % (same rule as the server).
+    const gstAmount = division === 'Solar'
+      ? [...eqList, ...accList].reduce((s, i) => {
+          const base = (i.qty || 0) * ((i.supplyRate || 0) + (i.installationRate || 0));
+          return s + Math.round(base * (i.gstPercent != null ? Number(i.gstPercent) : 18) / 100);
+        }, 0)
+      : Math.round(subtotal * g / 100);
     return { eqTotal, accTotal, subtotal, gstPercent: g, gstAmount, grandTotal: subtotal + gstAmount };
   }
 
@@ -115,7 +122,7 @@ export default function QuotationDetail() {
     try {
       const payload = {
         ...form,
-        gstPercent: Number(form.gstPercent) || 18,
+        gstPercent: form.gstPercent === '' || form.gstPercent == null ? 18 : Number(form.gstPercent), // 0% allowed
         equipmentItems: equipItems.filter(i => i.description),
         accessoriesItems: accItems.filter(i => i.description),
         paymentTerms: payTerms.filter(t => t.label || t.wording),
@@ -200,7 +207,7 @@ export default function QuotationDetail() {
   if (!quotation) return <div className="enq-page"><p>Quotation not found.</p></div>;
 
   const q = quotation;
-  const totals = calcTotals(q.equipmentItems || [], q.accessoriesItems || [], q.gstPercent);
+  const totals = calcTotals(q.equipmentItems || [], q.accessoriesItems || [], q.gstPercent, q.division);
 
   /* ── PRINT PREVIEW MODAL ── */
   if (showPreview) {
@@ -319,7 +326,7 @@ export default function QuotationDetail() {
                   <tbody>
                     {allItems.map((item, i) => {
                       const basic = item.supplyAmount || 0;
-                      const itemGst = item.gstPercent != null ? item.gstPercent : (q.gstPercent || 18);
+                      const itemGst = item.gstPercent != null ? item.gstPercent : (q.gstPercent ?? 18);
                       const withGst = item.amountWithGst || Math.round(basic * (1 + itemGst / 100));
                       return (
                         <tr key={i}>
@@ -396,8 +403,8 @@ export default function QuotationDetail() {
                           <td colSpan={2} style={{ ...tdsR, fontWeight: 'bold' }}>{money(q.equipmentTotal)}</td>
                         </tr>
                         <tr style={{ background: '#e8e800' }}>
-                          <td colSpan={6} style={{ ...tds, textAlign: 'right', fontWeight: 'bold' }}>TOTAL Equipment (With {q.gstPercent || 18}% GST)</td>
-                          <td colSpan={2} style={{ ...tdsR, fontWeight: 'bold' }}>{money(Math.round(q.equipmentTotal * (1 + (q.gstPercent || 18) / 100)))}</td>
+                          <td colSpan={6} style={{ ...tds, textAlign: 'right', fontWeight: 'bold' }}>TOTAL Equipment (With {q.gstPercent ?? 18}% GST)</td>
+                          <td colSpan={2} style={{ ...tdsR, fontWeight: 'bold' }}>{money(Math.round(q.equipmentTotal * (1 + (q.gstPercent ?? 18) / 100)))}</td>
                         </tr>
                       </>
                     )}
@@ -427,8 +434,8 @@ export default function QuotationDetail() {
                           <td colSpan={2} style={{ ...tdsR, fontWeight: 'bold' }}>{money(q.accessoriesTotal)}</td>
                         </tr>
                         <tr style={{ background: '#e8e800' }}>
-                          <td colSpan={6} style={{ ...tds, textAlign: 'right', fontWeight: 'bold' }}>TOTAL Accessories (With {q.gstPercent || 18}% GST)</td>
-                          <td colSpan={2} style={{ ...tdsR, fontWeight: 'bold' }}>{money(Math.round(q.accessoriesTotal * (1 + (q.gstPercent || 18) / 100)))}</td>
+                          <td colSpan={6} style={{ ...tds, textAlign: 'right', fontWeight: 'bold' }}>TOTAL Accessories (With {q.gstPercent ?? 18}% GST)</td>
+                          <td colSpan={2} style={{ ...tdsR, fontWeight: 'bold' }}>{money(Math.round(q.accessoriesTotal * (1 + (q.gstPercent ?? 18) / 100)))}</td>
                         </tr>
                       </>
                     )}
@@ -507,7 +514,7 @@ export default function QuotationDetail() {
 
   /* ── EDIT MODE ── */
   if (editing) {
-    const editTotals = calcTotals(equipItems, accItems, form.gstPercent);
+    const editTotals = calcTotals(equipItems, accItems, form.gstPercent, form.division || q.division);
     return (
       <div className="enq-page">
         <h2>Edit Quotation — {q.quotationNumber}</h2>
@@ -633,7 +640,7 @@ export default function QuotationDetail() {
           <button className="btn sec sm" onClick={openPreview}>Preview / Print</button>
           {canEdit && <button className="btn pri sm" onClick={() => { setEditing(true); api.get('/api/payment-term-templates?documentType=quotation').then(d => setPayTermTemplates(d.templates || [])).catch(() => {}); }}>Edit</button>}
           {canEdit && <button className="btn sec sm" onClick={handleDuplicate}>Duplicate</button>}
-          {canEdit && (q.status === 'Draft' || q.status === 'Cancelled') && (
+          {canDelete && (q.status === 'Draft' || q.status === 'Cancelled') && (
             <button className="btn danger sm" onClick={handleDelete}>Delete</button>
           )}
           <button className="btn sec sm" onClick={() => navigate('/quotations')}>Back</button>
@@ -729,7 +736,7 @@ export default function QuotationDetail() {
           <div><strong>Equipment Total</strong><br/>{money(q.equipmentTotal)}</div>
           <div><strong>Accessories Total</strong><br/>{money(q.accessoriesTotal)}</div>
           <div><strong>Subtotal</strong><br/>{money(q.subtotal)}</div>
-          <div><strong>GST ({q.gstPercent || 18}%)</strong><br/>{money(q.gstAmount)}</div>
+          <div><strong>GST ({q.division === 'Solar' ? 'per item' : `${q.gstPercent ?? 18}%`})</strong><br/>{money(q.gstAmount)}</div>
           <div><strong>Grand Total</strong><br/><span style={{ fontSize: 18, fontWeight: 'bold' }}>{money(q.grandTotal)}</span></div>
         </div>
       </div>

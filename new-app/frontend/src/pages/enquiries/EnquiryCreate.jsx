@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
-import './enquiry.css';
+import useMyDivisions from '../../hooks/useMyDivisions';
 
 /**
  * New Enquiry form — PWA `mEnq()` exact reproduction.
@@ -13,14 +13,16 @@ import './enquiry.css';
  */
 
 const SITE_TYPES = ['Residential', 'Commercial', 'Factory', 'Banquet Hall', 'Hospital', 'Office'];
-const SEGMENTS = ['HVAC', 'Solar', 'MEP', 'AMC'];
 
 export default function EnquiryCreate() {
+  const SEGMENTS = [...useMyDivisions(), 'AMC']; // PWA mEnq: myDivs().concat(["AMC"])
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({
-    name: '', siteType: '', capacity: '', segment: '',
-    phone: '', referenceSource: '', rating: '', estimatedValue: '', remark: '',
+    // PWA FACT (mEnq, index.html:1914): Site Type is a select with no blank
+    // option, so it always submits a value (first option, Residential).
+    name: '', siteType: 'Residential', capacity: '', segment: '',
+    phone: '', referenceSource: '', rating: '3', estimatedValue: '', remark: '', // PWA default rating 3
   });
 
   function setField(key, value) {
@@ -61,7 +63,6 @@ export default function EnquiryCreate() {
             <div className="filter-field">
               <label>Site Type</label>
               <select value={form.siteType} onChange={e => setField('siteType', e.target.value)}>
-                <option value="">—</option>
                 {SITE_TYPES.map(o => <option key={o}>{o}</option>)}
               </select>
             </div>

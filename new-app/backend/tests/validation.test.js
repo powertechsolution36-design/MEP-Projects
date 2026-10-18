@@ -46,7 +46,10 @@ test('2/3. required fields are declared as required on the schema', () => {
     // storage constraint never rejects what the PWA itself accepted -- see
     // Contract.js's own comment and contractService.js's class doc).
     { Model: Contract, requiredPaths: ['companyId', 'site', 'startDate', 'amcType', 'category'] },
-    { Model: Payment, requiredPaths: ['companyId', 'projectOrReference', 'personName', 'amount', 'status'] },
+    // personName removed (Completion order, PWA evidence index.html:2026/2286/3910:
+    // a blank contact name is valid PWA data; required:true made every SO
+    // cascade with a blank Contact 1 name abort with a 500).
+    { Model: Payment, requiredPaths: ['companyId', 'projectOrReference', 'amount', 'status'] },
     { Model: Notification, requiredPaths: ['companyId', 'text', 'date', 'targetRoles'] },
     { Model: ChecklistTemplate, requiredPaths: ['companyId', 'division', 'name', 'createdByUserId', 'createdDate'] },
     { Model: InventoryCategory, requiredPaths: ['companyId', 'name'] },

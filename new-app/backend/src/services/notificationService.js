@@ -35,7 +35,13 @@ function assertCompanyContext(actorAuth) {
 // `vNotifs` does `.slice().reverse()` on an append-ordered array).
 async function listNotifications(actorAuth, options, deps) {
   assertCompanyContext(actorAuth);
-  return deps.notificationRepo.listForRole(actorAuth.companyId, actorAuth.role, options);
+  const list = await deps.notificationRepo.listForRole(actorAuth.companyId, actorAuth.role, options);
+  // Read state is per user (PWA FACT: `read` array of user ids); expose the
+  // caller's own read flag so clients don't have to know the user id.
+  return list.map((n) => ({
+    ...n,
+    isRead: (n.readByUserIds || []).map(String).includes(String(actorAuth.userId)),
+  }));
 }
 
 // PWA FACT (`vNotifs`): append the acting user's id to `read` if not

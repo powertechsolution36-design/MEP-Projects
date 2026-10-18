@@ -43,4 +43,23 @@ function rejectClientSuppliedCompanyId(req, res, next) {
   return next();
 }
 
-module.exports = { requireCompanyContext, rejectClientSuppliedCompanyId };
+/**
+ * For writes to company-owned configuration (payment-term templates, AMC
+ * templates): the record must belong to a company, so an account without a
+ * company context (Super Admin) is refused instead of creating an ownerless
+ * record that no company would ever use.
+ */
+function requireOwnCompany(req, res, next) {
+  if (!req.auth) {
+    return res.status(401).json({ error: 'Authentication required.' });
+  }
+  if (!req.auth.companyId) {
+    return res.status(403).json({
+      error: 'This is company configuration; sign in as a user of the company to change it.',
+      code: 'COMPANY_CONTEXT_REQUIRED',
+    });
+  }
+  return next();
+}
+
+module.exports = { requireCompanyContext, rejectClientSuppliedCompanyId, requireOwnCompany };

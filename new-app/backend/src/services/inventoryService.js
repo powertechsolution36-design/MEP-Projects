@@ -127,6 +127,23 @@ function assertCanViewIssuedReport(actorAuth, actionDescription) {
   }
 }
 
+/**
+ * Every location / category id a client sends must belong to the caller's
+ * company -- otherwise stock could be credited to, or an item filed under,
+ * another tenant's location/category id.
+ */
+async function assertOwnLocation(companyId, locationId, deps) {
+  if (!locationId) return;
+  const loc = await deps.inventoryLocationRepo.findById(companyId, locationId);
+  if (!loc) throw new ServiceError('Location not found.', 'NOT_FOUND', 404);
+}
+
+async function assertOwnCategory(companyId, categoryId, deps) {
+  if (!categoryId) return;
+  const cat = await deps.inventoryCategoryRepo.findById(companyId, categoryId);
+  if (!cat) throw new ServiceError('Category not found.', 'NOT_FOUND', 404);
+}
+
 function todayDate() {
   return new Date();
 }
@@ -286,16 +303,27 @@ async function createItem(input, actorAuth, deps) {
   validateUnit(unit);
 
   let categoryId = src.categoryId || null;
+  await assertOwnCategory(actorAuth.companyId, categoryId, deps);
   if (!categoryId) {
     const categories = await deps.inventoryCategoryRepo.listByCompany(actorAuth.companyId);
     categoryId = categories.length ? categories[0].id : null;
   }
 
-  const openingStockInput = src.openingStock || src.stock || {};
+  // openingStock: { <locationId>: qty } (PWA FACT: per-location opening
+  // entry, index.html:2950-2953). Also accepts the single-location form
+  // { openingStock: <qty>, openingLocationId } some clients send.
+  let openingStockInput = src.openingStock || src.stock || {};
+  if (typeof openingStockInput !== 'object') {
+    openingStockInput = src.openingLocationId ? { [src.openingLocationId]: openingStockInput } : {};
+  }
   const stockByLocation = {};
   for (const [locId, qty] of Object.entries(openingStockInput)) {
     const n = toNum(qty);
-    if (n !== 0) stockByLocation[String(locId)] = n;
+    if (n < 0) throw new ServiceError('Opening stock cannot be negative.', 'VALIDATION_ERROR', 400);
+    if (n !== 0) {
+      await assertOwnLocation(actorAuth.companyId, locId, deps);
+      stockByLocation[String(locId)] = n;
+    }
   }
 
   return deps.withTransaction(deps, async (txnDeps) => {
@@ -360,7 +388,10 @@ async function updateItem(id, input, actorAuth, deps) {
     if (!name) throw new ServiceError('Item name required.', 'VALIDATION_ERROR', 400);
     patch.name = name;
   }
-  if (src.categoryId !== undefined) patch.categoryId = src.categoryId || null;
+  if (src.categoryId !== undefined) {
+    await assertOwnCategory(actorAuth.companyId, src.categoryId, deps);
+    patch.categoryId = src.categoryId || null;
+  }
   if (src.unit !== undefined) {
     validateUnit(src.unit);
     patch.unit = src.unit;
@@ -390,10 +421,11 @@ async function adjustStock(itemId, input, actorAuth, deps) {
   const q = Number(src.quantity);
   if (!q) throw new ServiceError('A non-zero quantity is required.', 'VALIDATION_ERROR', 400);
   if (!src.locationId) throw new ServiceError('Location required.', 'VALIDATION_ERROR', 400);
+  await assertOwnLocation(actorAuth.companyId, src.locationId, deps);
 
   return deps.withTransaction(deps, async (txnDeps) => {
     const { session } = txnDeps;
-    const item = await txnDeps.inventoryItemRepo.findById(actorAuth.companyId, itemId);
+    const item = await txnDeps.inventoryItemRepo.findById(actorAuth.companyId, itemId, session);
     if (!item) throw new ServiceError('Item not found.', 'NOT_FOUND', 404);
     const current = stockAtLocation(item, src.locationId);
     if (current + q < 0) {
@@ -429,6 +461,13 @@ async function issueMaterial(input, actorAuth, deps) {
   if (!src.fromLocationId) throw new ServiceError('From-location required.', 'VALIDATION_ERROR', 400);
   if (!src.staffId) throw new ServiceError('Recipient (staff) required.', 'VALIDATION_ERROR', 400);
   if (!src.site) throw new ServiceError('Site required.', 'VALIDATION_ERROR', 400);
+  await assertOwnLocation(actorAuth.companyId, src.fromLocationId, deps);
+  if (src.projectId) {
+    // PWA FACT (mIssue, index.html:3015-3020): the site is picked from the
+    // company's own open projects; a linked project must be this tenant's.
+    const project = deps.projectRepo && (await deps.projectRepo.findById(actorAuth.companyId, src.projectId));
+    if (!project) throw new ServiceError('Project not found.', 'NOT_FOUND', 404);
+  }
 
   const staff = deps.userRepoForEnquiry && (await deps.userRepoForEnquiry.findById(src.staffId));
   if (!staff || String(staff.companyId) !== String(actorAuth.companyId)) {
@@ -444,7 +483,7 @@ async function issueMaterial(input, actorAuth, deps) {
 
   return deps.withTransaction(deps, async (txnDeps) => {
     const { session } = txnDeps;
-    const item = await txnDeps.inventoryItemRepo.findById(actorAuth.companyId, src.itemId);
+    const item = await txnDeps.inventoryItemRepo.findById(actorAuth.companyId, src.itemId, session);
     if (!item) throw new ServiceError('Item not found.', 'NOT_FOUND', 404);
     const available = stockAtLocation(item, src.fromLocationId);
     if (q > available) {
@@ -566,7 +605,10 @@ async function acceptReturn(issueId, input, actorAuth, deps) {
     throw new ServiceError(`Quantity must be between 1 and the current balance (${precheckBalance}).`, 'VALIDATION_ERROR', 400);
   }
   const damaged = !!src.damaged;
-  const toLocationId = src.toLocationId || precheckIssue.fromLocationId;
+  // toLocationId (API name) or locationId (frontend name); defaults to the
+  // location the material was issued from.
+  const toLocationId = src.toLocationId || src.locationId || precheckIssue.fromLocationId;
+  await assertOwnLocation(actorAuth.companyId, toLocationId, deps);
   const markRemainingUsed = !!src.markRemainingUsed;
 
   return deps.withTransaction(deps, async (txnDeps) => {
@@ -580,13 +622,13 @@ async function acceptReturn(issueId, input, actorAuth, deps) {
     // quantityUsed, or the loser's stale-snapshot patch silently
     // overwrites the winner's committed ledger values and credits stock
     // that was never actually returned (phantom stock).
-    const issue = await txnDeps.inventoryIssueRepo.findById(actorAuth.companyId, issueId);
+    const issue = await txnDeps.inventoryIssueRepo.findById(actorAuth.companyId, issueId, session);
     if (!issue) throw new ServiceError('Issue not found.', 'NOT_FOUND', 404);
     const balance = issBal(issue);
     if (!(q >= 1) || q > balance) {
       throw new ServiceError(`Quantity must be between 1 and the current balance (${balance}).`, 'VALIDATION_ERROR', 400);
     }
-    const item = await txnDeps.inventoryItemRepo.findById(actorAuth.companyId, issue.itemId);
+    const item = await txnDeps.inventoryItemRepo.findById(actorAuth.companyId, issue.itemId, session);
     if (!item) throw new ServiceError('Item not found.', 'NOT_FOUND', 404);
     const staffName = await resolveUserName(actorAuth.companyId, issue.staffId, txnDeps);
 
@@ -609,7 +651,8 @@ async function acceptReturn(issueId, input, actorAuth, deps) {
     patch.status = issStatus({ ...issue, ...patch });
     const updatedIssue = await txnDeps.inventoryIssueRepo.update(actorAuth.companyId, issueId, patch, session);
 
-    const returnRemark = damaged ? `DAMAGED -- not added to stock. ${src.remark || ''}`.trim() : src.remark || '';
+    // PWA FACT (saveInvReturn, index.html:3110): exact wording incl. em dash.
+    const returnRemark = (damaged ? 'DAMAGED — not added to stock. ' : '') + (src.remark || '');
     await txnDeps.inventoryTransactionRepo.create(
       {
         companyId: actorAuth.companyId,
@@ -664,7 +707,7 @@ async function acceptReturn(issueId, input, actorAuth, deps) {
     await txnDeps.notificationRepo.create(
       {
         companyId: actorAuth.companyId,
-        text: `Material returned by ${staffName}: ${q} ${item.unit} ${item.name}${finalBalance > 0 ? ` -- ${finalBalance} ${item.unit} still pending` : ' -- issue closed'}`,
+        text: `Material returned by ${staffName}: ${q} ${item.unit} ${item.name}${finalBalance > 0 ? ` — ${finalBalance} ${item.unit} still pending` : ' — issue closed'}`,
         date: todayDate(),
         targetRoles: ['*'],
         readByUserIds: [],
@@ -690,7 +733,7 @@ async function rejectReturn(issueId, actorAuth, deps) {
   const staffName = await resolveUserName(actorAuth.companyId, issue.staffId, deps);
   await deps.notificationRepo.create({
     companyId: actorAuth.companyId,
-    text: `Return request for ${(item && item.name) || ''} from ${staffName} was not accepted -- please check with the store.`,
+    text: `Return request for ${(item && item.name) || ''} from ${staffName} was not accepted — please check with the store.`,
     date: todayDate(),
     targetRoles: ['*'],
     readByUserIds: [],
@@ -724,13 +767,13 @@ async function markUsed(issueId, input, actorAuth, deps) {
     // must each see the OTHER's already-committed quantityUsed before
     // computing their own new total, or the loser's stale-snapshot patch
     // silently overwrites (loses) the winner's committed value.
-    const issue = await txnDeps.inventoryIssueRepo.findById(actorAuth.companyId, issueId);
+    const issue = await txnDeps.inventoryIssueRepo.findById(actorAuth.companyId, issueId, session);
     if (!issue) throw new ServiceError('Issue not found.', 'NOT_FOUND', 404);
     const balance = issBal(issue);
     if (!(q >= 1) || q > balance) {
       throw new ServiceError(`Quantity must be between 1 and the current balance (${balance}).`, 'VALIDATION_ERROR', 400);
     }
-    const item = await txnDeps.inventoryItemRepo.findById(actorAuth.companyId, issue.itemId);
+    const item = await txnDeps.inventoryItemRepo.findById(actorAuth.companyId, issue.itemId, session);
     if (!item) throw new ServiceError('Item not found.', 'NOT_FOUND', 404);
     const staffName = await resolveUserName(actorAuth.companyId, issue.staffId, txnDeps);
 
@@ -774,10 +817,12 @@ async function transferStock(input, actorAuth, deps) {
   }
   const q = Number(src.quantity);
   if (!(q > 0)) throw new ServiceError('Quantity must be greater than zero.', 'VALIDATION_ERROR', 400);
+  await assertOwnLocation(actorAuth.companyId, src.fromLocationId, deps);
+  await assertOwnLocation(actorAuth.companyId, src.toLocationId, deps);
 
   return deps.withTransaction(deps, async (txnDeps) => {
     const { session } = txnDeps;
-    const item = await txnDeps.inventoryItemRepo.findById(actorAuth.companyId, src.itemId);
+    const item = await txnDeps.inventoryItemRepo.findById(actorAuth.companyId, src.itemId, session);
     if (!item) throw new ServiceError('Item not found.', 'NOT_FOUND', 404);
     const available = stockAtLocation(item, src.fromLocationId);
     if (q > available) {
@@ -820,7 +865,17 @@ async function getDashboard(actorAuth, deps) {
   const materialWithStaff = issues.filter((x) => issBal(x) > 0 && issStatus(x) !== 'Returned').length;
   const returnRequests = issues.filter((x) => x.returnRequested && issBal(x) > 0).length;
 
+  const catName = new Map(categories.map((c) => [String(c.id), c.name]));
   return {
+    // PWA FACT (invDash, index.html:2873-2877): Low / Out of Stock table.
+    lowStockList: lowOrOut.map((i) => {
+      const st = stockState(i);
+      return {
+        id: i.id, code: i.code || '', name: i.name, category: catName.get(String(i.categoryId)) || '',
+        inStock: totQty(i), unit: i.unit, min: i.minimumStockLevel || 0,
+        shortfall: Math.max(0, (i.minimumStockLevel || 0) - totQty(i)), status: st.label, level: st.level,
+      };
+    }),
     totalItems: items.length,
     categories: categories.length,
     stockValue: stockValueSum,
@@ -833,8 +888,105 @@ async function getDashboard(actorAuth, deps) {
 
 async function listMyMaterial(actorAuth, deps) {
   assertCompanyContext(actorAuth);
-  const issues = await deps.inventoryIssueRepo.listByStaff(actorAuth.companyId, actorAuth.userId);
-  return issues.map((x) => ({ ...x, balance: issBal(x), status: issStatus(x) }));
+  const [issues, items] = await Promise.all([
+    deps.inventoryIssueRepo.listByStaff(actorAuth.companyId, actorAuth.userId),
+    deps.inventoryItemRepo.listByCompany(actorAuth.companyId),
+  ]);
+  const itemById = new Map(items.map((i) => [String(i.id), i]));
+  return issues.map((x) => {
+    const item = itemById.get(String(x.itemId)) || {};
+    // PWA FACT (vMyMaterial, index.html:3241-3260): shows item name/unit.
+    return { ...x, itemName: item.name || '', itemCode: item.code || '', unit: item.unit || '', balance: issBal(x), status: issStatus(x) };
+  });
+}
+
+/**
+ * PWA FACT (vIssue / vReturns, index.html:3022-3044, 3264-3307): the store
+ * sees every issue of the company with its balance/status and the Return /
+ * Receive / Reject / Mark Used actions. Company-scoped; inventory/admin.
+ * filters: { open: true } -> only issues with a balance still out;
+ * { returnRequested: true } -> only pending return requests.
+ */
+async function listIssues(actorAuth, filters, deps) {
+  assertCompanyContext(actorAuth);
+  assertCanManageInventory(actorAuth, 'view issued material');
+  const f = filters || {};
+  const [issues, items, maps] = await Promise.all([
+    deps.inventoryIssueRepo.listByCompany(actorAuth.companyId),
+    deps.inventoryItemRepo.listByCompany(actorAuth.companyId),
+    nameMaps(actorAuth, deps),
+  ]);
+  const itemById = new Map(items.map((i) => [String(i.id), i]));
+  return issues
+    .map((x) => {
+      const item = itemById.get(String(x.itemId)) || {};
+      return {
+        ...x,
+        itemName: item.name || '',
+        itemCode: item.code || '',
+        unit: item.unit || '',
+        staffName: maps.userName.get(String(x.staffId)) || '',
+        issuedByName: maps.userName.get(String(x.issuedByUserId)) || '',
+        fromLocationName: maps.locName.get(String(x.fromLocationId)) || '',
+        balance: issBal(x),
+        status: issStatus(x),
+      };
+    })
+    .filter((x) => !f.open || x.balance > 0)
+    .filter((x) => !f.returnRequested || (x.returnRequested && x.balance > 0))
+    .reverse(); // newest first, as the PWA lists `.slice().reverse()`
+}
+
+/**
+ * PWA FACT (siteList(), index.html:3016-3021): sites an issue can go to --
+ * the company's projects that are not yet "In Service", its open (not
+ * Completed) service calls, then "Office / Godown". Only projects carry a
+ * projectId link.
+ */
+async function listSiteOptions(actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  assertCanManageInventory(actorAuth, 'list issue sites');
+  const [projects, calls] = await Promise.all([
+    deps.projectRepo ? deps.projectRepo.listByCompany(actorAuth.companyId) : [],
+    deps.serviceCallRepo ? deps.serviceCallRepo.listByCompany(actorAuth.companyId) : [],
+  ]);
+  const sites = projects
+    .filter((p) => p.status !== 'In Service')
+    .map((p) => ({ label: p.name, projectId: p.id }));
+  for (const c of calls.filter((x) => x.status !== 'Completed')) {
+    sites.push({ label: `Service - ${c.site} (PSC-${c.complaintNumber})`, projectId: null });
+  }
+  sites.push({ label: 'Office / Godown', projectId: null });
+  return sites;
+}
+
+/** PWA FACT (vInvHistory / vInvItem, index.html:2971-2992): on-screen ledger. */
+async function listTransactions(actorAuth, filters, deps) {
+  assertCompanyContext(actorAuth);
+  assertCanManageInventory(actorAuth, 'view the Inventory ledger');
+  const f = filters || {};
+  const [txns, items, maps] = await Promise.all([
+    f.itemId
+      ? deps.inventoryTransactionRepo.listByItem(actorAuth.companyId, f.itemId)
+      : deps.inventoryTransactionRepo.listByCompany(actorAuth.companyId),
+    deps.inventoryItemRepo.listByCompany(actorAuth.companyId),
+    nameMaps(actorAuth, deps),
+  ]);
+  const itemById = new Map(items.map((i) => [String(i.id), i]));
+  return txns
+    .map((t) => {
+      const item = itemById.get(String(t.itemId)) || {};
+      return {
+        ...t,
+        itemName: item.name || '',
+        itemCode: item.code || '',
+        unit: item.unit || '',
+        fromLocationName: t.fromLocationId ? maps.locName.get(String(t.fromLocationId)) || '' : '',
+        toLocationName: t.toLocationId ? maps.locName.get(String(t.toLocationId)) || '' : '',
+        recordedByName: maps.userName.get(String(t.recordedByUserId)) || '',
+      };
+    })
+    .reverse();
 }
 
 function csvEscape(value) {
@@ -1061,6 +1213,9 @@ module.exports = {
   transferStock,
   getDashboard,
   listMyMaterial,
+  listIssues,
+  listTransactions,
+  listSiteOptions,
   exportStockCsv,
   exportIssuedCsv,
   exportTransactionsCsv,

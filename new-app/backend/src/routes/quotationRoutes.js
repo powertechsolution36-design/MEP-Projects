@@ -1,6 +1,7 @@
 'use strict';
 
 const express = require('express');
+const { sendError } = require('../errors');
 const { createAuthMiddleware } = require('../middleware/authMiddleware');
 const { requireCompanyContext } = require('../middleware/tenantGuard');
 const { requireRole } = require('../middleware/roleMiddleware');
@@ -13,8 +14,10 @@ function createQuotationRouter(deps) {
   const router = express.Router();
   const authMiddleware = createAuthMiddleware(deps);
 
-  // All quotation routes require auth + company context
-  router.use(authMiddleware, requireCompanyContext);
+  // All quotation routes require auth + company context, and -- since a
+  // quotation carries commercial pricing -- the commercial roles that have
+  // the Quotations menu (admin, sales, finance; super for support).
+  router.use(authMiddleware, requireCompanyContext, requireRole('super', 'admin', 'sales', 'finance'));
 
   // List quotations (with optional filters)
   router.get('/', async (req, res) => {
@@ -26,7 +29,7 @@ function createQuotationRouter(deps) {
       const quotations = await listQuotations(req.auth.companyId, filters, deps);
       return res.json({ quotations });
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message });
+      return sendError(res, err, 'quotationRoutes');
     }
   });
 
@@ -38,7 +41,7 @@ function createQuotationRouter(deps) {
       res.setHeader('Content-Disposition', 'attachment; filename=quotations.csv');
       return res.send(csv);
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message });
+      return sendError(res, err, 'quotationRoutes');
     }
   });
 
@@ -48,7 +51,7 @@ function createQuotationRouter(deps) {
       const q = await getQuotation(req.auth.companyId, req.params.quotationId, deps);
       return res.json({ quotation: q });
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message });
+      return sendError(res, err, 'quotationRoutes');
     }
   });
 
@@ -58,7 +61,7 @@ function createQuotationRouter(deps) {
       const q = await createQuotation(req.auth.companyId, req.body, req.auth.userId, deps);
       return res.status(201).json({ quotation: q });
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message });
+      return sendError(res, err, 'quotationRoutes');
     }
   });
 
@@ -70,7 +73,7 @@ function createQuotationRouter(deps) {
       );
       return res.json({ quotation: q });
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message });
+      return sendError(res, err, 'quotationRoutes');
     }
   });
 
@@ -82,7 +85,7 @@ function createQuotationRouter(deps) {
       );
       return res.status(201).json({ quotation: q });
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message });
+      return sendError(res, err, 'quotationRoutes');
     }
   });
 
@@ -92,7 +95,7 @@ function createQuotationRouter(deps) {
       const result = await deleteQuotation(req.auth.companyId, req.params.quotationId, deps);
       return res.json(result);
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message });
+      return sendError(res, err, 'quotationRoutes');
     }
   });
 

@@ -16,8 +16,11 @@ function calculateLineTotals(items, division) {
     const supplyAmount = (item.qty || 0) * (item.supplyRate || 0);
     const installationAmount = (item.qty || 0) * (item.installationRate || 0);
     const totalAmount = supplyAmount + installationAmount;
-    // Per-item GST (Solar uses per-item GST%)
-    const itemGst = item.gstPercent != null ? item.gstPercent : null;
+    // Per-item GST: Solar's flat table carries a GST % on every line
+    // (default 18%, which is what the Solar form pre-fills); other divisions
+    // use one GST % on the subtotal, so their lines keep GST only if given.
+    const rawGst = item.gstPercent === '' || item.gstPercent === undefined ? null : item.gstPercent;
+    const itemGst = rawGst != null ? Number(rawGst) : (division === 'Solar' ? 18 : null);
     const gstAmount = itemGst != null ? Math.round(totalAmount * itemGst / 100) : 0;
     const amountWithGst = itemGst != null ? totalAmount + gstAmount : totalAmount;
     return {
@@ -33,7 +36,7 @@ function calculateLineTotals(items, division) {
   });
 }
 
-function calculateTotals(equipmentItems, accessoriesItems, gstPercent) {
+function calculateTotals(equipmentItems, accessoriesItems, gstPercent, division) {
   const eqSupply = equipmentItems.reduce((s, i) => s + (i.supplyAmount || 0), 0);
   const eqInstall = equipmentItems.reduce((s, i) => s + (i.installationAmount || 0), 0);
   const accSupply = accessoriesItems.reduce((s, i) => s + (i.supplyAmount || 0), 0);
@@ -41,8 +44,15 @@ function calculateTotals(equipmentItems, accessoriesItems, gstPercent) {
   const eqTotal = eqSupply + eqInstall;
   const accTotal = accSupply + accInstall;
   const subtotal = eqTotal + accTotal;
-  const gst = gstPercent != null ? gstPercent : 18;
-  const gstAmount = Math.round(subtotal * gst / 100);
+  let gst = gstPercent != null ? gstPercent : 18;
+  let gstAmount = Math.round(subtotal * gst / 100);
+  if (division === 'Solar') {
+    // DECISION (owner-approved, Completion order): a Solar quotation's GST is
+    // the sum of its per-item GST, so the grand total equals the sum of the
+    // lines' "Amount with GST" printed on the document.
+    gstAmount = [...equipmentItems, ...accessoriesItems].reduce((a, i) => a + (i.gstAmount || 0), 0);
+    gst = null;
+  }
   const grandTotal = subtotal + gstAmount;
   return {
     equipmentSupplyTotal: eqSupply,
@@ -89,7 +99,7 @@ async function createQuotation(companyId, data, actorId, deps) {
   // Calculate line item amounts
   const equipmentItems = calculateLineTotals(data.equipmentItems || [], data.division);
   const accessoriesItems = calculateLineTotals(data.accessoriesItems || [], data.division);
-  const totals = calculateTotals(equipmentItems, accessoriesItems, data.gstPercent);
+  const totals = calculateTotals(equipmentItems, accessoriesItems, data.gstPercent, data.division);
 
   const quotation = await deps.quotationRepo.create({
     companyId,
@@ -172,11 +182,13 @@ async function updateQuotation(companyId, quotationId, data, actorId, deps) {
   }
 
   // Recalculate line items if provided
-  if (data.equipmentItems !== undefined || data.accessoriesItems !== undefined) {
+  const divisionChanged = data.division && data.division !== existing.division;
+  if (data.equipmentItems !== undefined || data.accessoriesItems !== undefined || divisionChanged
+    || (data.gstPercent !== undefined && data.gstPercent !== existing.gstPercent)) {
     const division = data.division || existing.division;
     const eqItems = calculateLineTotals(data.equipmentItems || existing.equipmentItems || [], division);
     const accItems = calculateLineTotals(data.accessoriesItems || existing.accessoriesItems || [], division);
-    const totals = calculateTotals(eqItems, accItems, data.gstPercent != null ? data.gstPercent : existing.gstPercent);
+    const totals = calculateTotals(eqItems, accItems, data.gstPercent != null ? data.gstPercent : existing.gstPercent, division);
     patch.equipmentItems = eqItems;
     patch.accessoriesItems = accItems;
     Object.assign(patch, totals);

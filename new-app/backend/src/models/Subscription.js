@@ -28,7 +28,7 @@ const subscriptionSchema = new Schema(
       type: Schema.Types.ObjectId,
       ref: 'Company',
       required: true,
-      unique: true, // one active subscription per company
+      // one subscription per company: unique index declared below (single definition)
     },
     planCode: { type: String, required: true, trim: true },
     planSnapshot: { type: Schema.Types.Mixed, default: {} },

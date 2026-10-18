@@ -103,12 +103,37 @@ function assertNonBlank(value, fieldLabel) {
 
 // PWA FACT (`mUser`'s role <select>): "super" is never offered as an
 // assignable role from the Users screen.
+/**
+ * The PM-role / company-division rule (roleDivision.assertRoleAllowedForCompany)
+ * throws a plain Error; report it to the client as a 400 validation error
+ * rather than letting it surface as an unhandled 500.
+ */
+function assertRoleFitsCompany(role, company) {
+  try {
+    assertRoleAllowedForCompany(role, company);
+  } catch (err) {
+    throw new ServiceError(err.message, 'VALIDATION_ERROR', 400);
+  }
+}
+
 function assertAssignableRole(role) {
   if (!ROLES.includes(role)) {
     throw new ServiceError(`Unknown role "${role}".`, 'VALIDATION_ERROR', 400);
   }
   if (role === 'super') {
     throw new ServiceError('Role "super" cannot be assigned through company User management.', 'VALIDATION_ERROR', 400);
+  }
+}
+
+/**
+ * DECISION (Completion order, approved by the owner): usernames are unique
+ * across the whole platform, because users log in with username + password
+ * only (as in the PWA).
+ */
+async function assertUsernameFreeGlobally(username, exceptUserId, deps) {
+  if (typeof deps.userWriteRepo.existsByUsername !== 'function') return;
+  if (await deps.userWriteRepo.existsByUsername(username, exceptUserId)) {
+    throw new ServiceError(`Username "${username}" is already in use. Choose a different username.`, 'ALREADY_EXISTS', 409);
   }
 }
 
@@ -156,12 +181,13 @@ async function createUser(input, actorAuth, deps) {
   assertAssignableRole(src.role);
 
   const company = await requireCompany(actorAuth, deps);
-  assertRoleAllowedForCompany(src.role, company);
+  assertRoleFitsCompany(src.role, company);
 
   const taken = await deps.userWriteRepo.existsByCompanyAndUsername(actorAuth.companyId, src.username);
   if (taken) {
     throw new ServiceError(`Username "${src.username}" is already taken in this company.`, 'ALREADY_EXISTS', 409);
   }
+  await assertUsernameFreeGlobally(src.username, null, deps);
 
   const passwordHash = await deps.passwordHasher.hashPassword(src.password);
 
@@ -192,6 +218,12 @@ async function updateUser(id, input, actorAuth, deps) {
   const src = input || {};
   const patch = {};
 
+  // PWA FACT (delUser): a login is removed, never deactivated. Refuse the
+  // request rather than answer 200 for a change that was not made.
+  if (src.active !== undefined) {
+    throw new ServiceError('Users cannot be deactivated; remove the login instead (DELETE /api/users/:id).', 'UNSUPPORTED_FIELD', 400);
+  }
+
   if (src.name !== undefined) {
     assertNonBlank(src.name, 'Name');
     patch.name = src.name;
@@ -203,13 +235,14 @@ async function updateUser(id, input, actorAuth, deps) {
       if (taken) {
         throw new ServiceError(`Username "${src.username}" is already taken in this company.`, 'ALREADY_EXISTS', 409);
       }
+      await assertUsernameFreeGlobally(src.username, existing.id, deps);
     }
     patch.username = src.username;
   }
   if (src.role !== undefined) {
     assertAssignableRole(src.role);
     const company = await requireCompany(actorAuth, deps);
-    assertRoleAllowedForCompany(src.role, company);
+    assertRoleFitsCompany(src.role, company);
     patch.role = src.role;
   }
   if (src.password !== undefined) {
@@ -222,6 +255,11 @@ async function updateUser(id, input, actorAuth, deps) {
   }
 
   const updated = await deps.userWriteRepo.updateByIdAndCompany(actorAuth.companyId, id, patch);
+  // A password change signs the user out everywhere (other than the admin's
+  // own current session when they change their own password).
+  if (patch.passwordHash && deps.sessionRepo && typeof deps.sessionRepo.revokeAllForUser === 'function') {
+    await deps.sessionRepo.revokeAllForUser(existing.id, String(existing.id) === String(actorAuth.userId) ? actorAuth.sessionId : undefined);
+  }
   return toSafeUser(updated);
 }
 
@@ -240,6 +278,9 @@ async function deleteUser(id, actorAuth, deps) {
   }
 
   await deps.userWriteRepo.deleteByIdAndCompany(actorAuth.companyId, id);
+  if (deps.sessionRepo && typeof deps.sessionRepo.revokeAllForUser === 'function') {
+    await deps.sessionRepo.revokeAllForUser(existing.id);
+  }
   return { deleted: true, id: existing.id };
 }
 

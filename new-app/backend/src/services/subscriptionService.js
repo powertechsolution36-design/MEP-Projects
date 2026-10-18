@@ -136,15 +136,34 @@ async function createOrUpdateSubscription(companyId, data, actorId, deps) {
 
 /**
  * Returns effective divisions for a company.
- * Priority: Subscription.purchasedDivisions > Company.divisions
+ * Priority: Subscription.purchasedDivisions > Company.divisions.
+ * PWA FACT (coDivs, index.html:1215): a company with no division list is
+ * treated as having all three divisions.
  */
 async function getEffectiveDivisions(companyId, deps) {
-  const sub = await deps.subscriptionRepo.findByCompany(companyId);
-  if (sub && sub.status !== 'cancelled' && sub.status !== 'expired') {
-    return sub.purchasedDivisions || [];
+  if (deps.subscriptionRepo) {
+    const sub = await deps.subscriptionRepo.findByCompany(companyId);
+    if (sub && sub.status !== 'cancelled' && sub.status !== 'expired') {
+      return sub.purchasedDivisions || [];
+    }
   }
   const company = await deps.companyRepo.findById(companyId);
-  return (company && company.divisions) || [];
+  if (!company) return [];
+  return company.divisions && company.divisions.length ? company.divisions : [...DIVISIONS];
+}
+
+/**
+ * Server-side division entitlement (owner-approved: enforced in every
+ * module that carries a division). `allowAmc` lets the Enquiry "AMC"
+ * segment through, which the PWA always offers alongside the company's
+ * divisions (index.html:1913, `myDivs().concat(["AMC"])`).
+ */
+async function assertDivisionEntitled(companyId, division, deps, { allowAmc = false } = {}) {
+  if (allowAmc && division === 'AMC') return;
+  const divisions = await getEffectiveDivisions(companyId, deps);
+  if (!divisions.includes(division)) {
+    throw new ServiceError(`Division "${division}" is not available for this company.`, 'DIVISION_NOT_ENTITLED', 403);
+  }
 }
 
 module.exports = {
@@ -157,4 +176,5 @@ module.exports = {
   getSubscription,
   createOrUpdateSubscription,
   getEffectiveDivisions,
+  assertDivisionEntitled,
 };

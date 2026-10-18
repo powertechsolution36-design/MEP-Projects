@@ -1,6 +1,7 @@
 'use strict';
 
 const express = require('express');
+const { sendError } = require('../errors');
 const { createAuthMiddleware } = require('../middleware/authMiddleware');
 const { requireRole } = require('../middleware/roleMiddleware');
 const { requireCompanyContext } = require('../middleware/tenantGuard');
@@ -15,21 +16,22 @@ function createSubscriptionRouter(deps) {
 
   // ── Plan catalog (super-only management, readable by all) ──
 
-  router.get('/plans', authMiddleware, async (req, res) => {
+  // The plan catalogue (pricing) belongs to the Super Admin Subscriptions screen only.
+  router.get('/plans', authMiddleware, requireRole('super'), async (req, res) => {
     try {
       const plans = await listPlans(deps);
       return res.json({ plans });
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message });
+      return sendError(res, err, 'subscriptionRoutes');
     }
   });
 
-  router.get('/plans/:code', authMiddleware, async (req, res) => {
+  router.get('/plans/:code', authMiddleware, requireRole('super'), async (req, res) => {
     try {
       const plan = await getPlan(req.params.code, deps);
       return res.json({ plan });
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message });
+      return sendError(res, err, 'subscriptionRoutes');
     }
   });
 
@@ -38,7 +40,7 @@ function createSubscriptionRouter(deps) {
       const plan = await createPlan(req.body, deps);
       return res.status(201).json({ plan });
     } catch (err) {
-      return res.status(err.status || 400).json({ error: err.message });
+      return sendError(res, err, 'subscriptionRoutes');
     }
   });
 
@@ -47,7 +49,7 @@ function createSubscriptionRouter(deps) {
       const plan = await updatePlan(req.params.code, req.body, deps);
       return res.json({ plan });
     } catch (err) {
-      return res.status(err.status || 400).json({ error: err.message });
+      return sendError(res, err, 'subscriptionRoutes');
     }
   });
 
@@ -56,7 +58,7 @@ function createSubscriptionRouter(deps) {
       const plans = await seedDefaultPlans(deps);
       return res.json({ plans, seeded: true });
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message });
+      return sendError(res, err, 'subscriptionRoutes');
     }
   });
 
@@ -71,7 +73,7 @@ function createSubscriptionRouter(deps) {
       const sub = await getSubscription(req.params.companyId, deps);
       return res.json({ subscription: sub || null });
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message });
+      return sendError(res, err, 'subscriptionRoutes');
     }
   });
 
@@ -82,7 +84,7 @@ function createSubscriptionRouter(deps) {
       );
       return res.status(201).json({ subscription: sub });
     } catch (err) {
-      return res.status(err.status || 400).json({ error: err.message });
+      return sendError(res, err, 'subscriptionRoutes');
     }
   });
 
@@ -93,7 +95,7 @@ function createSubscriptionRouter(deps) {
       const divisions = await getEffectiveDivisions(req.auth.companyId, deps);
       return res.json({ divisions });
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message });
+      return sendError(res, err, 'subscriptionRoutes');
     }
   });
 

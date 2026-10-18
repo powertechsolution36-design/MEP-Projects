@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { money, fmtDate } from '../../utils/format';
-import '../enquiries/enquiry.css';
+import useMyDivisions from '../../hooks/useMyDivisions';
 
 /**
  * SalesOrder Detail — PWA `vSO(x)` exact reproduction.
@@ -19,6 +19,7 @@ import '../enquiries/enquiry.css';
 const COST_HIDDEN_ROLES = ['engineer', 'service_eng'];
 
 export default function SalesOrderDetail() {
+  const myDivisions = useMyDivisions(); // PWA myDivs()
   const { id } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -167,12 +168,40 @@ export default function SalesOrderDetail() {
             <h3>Costing</h3>
             <div className="detail-grid">
               <div><strong>Total Cost:</strong> {money(so.totalCost)}</div>
-              <div><strong>HS Selling:</strong> {money(so.highSideSelling)}</div>
-              <div><strong>HS Purchase:</strong> {money(so.highSidePurchase)}</div>
-              <div><strong>LS Cost:</strong> {money(so.lowSideCost)}</div>
-              <div><strong>LS Target Exp:</strong> {money(so.lowSideTargetExpense)}</div>
-              <div><strong>LS Actual Exp:</strong> {money(so.lowSideActualExpense)}</div>
+              <div><strong>Equipment Selling:</strong> {money(so.highSideSelling)}</div>
+              <div><strong>Equipment Purchase:</strong> {money(so.highSidePurchase)}</div>
+              <div><strong>Accessories Cost:</strong> {money(so.lowSideCost)}</div>
+              <div><strong>Accessories Target Exp.:</strong> {money(so.lowSideTargetExpense)}</div>
+              <div><strong>Accessories Actual Exp.:</strong> {money(so.lowSideActualExpense)}</div>
             </div>
+
+            {/* PWA FACT (vSO, index.html:2047): Equipment Margin, Accessories
+                Margin and a bold Total Margin, derived server-side by
+                salesOrderService.computeMargins so the screen and the CSV can
+                never disagree. Accessories margin measures against actual
+                expense, falling back to target when no actual is recorded. */}
+            {so.margins && (
+              <div className="detail-grid" style={{ marginBottom: 0 }}>
+                <div>
+                  <strong>Equipment Margin:</strong>{' '}
+                  <span className={so.margins.equipmentMargin < 0 ? 'fg-bad' : undefined}>
+                    {money(so.margins.equipmentMargin)}
+                  </span>
+                </div>
+                <div>
+                  <strong>Accessories Margin:</strong>{' '}
+                  <span className={so.margins.accessoriesMargin < 0 ? 'fg-bad' : undefined}>
+                    {money(so.margins.accessoriesMargin)}
+                  </span>
+                </div>
+                <div>
+                  <strong>Total Margin:</strong>{' '}
+                  <b className={so.margins.totalMargin < 0 ? 'fg-bad' : 'fg-ok'}>
+                    {money(so.margins.totalMargin)}
+                  </b>
+                </div>
+              </div>
+            )}
           </>
         )}
 
@@ -266,7 +295,7 @@ export default function SalesOrderDetail() {
                 <div className="filter-field">
                   <label>Division</label>
                   <select value={editForm.division} onChange={e => setEditForm(f => ({ ...f, division: e.target.value }))}>
-                    {['HVAC', 'Solar', 'MEP'].map(d => <option key={d}>{d}</option>)}
+                    {myDivisions.map(d => <option key={d}>{d}</option>)}
                   </select>
                 </div>
                 <div className="filter-field">
@@ -310,11 +339,11 @@ export default function SalesOrderDetail() {
                   <h4>Costing</h4>
                   <div className="form-grid">
                     <div className="filter-field"><label>Total Cost</label><input type="number" value={editForm.totalCost} onChange={e => setEditForm(f => ({ ...f, totalCost: e.target.value }))} /></div>
-                    <div className="filter-field"><label>HS Selling</label><input type="number" value={editForm.highSideSelling} onChange={e => setEditForm(f => ({ ...f, highSideSelling: e.target.value }))} /></div>
-                    <div className="filter-field"><label>HS Purchase</label><input type="number" value={editForm.highSidePurchase} onChange={e => setEditForm(f => ({ ...f, highSidePurchase: e.target.value }))} /></div>
-                    <div className="filter-field"><label>LS Cost</label><input type="number" value={editForm.lowSideCost} onChange={e => setEditForm(f => ({ ...f, lowSideCost: e.target.value }))} /></div>
-                    <div className="filter-field"><label>LS Target Exp</label><input type="number" value={editForm.lowSideTargetExpense} onChange={e => setEditForm(f => ({ ...f, lowSideTargetExpense: e.target.value }))} /></div>
-                    <div className="filter-field"><label>LS Actual Exp</label><input type="number" value={editForm.lowSideActualExpense} onChange={e => setEditForm(f => ({ ...f, lowSideActualExpense: e.target.value }))} /></div>
+                    <div className="filter-field"><label>Equipment Selling</label><input type="number" value={editForm.highSideSelling} onChange={e => setEditForm(f => ({ ...f, highSideSelling: e.target.value }))} /></div>
+                    <div className="filter-field"><label>Equipment Purchase</label><input type="number" value={editForm.highSidePurchase} onChange={e => setEditForm(f => ({ ...f, highSidePurchase: e.target.value }))} /></div>
+                    <div className="filter-field"><label>Accessories Cost</label><input type="number" value={editForm.lowSideCost} onChange={e => setEditForm(f => ({ ...f, lowSideCost: e.target.value }))} /></div>
+                    <div className="filter-field"><label>Accessories Target Exp.</label><input type="number" value={editForm.lowSideTargetExpense} onChange={e => setEditForm(f => ({ ...f, lowSideTargetExpense: e.target.value }))} /></div>
+                    <div className="filter-field"><label>Accessories Actual Exp.</label><input type="number" value={editForm.lowSideActualExpense} onChange={e => setEditForm(f => ({ ...f, lowSideActualExpense: e.target.value }))} /></div>
                   </div>
                 </>
               )}

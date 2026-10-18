@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { today } from '../../utils/format';
-import '../enquiries/enquiry.css';
 
 /**
  * Manual AMC / Warranty Contract Creation — PWA `saveContract()` (Path B)

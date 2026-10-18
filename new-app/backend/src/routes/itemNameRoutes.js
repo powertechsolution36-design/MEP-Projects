@@ -1,6 +1,7 @@
 'use strict';
 
 const express = require('express');
+const { sendError } = require('../errors');
 const { createAuthMiddleware } = require('../middleware/authMiddleware');
 const { requireCompanyContext } = require('../middleware/tenantGuard');
 const {
@@ -24,7 +25,7 @@ function createItemNameRouter(deps) {
       );
       return res.json({ items: results });
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message });
+      return sendError(res, err, 'itemNameRoutes');
     }
   });
 
@@ -36,7 +37,7 @@ function createItemNameRouter(deps) {
       const items = await listItems(req.auth.companyId, division, deps);
       return res.json({ items });
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message });
+      return sendError(res, err, 'itemNameRoutes');
     }
   });
 
@@ -49,7 +50,7 @@ function createItemNameRouter(deps) {
       const result = await deleteItemName(req.auth.companyId, req.params.itemId, deps);
       return res.json(result);
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message });
+      return sendError(res, err, 'itemNameRoutes');
     }
   });
 

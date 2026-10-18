@@ -1,8 +1,9 @@
 'use strict';
 
 const express = require('express');
+const { reportFilename } = require('../services/reportHeader');
 const service = require('../services/paymentService');
-const { ServiceError } = require('../errors');
+const { ServiceError, mapPersistenceError } = require('../errors');
 const { createAuthMiddleware } = require('../middleware/authMiddleware');
 const { requireCompanyContext, rejectClientSuppliedCompanyId } = require('../middleware/tenantGuard');
 
@@ -38,6 +39,8 @@ function createPaymentRouter(deps) {
         if (err instanceof ServiceError) {
           return res.status(err.status).json({ error: err.message, code: err.code });
         }
+        const mapped = mapPersistenceError(err);
+        if (mapped) return res.status(mapped.status).json({ error: mapped.message, code: mapped.code });
         // eslint-disable-next-line no-console
         console.error('[paymentRoutes]', err);
         return res.status(500).json({ error: 'Internal error.' });
@@ -48,9 +51,11 @@ function createPaymentRouter(deps) {
   router.get(
     '/export/pending.csv',
     handle(async (req, res) => {
-      const csv = await service.exportPendingPaymentsCsv(req.auth, deps);
+      // PWA FACT (dlPayments, index.html:3498): `payments-<today>.csv`, and
+      // the file carries the screen's active search.
+      const csv = await service.exportPendingPaymentsCsv(req.auth, { search: req.query.q || '' }, deps);
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="pending-payments.csv"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${reportFilename('payments')}"`);
       return res.status(200).send(csv);
     })
   );
@@ -60,7 +65,8 @@ function createPaymentRouter(deps) {
     handle(async (req, res) => {
       const csv = await service.exportReceiptsCsv(req.auth, deps);
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="payment-receipts.csv"`);
+      // PWA FACT (dlReceipts, index.html:3900): `payment-receipts-<today>.csv`.
+      res.setHeader('Content-Disposition', `attachment; filename="${reportFilename('payment-receipts')}"`);
       return res.status(200).send(csv);
     })
   );

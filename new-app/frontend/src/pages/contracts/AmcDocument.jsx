@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, apiRequest } from '../../api/client';
 import { money, fmtDate } from '../../utils/format';
-import '../enquiries/enquiry.css';
 
 /**
  * AMC Document Generation — generates a printable AMC document from a
@@ -138,7 +137,7 @@ export default function AmcDocument() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
         <div>
           {cp.logoBase64 && <img src={cp.logoBase64} alt="Logo" style={{ maxHeight: 50, marginBottom: 4 }} />}
-          <div style={{ fontSize: 12, color: '#666' }}>{cp.tagline || '"Trusted-Econimical-Reliable"'}</div>
+          <div style={{ fontSize: 12, color: '#666' }}>{cp.tagline || ''}</div>
         </div>
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontSize: 20, fontWeight: 'bold', color: '#1a4a7a' }}>{cp.name || 'Company Name'}</div>
@@ -249,7 +248,7 @@ export default function AmcDocument() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <tbody>
               <tr><td style={{ border: '1px solid #ccc', padding: '8px', width: '30%', verticalAlign: 'top' }}>TAXES</td><td style={{ border: '1px solid #ccc', padding: '8px', fontWeight: 'bold' }}>{secByKey['taxes']?.content || 'GST as shown'}</td></tr>
-              <tr><td style={{ border: '1px solid #ccc', padding: '8px', verticalAlign: 'top' }}>Payment</td><td style={{ border: '1px solid #ccc', padding: '8px', whiteSpace: 'pre-wrap' }}>{secByKey['payment']?.content || ''}{contract.amount ? `\n\n₹ ${money(Math.round(contract.amount * 1.18))}` : ''}</td></tr>
+              <tr><td style={{ border: '1px solid #ccc', padding: '8px', verticalAlign: 'top' }}>Payment</td><td style={{ border: '1px solid #ccc', padding: '8px', whiteSpace: 'pre-wrap' }}>{secByKey['payment']?.content || ''}{contract.amount ? `\n\n${money(Math.round(contract.amount * 1.18))}` : ''}</td></tr>
               <tr><td style={{ border: '1px solid #ccc', padding: '8px', verticalAlign: 'top' }}>Offer Validity :</td><td style={{ border: '1px solid #ccc', padding: '8px' }}>{secByKey['offer_validity']?.content || '30 days'}</td></tr>
               <tr><td style={{ border: '1px solid #ccc', padding: '8px', verticalAlign: 'top' }}>Delivery</td><td style={{ border: '1px solid #ccc', padding: '8px', whiteSpace: 'pre-wrap' }}>{secByKey['delivery']?.content || ''}</td></tr>
               <tr><td style={{ border: '1px solid #ccc', padding: '8px', verticalAlign: 'top' }}>Final Billing</td><td style={{ border: '1px solid #ccc', padding: '8px', whiteSpace: 'pre-wrap' }}>{secByKey['final_billing']?.content || ''}</td></tr>
@@ -289,12 +288,8 @@ export default function AmcDocument() {
 
         {/* Contract reference paragraph with dynamic values */}
         <div style={{ marginBottom: 12 }}>
-          {(secByKey['proposal']?.content || '')
-            .replace('{{contractAmount}}', money(contract.amount))
-            .replace('{{contractPeriod}}', `${contract.visitsPerYear ? Math.ceil(12 / contract.visitsPerYear) : 1} Year${contract.visitsPerYear && Math.ceil(12 / contract.visitsPerYear) > 1 ? 's' : ''}`)
-            .replace('{{startDate}}', fmtDate(contract.startDate))
-            .replace('{{endDate}}', fmtDate(contract.endDate))
-          }
+          {/* placeholders are substituted server-side (amcDocumentService.generateAmcDocument) */}
+          {secByKey['proposal']?.content || ''}
         </div>
 
         <div style={{ marginBottom: 12 }}>{secByKey['terms_intro']?.content || 'Please keep in mind following T&C during AMC.'}</div>
@@ -347,7 +342,7 @@ export default function AmcDocument() {
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
             <div>
               <div style={{ fontWeight: 'bold' }}>{cp.authorizedPerson?.name || ''}</div>
-              <div style={{ fontSize: 12 }}>{cp.authorizedPerson?.designation || '(Project & Service head)'}</div>
+              <div style={{ fontSize: 12 }}>{cp.authorizedPerson?.designation || ''}</div>
               <div style={{ fontSize: 12 }}>{cp.phone || ''}{cp.email ? ` / ${cp.email}` : ''}</div>
             </div>
             <div style={{ textAlign: 'right' }}>
@@ -418,7 +413,7 @@ export default function AmcDocument() {
             {TEMPLATE_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn pri" onClick={handlePrint}>Print / Save as PDF</button>
           <button className="btn sec sm" onClick={loadTemplate}>Edit Template</button>
           <button className="btn sec sm" onClick={() => navigate(`/contracts/${contractId}`)}>Back to Contract</button>

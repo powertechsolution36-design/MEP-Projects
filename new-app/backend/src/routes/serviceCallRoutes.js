@@ -2,7 +2,7 @@
 
 const express = require('express');
 const service = require('../services/serviceCallService');
-const { ServiceError } = require('../errors');
+const { ServiceError, mapPersistenceError } = require('../errors');
 const { createAuthMiddleware } = require('../middleware/authMiddleware');
 const { requireCompanyContext, rejectClientSuppliedCompanyId } = require('../middleware/tenantGuard');
 
@@ -35,12 +35,24 @@ function createServiceCallRouter(deps) {
         if (err instanceof ServiceError) {
           return res.status(err.status).json({ error: err.message, code: err.code });
         }
+        const mapped = mapPersistenceError(err);
+        if (mapped) return res.status(mapped.status).json({ error: mapped.message, code: mapped.code });
         // eslint-disable-next-line no-console
         console.error('[serviceCallRoutes]', err);
         return res.status(500).json({ error: 'Internal error.' });
       }
     };
   }
+
+  // PWA FACT (engDash, index.html:1635): "My Service Calls / PM Jobs" --
+  // open calls assigned to the logged-in user (any role).
+  router.get(
+    '/mine',
+    handle(async (req, res) => {
+      const serviceCalls = await service.listMyServiceCalls(req.auth, deps);
+      return res.status(200).json({ serviceCalls });
+    })
+  );
 
   router.get(
     '/open',

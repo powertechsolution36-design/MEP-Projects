@@ -1,0 +1,207 @@
+/* PWA wordmark typeface (Audiowide, SIL Open Font License), self-hosted
+   so the app makes no font request to a third party. Used only by the
+   login wordmark via --font-brand. */
+@font-face {
+  font-family: "Audiowide";
+  src: url("/fonts/Audiowide-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ============================================================
+   Base layer — reset, document, typography, native elements,
+   focus and accessibility primitives.
+   ============================================================ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ---- Headings ---------------------------------------------------
+   One hierarchy for the whole app. Pages set an h2; panels set an h3;
+   nothing invents its own size inline. */
+h1, h2, h3, h4, h5 {
+  margin: 0 0 var(--s-4);
+  font-weight: var(--fw-semi);
+  line-height: var(--lh-tight);
+  color: var(--text);
+  letter-spacing: -0.011em;
+}
+h1 { font-size: var(--fs-2xl); }
+h2 { font-size: var(--fs-xl); }
+h3 { font-size: var(--fs-lg); }
+h4 { font-size: var(--fs-base); }
+h5 { font-size: var(--fs-md); }
+
+p { margin: 0 0 var(--s-5); }
+p:last-child { margin-bottom: 0; }
+
+small { font-size: var(--fs-sm); }
+
+b, strong { font-weight: var(--fw-semi); }
+
+a { color: var(--text-link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+  margin: var(--s-6) 0;
+}
+
+code, kbd, samp { font-family: var(--font-mono); font-size: 0.92em; }
+
+/* Figures in data contexts line up vertically. */
+.data-table td,
+.data-table th,
+.kpi-value,
+.num,
+input[type="number"] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* ---- Native form elements --------------------------------------
+   Styled once here so every input in the app matches whether or not
+   its page remembered to add a class. */
+button, input, select, textarea, optgroup {
+  font: inherit;
+  color: inherit;
+}
+button { cursor: pointer; }
+button:disabled, input:disabled, select:disabled, textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+input[type="text"], input[type="password"], input[type="number"],
+input[type="date"], input[type="time"], input[type="email"],
+input[type="tel"], input[type="search"], input[type="url"],
+input:not([type]), select, textarea {
+  width: 100%;
+  min-height: var(--control-h);
+  padding: 6px 10px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-md);
+  transition: border-color var(--dur-fast) var(--ease),
+              box-shadow var(--dur-fast) var(--ease);
+}
+textarea { min-height: 72px; padding: 8px 10px; resize: vertical; line-height: var(--lh-snug); }
+
+input:hover:not(:disabled), select:hover:not(:disabled), textarea:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--accent-100);
+}
+input::placeholder, textarea::placeholder { color: var(--n-400); }
+
+/* A date input that is empty still has to look like the others. */
+input[type="date"], input[type="time"] { min-width: 0; }
+
+select {
+  appearance: none;
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%236c7c8c' d='M1.4 0 6 4.6 10.6 0 12 1.4 6 7.4 0 1.4z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 10px;
+}
+
+input[type="checkbox"], input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  margin: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+  flex: none;
+}
+
+label { font-size: var(--fs-md); }
+
+/* ---- Focus -------------------------------------------------------
+   Keyboard users get a clear ring everywhere; mouse users never see
+   it. :focus-visible is the whole point of this block. */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+button:focus-visible, a:focus-visible, [role="button"]:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: none; /* the focus ring is the box-shadow above */
+}
+
+/* Screen-reader-only text, and the skip link that becomes visible
+   when it receives focus. */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.skip-link {
+  position: absolute;
+  left: var(--s-4);
+  top: -48px;
+  z-index: var(--z-toast);
+  padding: 8px 14px;
+  background: var(--surface);
+  color: var(--text-link);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-md);
+  font-weight: var(--fw-medium);
+  transition: top var(--dur-base) var(--ease);
+}
+.skip-link:focus { top: var(--s-4); }
+
+/* ---- Scrollbars (desktop Chrome/Edge) --------------------------- */
+@media (pointer: fine) {
+  * { scrollbar-width: thin; scrollbar-color: var(--n-300) transparent; }
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb {
+    background: var(--n-300);
+    border: 2px solid transparent;
+    border-radius: var(--r-pill);
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover { background-color: var(--n-400); background-clip: content-box; }
+}
+
+/* ---- Touch devices ---------------------------------------------
+   Coarse pointers get taller controls so buttons and rows can be hit
+   with a thumb on site. */
+@media (pointer: coarse) {
+  :root {
+    --control-h:    40px;
+    --control-h-sm: 36px;
+    --control-h-lg: 46px;
+  }
+  input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; }
+}

@@ -43,6 +43,10 @@ function createEnquiryFakeStore(seed = {}) {
     inventoryTransactions: seed.inventoryTransactions || [],
     plans: seed.plans || [],
     subscriptions: seed.subscriptions || [],
+    itemNames: seed.itemNames || [],
+    quotations: seed.quotations || [],
+    amcTemplates: seed.amcTemplates || [],
+    paymentTermTemplates: seed.paymentTermTemplates || [],
   };
 
   function snapshot() {
@@ -67,6 +71,10 @@ function createEnquiryFakeStore(seed = {}) {
     state.inventoryTransactions = snap.inventoryTransactions;
     state.plans = snap.plans;
     state.subscriptions = snap.subscriptions;
+    state.itemNames = snap.itemNames;
+    state.quotations = snap.quotations;
+    state.amcTemplates = snap.amcTemplates;
+    state.paymentTermTemplates = snap.paymentTermTemplates;
   }
 
   const enquiryRepo = {
@@ -194,10 +202,19 @@ function createEnquiryFakeStore(seed = {}) {
     async listByCompany(companyId) {
       return state.projects.filter((p) => String(p.companyId) === String(companyId)).map((p) => cloneDeep(p));
     },
-    async update(companyId, id, patch) {
+    async update(companyId, id, patch, session, options = {}) {
       const doc = state.projects.find((p) => matchesId(p, id) && String(p.companyId) === String(companyId));
       if (!doc) return null;
+      // Mirrors the real repo's optimistic lock (revision counter).
+      if (Object.prototype.hasOwnProperty.call(options, 'expectedRevision')
+        && (doc.revision || 0) !== (options.expectedRevision || 0)) {
+        const err = new Error('This project was just changed by someone else. Reload and try again.');
+        err.code = 'CONFLICT';
+        err.status = 409;
+        throw err;
+      }
       Object.assign(doc, patch);
+      doc.revision = (doc.revision || 0) + 1;
       return cloneDeep(doc);
     },
     async listEligibleForDelayCheck() {
@@ -414,7 +431,15 @@ function createEnquiryFakeStore(seed = {}) {
       if (!doc) return null;
       doc.stockByLocation = doc.stockByLocation || {};
       const key = String(locationId);
-      const next = (Number(doc.stockByLocation[key]) || 0) + delta;
+      const current = Number(doc.stockByLocation[key]) || 0;
+      if (delta < 0 && current < -delta) {
+        // Mirrors the real repo's conditional (atomic) decrement.
+        const err = new Error('Insufficient stock at this location.');
+        err.code = 'INSUFFICIENT_STOCK';
+        err.status = 400;
+        throw err;
+      }
+      const next = current + delta;
       doc.stockByLocation[key] = next < 0 ? 0 : next;
       return cloneDeep(doc);
     },
@@ -469,13 +494,25 @@ function createEnquiryFakeStore(seed = {}) {
     },
   };
 
+  // Fixtures written before division entitlement was enforced everywhere do
+  // not declare their company. When a seed declares NO `companies` at all,
+  // any company id is treated as an existing company with no division list
+  // -- which the PWA (coDivs, index.html:1215) and getEffectiveDivisions
+  // read as "all divisions". Seeds that DO declare companies are strict.
+  const implicitCompanies = seed.companies === undefined;
+  const deletedCompanyIds = new Set();
   const companyRepo = {
     async findById(id) {
       const doc = state.companies.find((c) => matchesId(c, id));
-      return doc ? cloneDeep(doc) : null;
+      if (doc) return cloneDeep(doc);
+      if (implicitCompanies && id && !deletedCompanyIds.has(String(id))) {
+        return { id: String(id), name: 'Test Company', divisions: [] };
+      }
+      return null;
     },
     // FIX-6-03 (B2 -- Company deletion/cascade).
     async delete(id) {
+      deletedCompanyIds.add(String(id));
       state.companies = state.companies.filter((c) => !matchesId(c, id));
     },
   };
@@ -580,6 +617,9 @@ function createEnquiryFakeStore(seed = {}) {
     async existsByCompanyAndUsername(companyId, username) {
       return state.users.some((u) => String(u.companyId) === String(companyId) && u.username === username);
     },
+    async existsByUsername(username, exceptUserId) {
+      return state.users.some((u) => u.username === username && String(u.id) !== String(exceptUserId));
+    },
     async create(userData) {
       const doc = { id: nextId('user'), active: true, ...userData };
       state.users.push(doc);
@@ -644,6 +684,9 @@ function createEnquiryFakeStore(seed = {}) {
       const doc = state.subscriptions.find((s) => String(s.companyId) === String(companyId));
       return doc ? cloneDeep(doc) : null;
     },
+    async deleteByCompany(companyId) {
+      state.subscriptions = state.subscriptions.filter((s) => String(s.companyId) !== String(companyId));
+    },
     async create(data) {
       const doc = { id: nextId('sub'), ...data };
       state.subscriptions.push(doc);
@@ -664,6 +707,166 @@ function createEnquiryFakeStore(seed = {}) {
         }
       }
       return cloneDeep(doc);
+    },
+  };
+
+  // ── Stage 7 fakes — same interfaces as the Mongoose repos of the same
+  // name in src/repositories/businessRepositories.mongoose.js. Every
+  // company-scoped method filters by companyId (tenant isolation), and
+  // item names are additionally scoped by division.
+
+  const sameCompany = (r, companyId) => String(r.companyId) === String(companyId);
+
+  const itemNameRepo = {
+    async findByNormalized(companyId, division, normalizedName) {
+      const doc = state.itemNames.find(
+        (i) => sameCompany(i, companyId) && i.division === division && i.normalizedName === normalizedName
+      );
+      return doc ? cloneDeep(doc) : null;
+    },
+    async incrementUsage(id) {
+      const doc = state.itemNames.find((i) => matchesId(i, id));
+      if (!doc) return null;
+      doc.usageCount = (doc.usageCount || 0) + 1;
+      doc.lastUsedAt = new Date().toISOString();
+      return cloneDeep(doc);
+    },
+    async create(data) {
+      const dup = state.itemNames.find(
+        (i) => sameCompany(i, data.companyId) && i.division === data.division && i.normalizedName === data.normalizedName
+      );
+      if (dup) {
+        // Mirrors the Mongoose adapter's duplicate-key fallback.
+        dup.usageCount = (dup.usageCount || 0) + 1;
+        return cloneDeep(dup);
+      }
+      const doc = { id: nextId('itemname'), usageCount: 1, ...data };
+      state.itemNames.push(doc);
+      return cloneDeep(doc);
+    },
+    async listByCompanyDivision(companyId, division, limit) {
+      return state.itemNames
+        .filter((i) => sameCompany(i, companyId) && i.division === division)
+        .sort((a, b) => (b.usageCount || 0) - (a.usageCount || 0) || a.normalizedName.localeCompare(b.normalizedName))
+        .slice(0, limit || 20)
+        .map((i) => cloneDeep(i));
+    },
+    async search(companyId, division, query, limit) {
+      const q = String(query || '').toLowerCase().trim().replace(/\s+/g, ' ');
+      return state.itemNames
+        .filter((i) => sameCompany(i, companyId) && i.division === division && i.normalizedName.includes(q))
+        .sort((a, b) => (b.usageCount || 0) - (a.usageCount || 0) || a.normalizedName.localeCompare(b.normalizedName))
+        .slice(0, limit || 20)
+        .map((i) => cloneDeep(i));
+    },
+    async findById(companyId, id) {
+      const doc = state.itemNames.find((i) => matchesId(i, id) && sameCompany(i, companyId));
+      return doc ? cloneDeep(doc) : null;
+    },
+    async delete(companyId, id) {
+      state.itemNames = state.itemNames.filter((i) => !(matchesId(i, id) && sameCompany(i, companyId)));
+    },
+  };
+
+  const quotationRepo = {
+    async create(data) {
+      if (state.quotations.some((q) => sameCompany(q, data.companyId) && q.quotationNumber === data.quotationNumber)) {
+        const err = new Error('A quotation with that number already exists.');
+        err.code = 'QUOTATION_NUMBER_DUPLICATE';
+        err.status = 409;
+        throw err;
+      }
+      const doc = { id: nextId('quotation'), revision: 0, ...cloneDeep(data) };
+      state.quotations.push(doc);
+      return cloneDeep(doc);
+    },
+    async findById(companyId, id) {
+      const doc = state.quotations.find((q) => matchesId(q, id) && sameCompany(q, companyId));
+      return doc ? cloneDeep(doc) : null;
+    },
+    async listByCompany(companyId, filters = {}) {
+      return state.quotations
+        .filter((q) => sameCompany(q, companyId))
+        .filter((q) => !filters.division || q.division === filters.division)
+        .filter((q) => !filters.status || q.status === filters.status)
+        .filter((q) => !filters.customerName
+          || (q.customerName || '').toLowerCase().includes(String(filters.customerName).toLowerCase()))
+        .map((q) => cloneDeep(q));
+    },
+    async updateFields(companyId, id, patch) {
+      const doc = state.quotations.find((q) => matchesId(q, id) && sameCompany(q, companyId));
+      if (!doc) return null;
+      Object.assign(doc, cloneDeep(patch));
+      return cloneDeep(doc);
+    },
+    async delete(companyId, id) {
+      state.quotations = state.quotations.filter((q) => !(matchesId(q, id) && sameCompany(q, companyId)));
+    },
+  };
+
+  const amcTemplateRepo = {
+    async findDefault(companyId, type) {
+      const doc = state.amcTemplates.find((t) => sameCompany(t, companyId) && t.type === type && t.isDefault);
+      return doc ? cloneDeep(doc) : null;
+    },
+    async upsertDefault(companyId, data) {
+      if (!data.name || !String(data.name).trim()) {
+        const err = new Error('Template name is required.');
+        err.status = 400;
+        throw err;
+      }
+      let doc = state.amcTemplates.find((t) => sameCompany(t, companyId) && t.type === data.type && t.isDefault);
+      if (doc) {
+        doc.name = data.name;
+        doc.sections = cloneDeep(data.sections || []);
+        doc.version = (doc.version || 1) + 1;
+      } else {
+        doc = {
+          id: nextId('amctpl'), companyId, type: data.type, name: data.name,
+          sections: cloneDeep(data.sections || []), isDefault: true, version: 1,
+        };
+        state.amcTemplates.push(doc);
+      }
+      return cloneDeep(doc);
+    },
+    async listByCompany(companyId) {
+      return state.amcTemplates.filter((t) => sameCompany(t, companyId)).map((t) => cloneDeep(t));
+    },
+  };
+
+  const paymentTermTemplateRepo = {
+    async listByCompany(companyId, filters = {}) {
+      return state.paymentTermTemplates
+        .filter((t) => sameCompany(t, companyId))
+        .filter((t) => !filters.division || t.division === filters.division)
+        .filter((t) => !filters.documentType || t.documentType === filters.documentType)
+        .map((t) => cloneDeep(t));
+    },
+    async findById(companyId, id) {
+      const doc = state.paymentTermTemplates.find((t) => matchesId(t, id) && sameCompany(t, companyId));
+      return doc ? cloneDeep(doc) : null;
+    },
+    async create(data) {
+      if (state.paymentTermTemplates.some((t) => sameCompany(t, data.companyId) && t.name === data.name)) {
+        const err = new Error('A payment term template with that name already exists.');
+        err.code = 'PAYMENT_TERM_TEMPLATE_DUPLICATE';
+        err.status = 409;
+        throw err;
+      }
+      const doc = { id: nextId('payterm'), ...cloneDeep(data) };
+      state.paymentTermTemplates.push(doc);
+      return cloneDeep(doc);
+    },
+    async updateFields(companyId, id, patch) {
+      const doc = state.paymentTermTemplates.find((t) => matchesId(t, id) && sameCompany(t, companyId));
+      if (!doc) return null;
+      Object.assign(doc, cloneDeep(patch));
+      return cloneDeep(doc);
+    },
+    async delete(companyId, id) {
+      state.paymentTermTemplates = state.paymentTermTemplates.filter(
+        (t) => !(matchesId(t, id) && sameCompany(t, companyId))
+      );
     },
   };
 
@@ -709,6 +912,10 @@ function createEnquiryFakeStore(seed = {}) {
     withTransaction,
     planRepo,
     subscriptionRepo,
+    itemNameRepo,
+    quotationRepo,
+    amcTemplateRepo,
+    paymentTermTemplateRepo,
     inventoryCategoryRepo,
     inventoryLocationRepo,
     inventoryItemRepo,

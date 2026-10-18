@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, getStoredToken } from '../../api/client';
+import { api, getStoredToken, assertDownloadOk } from '../../api/client';
 import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../auth/AuthContext';
 import { money, fmtDate } from '../../utils/format';
-import '../enquiries/enquiry.css';
 
 /**
  * Contract (AMC / PM) List — PWA `vPM()` exact reproduction.
@@ -61,6 +60,15 @@ export default function ContractList() {
 
   useEffect(() => { load(); }, [load]);
 
+  // PWA FACT (vPM, index.html:3645-3683): PM-Due panel (with "Schedule PM")
+  // above the list, Renewal Opportunities below it.
+  const [pmDue, setPmDue] = useState([]);
+  const [renewals, setRenewals] = useState([]);
+  useEffect(() => {
+    api.get('/api/contracts/pm-due').then(d => setPmDue(d.rows || [])).catch(() => {});
+    api.get('/api/contracts/renewal-opportunities').then(d => setRenewals(d.rows || [])).catch(() => {});
+  }, []);
+
   /* PWA FACT: export is admin/service_mgr only (MANAGE_ROLES) */
   const canManage = ['admin', 'service_mgr'].includes(user?.role);
 
@@ -72,6 +80,7 @@ export default function ContractList() {
         API_BASE_URL + '/api/contracts/export.csv' + (params.toString() ? '?' + params.toString() : ''),
         { headers: { Authorization: `Bearer ${getStoredToken()}` } }
       );
+      await assertDownloadOk(resp); // a refused export must not be saved as a file
       const blob = await resp.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -110,6 +119,23 @@ export default function ContractList() {
 
   return (
     <div className="enq-page">
+      <div className="panel">
+        <h3>🔁 PM Due — {new Date().toLocaleString('en', { month: 'long', year: 'numeric' })} (incl. overdue)</h3>
+        {pmDue.length === 0 ? <p className="muted">No PM due. All caught up!</p> : (
+          <table className="data-table">
+            <thead><tr><th>Site</th><th>Customer</th><th>Phone</th><th>Type</th><th>Service Due (month)</th><th></th></tr></thead>
+            <tbody>
+              {pmDue.map(r => (
+                <tr key={`${r.contractId}-${r.visitIndex}`}>
+                  <td><b>{r.site}</b></td><td>{r.customer}</td><td>{r.phone}</td><td>{r.category}</td>
+                  <td style={r.overdue ? { color: '#c62828' } : undefined}>{r.month}{r.overdue ? ' (overdue)' : ''}</td>
+                  <td>{canManage && <button className="btn sm pri" onClick={() => navigate(`/service-calls/new?contractId=${r.contractId}`)}>Schedule PM</button>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
       <div className="enq-header">
         <h2>AMC / Warranty &amp; PM List</h2>
         <div className="enq-actions">
@@ -175,6 +201,23 @@ export default function ContractList() {
                   </tr>
                 );
               })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {renewals.length > 0 && (
+        <div className="panel">
+          <h3>⚠️ Renewal Opportunities</h3>
+          <p className="muted">Expired / expiring contracts — offer AMC renewal (warranty → paid AMC).</p>
+          <table className="data-table">
+            <thead><tr><th>Site</th><th>Customer</th><th>Category</th><th>End Date</th><th>Status</th></tr></thead>
+            <tbody>
+              {renewals.map(r => (
+                <tr key={r.contract.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/contracts/${r.contract.id}`)}>
+                  <td>{r.contract.site}</td><td>{r.contract.customer} · {r.contract.phone}</td><td>{r.contract.category}</td>
+                  <td>{fmtDate(r.contract.endDate)}</td><td><span className="status-badge status-lost">{r.status}</span></td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

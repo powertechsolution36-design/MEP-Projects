@@ -1,8 +1,9 @@
 'use strict';
 
 const express = require('express');
+const { sendError } = require('../errors');
 const { createAuthMiddleware } = require('../middleware/authMiddleware');
-const { requireCompanyContext } = require('../middleware/tenantGuard');
+const { requireCompanyContext, requireOwnCompany } = require('../middleware/tenantGuard');
 
 /**
  * Payment term templates — reusable sets of payment terms
@@ -23,7 +24,7 @@ function createPaymentTermTemplateRouter(deps) {
       const templates = await deps.paymentTermTemplateRepo.listByCompany(req.auth.companyId, filters);
       return res.json({ templates });
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message });
+      return sendError(res, err, 'paymentTermTemplateRoutes');
     }
   });
 
@@ -34,12 +35,12 @@ function createPaymentTermTemplateRouter(deps) {
       if (!tpl) return res.status(404).json({ error: 'Payment term template not found.' });
       return res.json({ template: tpl });
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message });
+      return sendError(res, err, 'paymentTermTemplateRoutes');
     }
   });
 
   // Create template (admin/finance/sales)
-  router.post('/', async (req, res) => {
+  router.post('/', requireOwnCompany, async (req, res) => {
     try {
       if (!['super', 'admin', 'finance', 'sales'].includes(req.auth.role)) {
         return res.status(403).json({ error: 'Not authorized to create payment term templates.' });
@@ -58,12 +59,12 @@ function createPaymentTermTemplateRouter(deps) {
       });
       return res.status(201).json({ template: tpl });
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message });
+      return sendError(res, err, 'paymentTermTemplateRoutes');
     }
   });
 
   // Update template
-  router.patch('/:templateId', async (req, res) => {
+  router.patch('/:templateId', requireOwnCompany, async (req, res) => {
     try {
       if (!['super', 'admin', 'finance', 'sales'].includes(req.auth.role)) {
         return res.status(403).json({ error: 'Not authorized to update payment term templates.' });
@@ -81,12 +82,12 @@ function createPaymentTermTemplateRouter(deps) {
       );
       return res.json({ template: updated });
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message });
+      return sendError(res, err, 'paymentTermTemplateRoutes');
     }
   });
 
   // Delete template
-  router.delete('/:templateId', async (req, res) => {
+  router.delete('/:templateId', requireOwnCompany, async (req, res) => {
     try {
       if (!['super', 'admin', 'finance', 'sales'].includes(req.auth.role)) {
         return res.status(403).json({ error: 'Not authorized to delete payment term templates.' });
@@ -96,7 +97,7 @@ function createPaymentTermTemplateRouter(deps) {
       await deps.paymentTermTemplateRepo.delete(req.auth.companyId, req.params.templateId);
       return res.json({ deleted: true });
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message });
+      return sendError(res, err, 'paymentTermTemplateRoutes');
     }
   });
 

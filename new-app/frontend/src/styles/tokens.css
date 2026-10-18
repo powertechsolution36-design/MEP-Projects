@@ -1,0 +1,200 @@
+/* ============================================================
+   MEP PROJECTS — Design tokens
+   ------------------------------------------------------------
+   The single source of truth for colour, type, space, radius,
+   elevation and motion. Nothing below this file should hard-code
+   a hex value, a pixel radius or a shadow.
+
+   Scope note: this is presentation only. No business rule,
+   workflow, permission or terminology lives in the stylesheets.
+   ============================================================ */
+
+:root {
+  /* ---- Brand ramp -------------------------------------------------
+     The PWA's brand red (#d92b2b, PWA --red) as a 9-step ramp.
+     600 is the exact PWA value; the rest are tints/shades of it. */
+  --brand-50:  #fdf0f0;  /* PWA hover tint */
+  --brand-100: #fbdcdb;
+  --brand-200: #f6b7b5;
+  --brand-300: #ee8b88;
+  --brand-400: #e45f5b;
+  --brand-500: #de4440;
+  --brand-600: #d92b2b;  /* primary — PWA --red */
+  --brand-700: #bb2323;
+  --brand-800: #9a1d1d;
+  --brand-900: #741616;
+
+  /* ---- Accent (blue) ---------------------------------------------
+     The original blue values, kept for the small highlights the approved
+     preview showed in blue: active-menu marker, row hover, selected-field
+     glow, menu focus, clickable-card hover. Not used for actions. */
+  --accent-50:  #eff5fc;
+  --accent-100: #d9e7f7;
+  --accent-200: #b4cff0;
+  --accent-300: #85b0e5;
+
+  /* ---- PWA navy ---------------------------------------------------
+     The PWA's dark navy chrome: header, side navigation, login wash. */
+  --navy-900: #16202e;   /* PWA --dark  */
+  --navy-800: #1e2c3f;   /* PWA --dark2 (hover / active row) */
+  --navy-fg:  #cbd6e2;   /* PWA side-menu text */
+  --navy-red: #2b1a1a;   /* end colour of the PWA login gradient */
+
+  /* ---- Neutral ramp (cool grey, tuned for dense data screens) ---- */
+  --n-0:   #ffffff;
+  --n-25:  #fafbfc;
+  --n-50:  #f4f6f8;
+  --n-100: #eceff3;
+  --n-150: #e2e7ec;
+  --n-200: #d4dbe3;
+  --n-300: #b9c3ce;
+  --n-400: #93a1b0;
+  --n-500: #6c7c8c;
+  --n-600: #526372;
+  --n-700: #3c4b59;
+  --n-800: #28343f;
+  --n-900: #16202e;
+
+  /* ---- Semantic status ------------------------------------------- */
+  --ok-50:  #e8f6ec;  --ok-100: #cdebd6;  --ok-600: #1f7a3d;  --ok-700: #19642f;
+  --warn-50:#fff4e3;  --warn-100:#ffe4bd;  --warn-600:#a35a00;  --warn-700:#85490a;
+  --bad-50: #fdecec;  --bad-100: #f8d2cf;  --bad-600: #b3261e;  --bad-700: #8c1d18;
+  --info-50:#eaf2fd;  --info-100:#cfe0f8;  --info-600:#1a5fb4;  --info-700:#164c92;
+
+  /* ---- Division accents ------------------------------------------
+     HVAC / Solar / MEP are the three business divisions. Giving each
+     a fixed accent makes division visible at a glance on every screen
+     without adding a word of copy. */
+  --div-hvac-bg: #e3f1fb;  --div-hvac-fg: #0f5d8a;
+  --div-solar-bg:#fdf0d9;  --div-solar-fg:#8a5a00;
+  --div-mep-bg:  #eee9fb;  --div-mep-fg:  #553a9e;
+  --div-amc-bg:  #e9f3ee;  --div-amc-fg:  #1f6b4a;
+
+  /* ---- Applied roles --------------------------------------------- */
+  --canvas:          #f2f4f8;            /* PWA --bg */
+  --surface:         var(--n-0);
+  --surface-raised:  var(--n-0);
+  --surface-sunken:  var(--n-25);
+  --surface-header:  var(--n-50);
+  --surface-hover:   var(--n-50);
+  --header-bg:       var(--navy-900);
+  --rail:            var(--navy-900);
+  --rail-hover:      var(--navy-800);
+  --rail-fg:         var(--navy-fg);
+
+  --border:          var(--n-200);
+  --border-strong:   var(--n-300);
+  --border-subtle:   var(--n-150);
+
+  --text:            #1c2733;            /* PWA --txt */
+  --text-secondary:  var(--n-600);
+  --text-muted:      var(--n-500);
+  --text-inverse:    #ffffff;
+  --text-link:       #2563c9;            /* PWA --blue: links stay blue, distinct from red actions */
+
+  --primary:         var(--brand-600);
+  --primary-hover:   var(--brand-700);
+  --primary-active:  var(--brand-800);
+  --focus-ring:      var(--brand-400);
+
+  /* Legacy aliases — older rules and a few inline styles still read
+     these names. Kept pointing at the new roles so there is exactly
+     one set of real values. */
+  --color-bg:           var(--canvas);
+  --color-surface:      var(--surface);
+  --color-border:       var(--border);
+  --color-primary:      var(--primary);
+  --color-primary-dark: var(--brand-800);
+  --color-text:         var(--text);
+  --color-text-muted:   var(--text-muted);
+  --color-danger:       var(--bad-600);
+
+  /* ---- Typography ------------------------------------------------
+     A system stack: no network request, no layout shift, and it
+     renders natively on the Windows desktops and Android phones the
+     team actually uses. Numeric columns use tabular figures so money
+     and quantities align down a column. */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI Variable Text",
+               "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-brand: "Audiowide", "Segoe UI", Arial, Helvetica, sans-serif;  /* PWA wordmark only */
+  --font-mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+
+  --fs-2xs: 10.5px;
+  --fs-xs:  11.5px;
+  --fs-sm:  12.5px;
+  --fs-md:  13.5px;
+  --fs-base:14.5px;
+  --fs-lg:  16px;
+  --fs-xl:  19px;
+  --fs-2xl: 23px;
+  --fs-3xl: 28px;
+
+  --lh-tight: 1.25;
+  --lh-snug:  1.4;
+  --lh-base:  1.55;
+
+  --fw-normal: 400;
+  --fw-medium: 500;
+  --fw-semi:   600;
+  --fw-bold:   700;
+
+  --tracking-caps: 0.055em;
+
+  /* ---- Space scale (4px base) ------------------------------------ */
+  --s-1:  2px;
+  --s-2:  4px;
+  --s-3:  6px;
+  --s-4:  8px;
+  --s-5:  12px;
+  --s-6:  16px;
+  --s-7:  20px;
+  --s-8:  24px;
+  --s-9:  32px;
+  --s-10: 40px;
+  --s-11: 56px;
+
+  /* ---- Radius ---------------------------------------------------- */
+  --r-xs:   4px;
+  --r-sm:   6px;
+  --r-md:   8px;
+  --r-lg:   12px;
+  --r-xl:   16px;
+  --r-pill: 999px;
+
+  /* ---- Elevation -------------------------------------------------
+     Four steps only. Flat surfaces get a border, not a shadow. */
+  --shadow-xs: 0 1px 2px rgba(22, 32, 46, 0.05);
+  --shadow-sm: 0 1px 3px rgba(22, 32, 46, 0.07), 0 1px 2px rgba(22, 32, 46, 0.04);
+  --shadow-md: 0 4px 12px rgba(22, 32, 46, 0.08), 0 1px 3px rgba(22, 32, 46, 0.05);
+  --shadow-lg: 0 16px 40px rgba(22, 32, 46, 0.16), 0 2px 8px rgba(22, 32, 46, 0.08);
+
+  /* ---- Layout ---------------------------------------------------- */
+  --rail-w:     232px;
+  --header-h:   56px;
+  --page-max:   1360px;
+  --page-pad:   var(--s-8);
+
+  /* ---- Motion ----------------------------------------------------- */
+  --ease: cubic-bezier(0.2, 0, 0.2, 1);
+  --dur-fast: 100ms;
+  --dur-base: 160ms;
+
+  /* ---- Control sizing -------------------------------------------- */
+  --control-h:    34px;
+  --control-h-sm: 28px;
+  --control-h-lg: 40px;
+  /* Touch targets: phones and site tablets get taller controls via a
+     media query in base.css rather than a separate class. */
+  --tap-min: 44px;
+
+  --z-sticky: 50;
+  --z-rail:   200;
+  --z-header: 300;
+  --z-modal:  1000;
+  --z-toast:  1200;
+}
+
+/* Users who ask their OS for less motion get none of ours. */
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-fast: 0ms; --dur-base: 0ms; }
+}

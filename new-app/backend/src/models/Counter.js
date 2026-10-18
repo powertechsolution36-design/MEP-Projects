@@ -16,7 +16,9 @@ const { Schema, model } = require('mongoose');
  * This is schema-level only — no route/controller calls it yet.
  */
 
-const COUNTER_NAMES = Object.freeze(['salesOrder', 'serviceCall']);
+// UPDATE (Completion order): 'quotation' added -- quotationService numbers
+// quotations from this collection (QTN-0001...), so the schema now lists it.
+const COUNTER_NAMES = Object.freeze(['salesOrder', 'serviceCall', 'quotation']);
 
 const counterSchema = new Schema(
   {

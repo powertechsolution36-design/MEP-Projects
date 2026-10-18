@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../auth/AuthContext';
 import { api } from '../../api/client';
-import '../enquiries/enquiry.css';
 
 /**
  * Company Profile — admin-only page to view/edit company profile fields

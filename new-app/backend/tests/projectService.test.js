@@ -328,9 +328,21 @@ test('approveChecklistItem — CLIENT approval captures free-text approverName +
   assert.equal(approved.checklist[0].approval.signatureImage, 'data:image/png;base64,AAA');
   assert.equal(approved.checklist[0].approval.approvedByRole, 'CLIENT');
 
-  const reapproved = await service.approveChecklistItem('proj1', 0, { approverName: 'Different Person' }, auth({ role: 'engineer', userId: 'u9' }), store);
+  // UPDATE (Completion order, PWA FACT doApprove index.html:2318-2320): a
+  // CLIENT approval always needs the client's name AND a drawn signature.
+  await assert.rejects(
+    () => service.approveChecklistItem('proj1', 0, { approverName: 'Different Person' }, auth({ role: 'engineer', userId: 'u9' }), store),
+    /Client signature required/
+  );
+  await assert.rejects(
+    () => service.approveChecklistItem('proj1', 0, { signatureImage: 'data:image/png;base64,BBB' }, auth({ role: 'engineer', userId: 'u9' }), store),
+    /Enter client name/
+  );
+  const reapproved = await service.approveChecklistItem(
+    'proj1', 0, { approverName: 'Different Person', signatureImage: 'data:image/png;base64,BBB' }, auth({ role: 'engineer', userId: 'u9' }), store
+  );
   assert.equal(reapproved.checklist[0].approval.approverName, 'Different Person');
-  assert.equal(reapproved.checklist[0].approval.signatureImage, '');
+  assert.equal(reapproved.checklist[0].approval.signatureImage, 'data:image/png;base64,BBB');
 
   const notif = store.state.notifications.find((n) => /Checklist point approved/.test(n.text));
   assert.ok(notif);
@@ -352,10 +364,13 @@ test('approveChecklistItem — enforces the sign-responsibility role gate; rejec
   await assert.rejects(() => service.approveChecklistItem('proj1', 0, {}, auth({ role: 'sales' }), store2), (err) => err.code === 'VALIDATION_ERROR');
 });
 
-test('counterSignChecklistItem (pmSign) — one-way, no un-sign function exists', async () => {
-  const store = createEnquiryFakeStore({ projects: [baseProject({ checklist: [chk({ done: true })] })] });
-  const signed = await service.counterSignChecklistItem('proj1', 0, auth(), store);
-  assert.equal(signed.checklist[0].pmSigned, true);
+test('counterSignChecklistItem (pmSign) — one-way, no un-sign function exists; only on a done AND approved point', async () => {
+  // UPDATE (Completion order, PWA FACT vProject index.html:2201): PM Sign is
+  // offered only when the point is done and approved.
+  const store = createEnquiryFakeStore({ projects: [baseProject({ checklist: [chk({ done: true }), chk({ done: true, approval: { approverName: 'Asha', approvedByRole: 'ENGINEER' } })] })] });
+  await assert.rejects(() => service.counterSignChecklistItem('proj1', 0, auth(), store), /done and approved/);
+  const signed = await service.counterSignChecklistItem('proj1', 1, auth(), store);
+  assert.equal(signed.checklist[1].pmSigned, true);
   assert.equal(typeof service.uncounterSignChecklistItem, 'undefined');
 });
 
@@ -552,7 +567,11 @@ function richProjectFixtureStore() {
 test('FIX-6-07 — exportProjectsCsv reproduces all 26 dlProjects() columns in exact order, with correct derived values', async () => {
   const store = richProjectFixtureStore();
   const csv = await service.exportProjectsCsv(auth({ role: 'admin' }), {}, store);
-  const [, , header, row] = csv.split('\n');
+  // PWA FACT (rptHead, index.html:3417): four preamble rows precede the header.
+  const csvLines = csv.split('\n');
+  assert.match(csvLines[0], /^ALL PROJECTS REPORT/);
+  assert.match(csvLines[1], /^Generated,\d{4}-\d{2}-\d{2} by /);
+  const [header, row] = csvLines.slice(4);
   assert.deepEqual(
     parseCsvLine(header),
     [
@@ -592,7 +611,7 @@ test('FIX-6-07 — role gate: admin/hvac_pm/solar_pm/mep_pm may export; every ot
   const store = richProjectFixtureStore();
   for (const role of ['admin', 'hvac_pm', 'solar_pm', 'mep_pm']) {
     const csv = await service.exportProjectsCsv(auth({ role }), {}, store);
-    assert.match(csv, /PROJECT LIST/);
+    assert.match(csv, /PROJECTS REPORT/);
   }
   for (const role of ['sales', 'finance', 'engineer', 'service_mgr', 'service_eng', 'inventory', 'super']) {
     // eslint-disable-next-line no-await-in-loop
@@ -607,11 +626,11 @@ test('FIX-6-07 — role gate: admin/hvac_pm/solar_pm/mep_pm may export; every ot
 test('FIX-6-07 — division scoping preserved: a PM role only sees their own division\'s rows in the export (myDiv/hasDiv, unchanged)', async () => {
   const store = richProjectFixtureStore(); // proj1 is HVAC
   const csvSolar = await service.exportProjectsCsv(auth({ role: 'solar_pm' }), {}, store);
-  const bodyLinesSolar = csvSolar.split('\n').slice(3).filter(Boolean);
+  const bodyLinesSolar = csvSolar.split('\n').slice(5).filter(Boolean);
   assert.equal(bodyLinesSolar.length, 0, 'a solar_pm must not see the HVAC project row');
 
   const csvHvac = await service.exportProjectsCsv(auth({ role: 'hvac_pm' }), {}, store);
-  const bodyLinesHvac = csvHvac.split('\n').slice(3).filter(Boolean);
+  const bodyLinesHvac = csvHvac.split('\n').slice(5).filter(Boolean);
   assert.equal(bodyLinesHvac.length, 1);
 });
 

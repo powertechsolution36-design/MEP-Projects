@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { fmtDate } from '../../utils/format';
-import '../enquiries/enquiry.css';
+import useMyDivisions from '../../hooks/useMyDivisions';
 
 /**
  * Checklist Template Library — PWA `vChecklists()` exact reproduction.
@@ -16,7 +16,6 @@ import '../enquiries/enquiry.css';
  * PWA FACT: minimum 1 template per division enforced on delete.
  */
 
-const DIVISIONS = ['HVAC', 'Solar', 'MEP'];
 
 const PM_DIV = { hvac_pm: 'HVAC', solar_pm: 'Solar', mep_pm: 'MEP' };
 
@@ -26,6 +25,7 @@ function canEdit(role) {
 }
 
 export default function ChecklistTemplateList() {
+  const DIVISIONS = useMyDivisions(); // PWA vChecklists: admin sees myDivs()
   const { user } = useAuth();
   const navigate = useNavigate();
   const [templates, setTemplates] = useState([]);

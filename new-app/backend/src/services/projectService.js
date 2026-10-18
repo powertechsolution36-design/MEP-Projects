@@ -1,12 +1,19 @@
 'use strict';
 
 const { ServiceError } = require('../errors');
+const { getEffectiveDivisions } = require('./subscriptionService');
 const { SIGN_RESPONSIBILITIES, PROJECT_STAGES_BY_DIVISION } = require('../models/shared/enums');
 const { DIVISION_PM_ROLE } = require('./salesOrderCascade');
 // FIX-6-07: reuse the already-reconciled `paySum()` port (verified against
 // PWA `paySum`/`projPayInfo`) instead of re-deriving milestone-vs-Payment
 // reconciliation a second time in this file.
 const { computeReconciledPaySummary } = require('./salesOrderService');
+// The Projects list reuses the dashboard's already-verified pure
+// `paySum(so, payments)` port (PWA `paySum`/`projPayInfo`, index.html:2257,
+// 2297) rather than the per-milestone async variant, so one list request
+// makes one payments query instead of one per milestone.
+const { paySum } = require('./dashboardService');
+const { reportHeaderRows } = require('./reportHeader');
 
 /**
  * Project Execution business/application layer.
@@ -155,11 +162,17 @@ function dayKey(d) {
 
 // PWA FACT (`daysBetween`): whole days between two date strings, positive
 // when `b` is after `a`.
+// PWA FACT (daysBetween on "YYYY-MM-DD" strings, and delayedItems' plain
+// `c.plan < today()` string compare): whole calendar days between two DATES.
+// Comparing UTC day keys (not raw timestamps) means a point due today is not
+// "1 day late" just because the clock passed noon.
 function daysBetween(a, b) {
   const da = a instanceof Date ? a : new Date(a);
   const db = b instanceof Date ? b : new Date(b);
   if (Number.isNaN(da.getTime()) || Number.isNaN(db.getTime())) return 0;
-  return Math.round((db.getTime() - da.getTime()) / (24 * 60 * 60 * 1000));
+  const dayA = Date.UTC(da.getUTCFullYear(), da.getUTCMonth(), da.getUTCDate());
+  const dayB = Date.UTC(db.getUTCFullYear(), db.getUTCMonth(), db.getUTCDate());
+  return Math.round((dayB - dayA) / (24 * 60 * 60 * 1000));
 }
 
 async function resolveActorName(actorAuth, deps) {
@@ -254,6 +267,19 @@ async function getProject(projectId, actorAuth, deps) {
   assertCompanyContext(actorAuth);
   const project = await deps.projectRepo.findById(actorAuth.companyId, projectId);
   if (!project) throw new ServiceError('Project not found.', 'NOT_FOUND', 404);
+  // PWA FACT (vProject, index.html:2100/2122): engineers are shown by name.
+  if ((project.assignedEngineerIds || []).length && deps.userRepoForEnquiry && deps.userRepoForEnquiry.listByCompany) {
+    const users = await deps.userRepoForEnquiry.listByCompany(actorAuth.companyId);
+    const nameById = new Map(users.map((u) => [String(u.id), u.name]));
+    project.engineerNames = project.assignedEngineerIds.map((eid) => nameById.get(String(eid))).filter(Boolean);
+  }
+  // PWA FACT (printDC, index.html:2437; vProject header, index.html:2122):
+  // the project screen and the printed delivery challan both show the SO
+  // number, which this backend holds only as a reference.
+  if (project.salesOrderId && deps.salesOrderRepo && deps.salesOrderRepo.findById) {
+    const so = await deps.salesOrderRepo.findById(actorAuth.companyId, project.salesOrderId);
+    project.salesOrderNumber = so ? so.orderNumber : null;
+  }
   return project;
 }
 
@@ -284,27 +310,97 @@ function projectMatchesQuery(project, soOrderNumber, engineerNames, q) {
  * order, not by any date field -- `listByCompany` returns natural
  * (insertion) order, so reversing it here reproduces that exactly.
  */
-async function listProjects(actorAuth, { filters = {} } = {}, deps) {
+// PWA FACT (MENUS, index.html:1225-1237): the Projects screen belongs to
+// `admin` and the three PM roles, and a PM sees only their own division.
+const PROJECT_LIST_ROLES = Object.freeze(['admin', 'hvac_pm', 'solar_pm', 'mep_pm']);
+// The PWA's engineer dashboard (`engDash`) lists an engineer's OWN assigned
+// projects off the same collection. The PWA had no server, so there was no
+// API gate to copy; serving the whole company list to every authenticated
+// role is this backend's own exposure, not PWA behaviour. These roles are
+// therefore served the same rows the PWA showed them — their own
+// assignments only — and every other role is refused.
+const PROJECT_OWN_LIST_ROLES = Object.freeze(['engineer', 'service_eng']);
+
+/**
+ * Derived list columns for the Projects screen.
+ *
+ * PWA FACT (`vProjects`'s per-row precomputation, index.html:2095-2106):
+ *   d   = checklist points done            -> checklistDone / checklistTotal
+ *   lu  = last execution update            -> nextAction / nextActionDate
+ *   over= nd <= today && status==="Ongoing"-> nextActionOverdue
+ *   pi  = projPayInfo(p)                   -> payment.received / .pending
+ *   pr  = returnable qty still on site     -> materialPendingReturn
+ *   lt  = delayedItems(p)                  -> overduePoints (row turns pink)
+ *   tl  = timelineReady(p)                 -> timelineSet + targetEnd
+ * Engineer names and the SO number replace the PWA's plain stored strings.
+ * Everything here is derived on read; nothing is stored.
+ */
+function buildProjectListRow(project, { nameById, soOrderNumberById, soById, payments }) {
+  const checklist = project.checklist || [];
+  const lu = (project.executionUpdates || [])[(project.executionUpdates || []).length - 1] || null;
+  const nextActionDate = lu && lu.nextActionDate ? dayKey(lu.nextActionDate) : '';
+  const overdue = delayedItems(project);
+  const timelineReady = isTimelineReady(project);
+  const so = project.salesOrderId ? soById.get(String(project.salesOrderId)) : null;
+  const pay = so ? paySum(so, payments) : null;
+  return {
+    ...project,
+    orderNumber: project.salesOrderId ? soOrderNumberById.get(String(project.salesOrderId)) || null : null,
+    engineerNames: (project.assignedEngineerIds || []).map((id) => nameById.get(String(id))).filter(Boolean),
+    checklistDone: checklist.filter((c) => c.done).length,
+    checklistTotal: checklist.length,
+    timelineSetReady: timelineReady,
+    targetEnd: timelineReady ? dayKey(computeTargetEnd(checklist)) : '',
+    overduePoints: overdue.length,
+    nextAction: lu ? lu.nextAction || '' : '',
+    nextActionDate,
+    // PWA FACT (index.html:2096): only an Ongoing project's next-action date
+    // is flagged overdue.
+    nextActionOverdue: Boolean(nextActionDate && nextActionDate <= dayKey(todayDate()) && project.status === 'Ongoing'),
+    materialPendingReturn: computePendingReturnableMaterial(project),
+    payment: pay ? { received: pay.rcv, pending: pay.pen, total: pay.tot, percent: pay.pct } : null,
+  };
+}
+
+async function listProjects(actorAuth, { filters = {}, enrich = false } = {}, deps) {
   assertCompanyContext(actorAuth);
+  const ownOnly = PROJECT_OWN_LIST_ROLES.includes(actorAuth.role);
+  if (!ownOnly && !PROJECT_LIST_ROLES.includes(actorAuth.role)) {
+    assertRole(actorAuth, PROJECT_LIST_ROLES, 'view the Projects list');
+  }
   const all = await deps.projectRepo.listByCompany(actorAuth.companyId);
   const pmDiv = PM_DIVISION_FOR_ROLE[actorAuth.role];
-  const scoped = pmDiv ? all.filter((p) => p.division === pmDiv) : all;
+  // PWA FACT (vProjects / dlProjects `hasDiv(p.div)`, index.html:2091, 3434).
+  const divisions = await getEffectiveDivisions(actorAuth.companyId, deps);
+  const entitled = all.filter((p) => divisions.includes(p.division));
+  const divScoped = pmDiv ? entitled.filter((p) => p.division === pmDiv) : entitled;
+  const scoped = ownOnly
+    ? divScoped.filter((p) => (p.assignedEngineerIds || []).map(String).includes(String(actorAuth.userId)))
+    : divScoped;
 
   const q = filters.q ? String(filters.q).toLowerCase() : '';
-  if (!q) return [...scoped].reverse();
+  if (!q && !enrich) return [...scoped].reverse();
 
-  const [users, salesOrders] = await Promise.all([
+  const [users, salesOrders, payments] = await Promise.all([
     deps.userRepoForEnquiry.listByCompany(actorAuth.companyId),
     deps.salesOrderRepo.listByCompany(actorAuth.companyId),
+    enrich && deps.paymentRepo && deps.paymentRepo.listByCompany
+      ? deps.paymentRepo.listByCompany(actorAuth.companyId)
+      : [],
   ]);
   const nameById = new Map(users.map((u) => [String(u.id), u.name]));
   const soOrderNumberById = new Map(salesOrders.map((s) => [String(s.id), s.orderNumber]));
 
-  const filtered = scoped.filter((p) => {
-    const engNames = (p.assignedEngineerIds || []).map((id) => nameById.get(String(id)) || '').join(' ');
-    return projectMatchesQuery(p, soOrderNumberById.get(String(p.salesOrderId)), engNames, q);
-  });
-  return filtered.reverse();
+  const filtered = q
+    ? scoped.filter((p) => {
+      const engNames = (p.assignedEngineerIds || []).map((id) => nameById.get(String(id)) || '').join(' ');
+      return projectMatchesQuery(p, soOrderNumberById.get(String(p.salesOrderId)), engNames, q);
+    })
+    : scoped;
+  const ordered = [...filtered].reverse();
+  if (!enrich) return ordered;
+  const soById = new Map(salesOrders.map((s) => [String(s.id), s]));
+  return ordered.map((p) => buildProjectListRow(p, { nameById, soOrderNumberById, soById, payments }));
 }
 
 /* ================= STAGE / STATUS / COMPLETION ================= */
@@ -418,7 +514,7 @@ async function setStage(projectId, input, actorAuth, deps) {
 
   return deps.withTransaction(deps, async (txnDeps) => {
     const { session } = txnDeps;
-    const updated = await txnDeps.projectRepo.update(actorAuth.companyId, projectId, patch, session);
+    const updated = await txnDeps.projectRepo.update(actorAuth.companyId, projectId, patch, session, { expectedRevision: project.revision });
     const today = todayDate();
     const soPart = project.salesOrderId ? await txnDeps.salesOrderRepo.findById(actorAuth.companyId, project.salesOrderId) : null;
     const soLabel = soPart ? ` (SO-${soPart.orderNumber}).` : '.';
@@ -594,7 +690,7 @@ async function saveTimeline(projectId, input, actorAuth, deps) {
 
   return deps.withTransaction(deps, async (txnDeps) => {
     const { session } = txnDeps;
-    const updated = await txnDeps.projectRepo.update(actorAuth.companyId, projectId, patch, session);
+    const updated = await txnDeps.projectRepo.update(actorAuth.companyId, projectId, patch, session, { expectedRevision: project.revision });
     if (first) {
       const actorName = await resolveActorName(actorAuth, txnDeps);
       const pmRole = DIVISION_PM_ROLE[project.division];
@@ -619,7 +715,7 @@ async function saveTimeline(projectId, input, actorAuth, deps) {
  * displayed end date, quirk #19 preserved) -- fires no notification of its
  * own (distinct from `saveTimeline`'s first-time notification).
  */
-async function editChecklistItemDate(projectId, itemIndex, targetDate, actorAuth, deps) {
+async function editChecklistItemDate(projectId, itemIndex, targetDate, actorAuth, deps, completedDate) {
   assertCompanyContext(actorAuth);
   const project = await deps.projectRepo.findById(actorAuth.companyId, projectId);
   if (!project) throw new ServiceError('Project not found.', 'NOT_FOUND', 404);
@@ -627,9 +723,16 @@ async function editChecklistItemDate(projectId, itemIndex, targetDate, actorAuth
   const item = project.checklist[itemIndex];
   if (!item) throw new ServiceError('Checklist item not found.', 'NOT_FOUND', 404);
 
-  const checklist = project.checklist.map((c, i) => (i === Number(itemIndex) ? { ...c, targetDate: targetDate || null } : c));
+  // PWA FACT (saveItemDate, index.html:2627-2631): the completed date can
+  // also be corrected, but only on a point that is already done.
+  const checklist = project.checklist.map((c, i) => {
+    if (i !== Number(itemIndex)) return c;
+    const next = { ...c, targetDate: targetDate || null };
+    if (c.done && completedDate) next.completedDate = new Date(completedDate);
+    return next;
+  });
   const endDate = computeTargetEnd(checklist) || project.endDate;
-  return deps.projectRepo.update(actorAuth.companyId, projectId, { checklist, endDate });
+  return deps.projectRepo.update(actorAuth.companyId, projectId, { checklist, endDate }, undefined, { expectedRevision: project.revision });
 }
 
 /* ================= CHECKLIST EXECUTION ================= */
@@ -690,7 +793,7 @@ async function setChecklistItemDone(projectId, itemIndex, done, actorAuth, deps)
     // retry this callback against a fresh snapshot that already contains
     // the other writer's committed tick, so both ticks survive. This does
     // not change any PWA-visible outcome for a single, non-concurrent call.
-    const project = await txnDeps.projectRepo.findById(actorAuth.companyId, projectId);
+    const project = await txnDeps.projectRepo.findById(actorAuth.companyId, projectId, txnDeps.session);
     if (!project) throw new ServiceError('Project not found.', 'NOT_FOUND', 404);
     const item = project.checklist[itemIndex];
     if (!item) throw new ServiceError('Checklist item not found.', 'NOT_FOUND', 404);
@@ -700,7 +803,7 @@ async function setChecklistItemDone(projectId, itemIndex, done, actorAuth, deps)
         ? { ...c, done: true, completedDate: today }
         : { ...c, done: false, completedDate: null, approval: null, pmSigned: false }; // PWA QUIRK, preserved
     });
-    const updated = await txnDeps.projectRepo.update(actorAuth.companyId, projectId, { checklist }, session);
+    const updated = await txnDeps.projectRepo.update(actorAuth.companyId, projectId, { checklist }, session, { expectedRevision: project.revision });
     const pmRole = DIVISION_PM_ROLE[project.division];
     if (done) {
       const v = daysBetween(item.targetDate, today);
@@ -748,7 +851,7 @@ async function setChecklistItemRemark(projectId, itemIndex, remark, actorAuth, d
   const item = project.checklist[itemIndex];
   if (!item) throw new ServiceError('Checklist item not found.', 'NOT_FOUND', 404);
   const checklist = project.checklist.map((c, i) => (i === Number(itemIndex) ? { ...c, remark: remark || '' } : c));
-  return deps.projectRepo.update(actorAuth.companyId, projectId, { checklist });
+  return deps.projectRepo.update(actorAuth.companyId, projectId, { checklist }, undefined, { expectedRevision: project.revision });
 }
 
 /**
@@ -768,7 +871,7 @@ async function addChecklistItemPhoto(projectId, itemIndex, photoDataUri, actorAu
   if (!item) throw new ServiceError('Checklist item not found.', 'NOT_FOUND', 404);
   if (!photoDataUri) throw new ServiceError('A photo is required.', 'VALIDATION_ERROR', 400);
   const checklist = project.checklist.map((c, i) => (i === Number(itemIndex) ? { ...c, photos: [...(c.photos || []), photoDataUri] } : c));
-  return deps.projectRepo.update(actorAuth.companyId, projectId, { checklist });
+  return deps.projectRepo.update(actorAuth.companyId, projectId, { checklist }, undefined, { expectedRevision: project.revision });
 }
 
 /**
@@ -798,6 +901,14 @@ async function approveChecklistItem(projectId, itemIndex, input, actorAuth, deps
 
   const isClient = item.signResponsibility === 'CLIENT';
   const { approverName, approvalRemark, signatureImage } = input || {};
+  // PWA FACT (doApprove, index.html:2318-2320): a CLIENT point needs the
+  // client's name and a drawn signature.
+  if (isClient && !(approverName && String(approverName).trim())) {
+    throw new ServiceError('Enter client name', 'VALIDATION_ERROR', 400);
+  }
+  if (isClient && !signatureImage) {
+    throw new ServiceError('Client signature required', 'VALIDATION_ERROR', 400);
+  }
   const actorName = await resolveActorName(actorAuth, deps);
   const approval = {
     approverName: isClient ? approverName || '' : actorName,
@@ -811,7 +922,7 @@ async function approveChecklistItem(projectId, itemIndex, input, actorAuth, deps
 
   return deps.withTransaction(deps, async (txnDeps) => {
     const { session } = txnDeps;
-    const updated = await txnDeps.projectRepo.update(actorAuth.companyId, projectId, { checklist }, session);
+    const updated = await txnDeps.projectRepo.update(actorAuth.companyId, projectId, { checklist }, session, { expectedRevision: project.revision });
     const pmRole = DIVISION_PM_ROLE[project.division];
     await txnDeps.notificationRepo.create(
       {
@@ -838,8 +949,13 @@ async function counterSignChecklistItem(projectId, itemIndex, actorAuth, deps) {
   assertIsPM(actorAuth, project, 'counter-sign this checklist point');
   const item = project.checklist[itemIndex];
   if (!item) throw new ServiceError('Checklist item not found.', 'NOT_FOUND', 404);
+  // PWA FACT (vProject, index.html:2201): PM Sign is offered only on a point
+  // that is done AND approved.
+  if (!item.done || !(item.approval && item.approval.approverName)) {
+    throw new ServiceError('A point can be PM-signed only after it is done and approved.', 'VALIDATION_ERROR', 400);
+  }
   const checklist = project.checklist.map((c, i) => (i === Number(itemIndex) ? { ...c, pmSigned: true } : c));
-  return deps.projectRepo.update(actorAuth.companyId, projectId, { checklist });
+  return deps.projectRepo.update(actorAuth.companyId, projectId, { checklist }, undefined, { expectedRevision: project.revision });
 }
 
 /**
@@ -856,7 +972,7 @@ async function addChecklistItem(projectId, input, actorAuth, deps) {
     throw new ServiceError('A checklist point needs text and a valid sign responsibility.', 'VALIDATION_ERROR', 400);
   }
   const checklist = [...project.checklist, freshChecklistItem({ text, signResponsibility })];
-  return deps.projectRepo.update(actorAuth.companyId, projectId, { checklist });
+  return deps.projectRepo.update(actorAuth.companyId, projectId, { checklist }, undefined, { expectedRevision: project.revision });
 }
 
 /**
@@ -885,7 +1001,7 @@ async function editChecklistItem(projectId, itemIndex, input, actorAuth, deps) {
       signResponsibility: signResponsibility !== undefined ? signResponsibility : c.signResponsibility,
     };
   });
-  return deps.projectRepo.update(actorAuth.companyId, projectId, { checklist });
+  return deps.projectRepo.update(actorAuth.companyId, projectId, { checklist }, undefined, { expectedRevision: project.revision });
 }
 
 /**
@@ -901,7 +1017,7 @@ async function removeChecklistItem(projectId, itemIndex, actorAuth, deps) {
   assertIsPM(actorAuth, project, 'remove a checklist point');
   if (!project.checklist[itemIndex]) throw new ServiceError('Checklist item not found.', 'NOT_FOUND', 404);
   const checklist = project.checklist.filter((_, i) => i !== Number(itemIndex));
-  return deps.projectRepo.update(actorAuth.companyId, projectId, { checklist });
+  return deps.projectRepo.update(actorAuth.companyId, projectId, { checklist }, undefined, { expectedRevision: project.revision });
 }
 
 /**
@@ -924,13 +1040,19 @@ async function applyChecklistTemplate(projectId, input, actorAuth, deps) {
   }
   const template = await deps.checklistTemplateRepo.findById(actorAuth.companyId, templateId);
   if (!template) throw new ServiceError('Checklist template not found.', 'NOT_FOUND', 404);
+  // PWA FACT (mApplyChkList, index.html:2786): only the project's own
+  // division's checklists are offered.
+  if (template.division !== project.division) {
+    throw new ServiceError(`Choose a ${project.division} checklist for this project.`, 'VALIDATION_ERROR', 400);
+  }
 
   const freshItems = template.items.map((t) => freshChecklistItem(t));
   const patch =
     mode === 'replace'
       ? { checklist: freshItems, checklistTemplateName: template.name }
-      : { checklist: [...project.checklist, ...freshItems] };
-  return deps.projectRepo.update(actorAuth.companyId, projectId, patch);
+      // PWA FACT (applyChkList, index.html:2802): `p.chkName = p.chkName || c.name`.
+      : { checklist: [...project.checklist, ...freshItems], checklistTemplateName: project.checklistTemplateName || template.name };
+  return deps.projectRepo.update(actorAuth.companyId, projectId, patch, undefined, { expectedRevision: project.revision });
 }
 
 /* ================= EXECUTION UPDATES ================= */
@@ -957,7 +1079,7 @@ async function addExecutionUpdate(projectId, input, actorAuth, deps) {
     enteredByUserId: actorAuth.userId,
   };
   const executionUpdates = [...(project.executionUpdates || []), update];
-  return deps.projectRepo.update(actorAuth.companyId, projectId, { executionUpdates });
+  return deps.projectRepo.update(actorAuth.companyId, projectId, { executionUpdates }, undefined, { expectedRevision: project.revision });
 }
 
 /* ================= DELIVERY CHALLANS ================= */
@@ -1010,7 +1132,7 @@ async function addDeliveryChallan(projectId, input, actorAuth, deps) {
     remark: remark || '',
   }));
   const deliveryChallans = [...(project.deliveryChallans || []), ...newItems];
-  return deps.projectRepo.update(actorAuth.companyId, projectId, { deliveryChallans });
+  return deps.projectRepo.update(actorAuth.companyId, projectId, { deliveryChallans }, undefined, { expectedRevision: project.revision });
 }
 
 /** PWA FACT (`mDCItem`/`saveDCItem`, §12): single-item edit only. */
@@ -1038,7 +1160,7 @@ async function editDeliveryChallanItem(projectId, itemIndex, input, actorAuth, d
       remark: remark !== undefined ? remark : d.remark,
     };
   });
-  return deps.projectRepo.update(actorAuth.companyId, projectId, { deliveryChallans });
+  return deps.projectRepo.update(actorAuth.companyId, projectId, { deliveryChallans }, undefined, { expectedRevision: project.revision });
 }
 
 /** PWA FACT (`rmDC`, §12): single-item removal only, removes just that row. */
@@ -1052,7 +1174,7 @@ async function removeDeliveryChallanItem(projectId, itemIndex, actorAuth, deps) 
   }
   if (!project.deliveryChallans[itemIndex]) throw new ServiceError('Delivery challan item not found.', 'NOT_FOUND', 404);
   const deliveryChallans = project.deliveryChallans.filter((_, i) => i !== Number(itemIndex));
-  return deps.projectRepo.update(actorAuth.companyId, projectId, { deliveryChallans });
+  return deps.projectRepo.update(actorAuth.companyId, projectId, { deliveryChallans }, undefined, { expectedRevision: project.revision });
 }
 
 /**
@@ -1085,7 +1207,7 @@ async function recordDeliveryChallanReturn(projectId, itemIndex, quantity, actor
     const trail = ` | Returned ${q} on ${dayKey(today)}`;
     return { ...d, returnedQuantity: newReturned, remark: `${d.remark || ''}${trail}` };
   });
-  return deps.projectRepo.update(actorAuth.companyId, projectId, { deliveryChallans }); // no notification, PWA FACT
+  return deps.projectRepo.update(actorAuth.companyId, projectId, { deliveryChallans }, undefined, { expectedRevision: project.revision }); // no notification, PWA FACT
 }
 
 /* ================= DELAY CHECK ================= */
@@ -1178,8 +1300,14 @@ async function exportProjectsCsv(actorAuth, { filters = {} } = {}, deps) {
   const soById = new Map(salesOrders.map((s) => [String(s.id), s]));
 
   const lines = [];
-  lines.push(csvEscape('PROJECT LIST'));
-  lines.push('');
+  // PWA FACT (dlProjects -> rptHead, index.html:3434, 3417): the file opens
+  // with "<DIVISION> PROJECTS REPORT — <company>", who generated it and the
+  // active search, so a saved report says where it came from.
+  const pmDivisionLabel = PM_DIVISION_FOR_ROLE[actorAuth.role] || 'All';
+  const company = deps.companyRepo ? await deps.companyRepo.findById(actorAuth.companyId) : null;
+  for (const row of reportHeaderRows(`${pmDivisionLabel} Projects Report`, { company, actorAuth, search: filters.q || '' })) {
+    lines.push(row.map(csvEscape).join(','));
+  }
   lines.push(
     [
       'SO No', 'Project', 'Division', 'Site Type', 'Capacity', 'Customer', 'Stage', 'Status', 'Start', 'Target End',
@@ -1373,28 +1501,48 @@ async function prepareServiceConversion(projectId, actorAuth, deps) {
   };
 }
 
+/**
+ * Concurrency (Completion order): every whole-array write is guarded by the
+ * project's `revision` (optimistic lock). When two people change the same
+ * project at the same moment, the loser's write is rejected with CONFLICT
+ * instead of silently overwriting the winner; these operations simply re-run
+ * against the fresh project (each re-reads it first and writes nothing
+ * before its single guarded update / transaction), so both changes survive.
+ */
+function retryOnConflict(fn) {
+  return async (...args) => {
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await fn(...args);
+      } catch (err) {
+        if (!(err && err.code === 'CONFLICT') || attempt >= 4) throw err;
+      }
+    }
+  };
+}
+
 module.exports = {
   getProject,
   listProjects,
-  setStage,
+  setStage: retryOnConflict(setStage),
   setVendor,
   assignEngineers,
-  saveTimeline,
-  editChecklistItemDate,
-  setChecklistItemDone,
-  setChecklistItemRemark,
-  addChecklistItemPhoto,
-  approveChecklistItem,
-  counterSignChecklistItem,
-  addChecklistItem,
-  editChecklistItem,
-  removeChecklistItem,
-  applyChecklistTemplate,
-  addExecutionUpdate,
-  addDeliveryChallan,
-  editDeliveryChallanItem,
-  removeDeliveryChallanItem,
-  recordDeliveryChallanReturn,
+  saveTimeline: retryOnConflict(saveTimeline),
+  editChecklistItemDate: retryOnConflict(editChecklistItemDate),
+  setChecklistItemDone: retryOnConflict(setChecklistItemDone),
+  setChecklistItemRemark: retryOnConflict(setChecklistItemRemark),
+  addChecklistItemPhoto: retryOnConflict(addChecklistItemPhoto),
+  approveChecklistItem: retryOnConflict(approveChecklistItem),
+  counterSignChecklistItem: retryOnConflict(counterSignChecklistItem),
+  addChecklistItem: retryOnConflict(addChecklistItem),
+  editChecklistItem: retryOnConflict(editChecklistItem),
+  removeChecklistItem: retryOnConflict(removeChecklistItem),
+  applyChecklistTemplate: retryOnConflict(applyChecklistTemplate),
+  addExecutionUpdate: retryOnConflict(addExecutionUpdate),
+  addDeliveryChallan: retryOnConflict(addDeliveryChallan),
+  editDeliveryChallanItem: retryOnConflict(editDeliveryChallanItem),
+  removeDeliveryChallanItem: retryOnConflict(removeDeliveryChallanItem),
+  recordDeliveryChallanReturn: retryOnConflict(recordDeliveryChallanReturn),
   runDelayCheckForProject,
   exportProjectsCsv,
   exportDeliveryChallanCsv,

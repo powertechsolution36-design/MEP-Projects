@@ -12,6 +12,10 @@ const { getConfig } = require('./config/env');
  */
 async function start() {
   const config = getConfig();
+  // Fail at start-up, not at the first login, when the signing secret is missing.
+  if (!config.authTokenSecret) {
+    throw new Error('AUTH_TOKEN_SECRET is not set. Refusing to start (see deployment/production.env.example).');
+  }
   await connectToDatabase();
   const app = createApp(config);
   // FIX-3.3-03: start the hourly automatic delay-check job (see

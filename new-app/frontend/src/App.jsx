@@ -23,6 +23,12 @@ import ProjectDetail from './pages/projects/ProjectDetail';
 import ContractList from './pages/contracts/ContractList';
 import ContractDetail from './pages/contracts/ContractDetail';
 import ContractCreate from './pages/contracts/ContractCreate';
+import AmcDocument from './pages/contracts/AmcDocument';
+
+/* ── Quotation module screens (Stage 7) ── */
+import QuotationList from './pages/quotations/QuotationList';
+import QuotationCreate from './pages/quotations/QuotationCreate';
+import QuotationDetail from './pages/quotations/QuotationDetail';
 
 /* ── Service Call module screens (Stage 7 Pass 4A) ── */
 import ServiceCallList from './pages/service/ServiceCallList';
@@ -57,6 +63,9 @@ import ClientUsage from './pages/admin/ClientUsage';
 import SubscriptionRevenue from './pages/admin/SubscriptionRevenue';
 import ExpiringSubscriptions from './pages/admin/ExpiringSubscriptions';
 import LocationSubscribers from './pages/admin/LocationSubscribers';
+import SubscriptionManagement from './pages/admin/SubscriptionManagement';
+import CompanyProfile from './pages/company/CompanyProfile';
+import DailyTasks from './pages/DailyTasks';
 
 function LoginRoute() {
   const { status } = useAuth();
@@ -109,10 +118,20 @@ export default function App() {
           <Route path="contracts" element={<ContractList />} />
           <Route path="contracts/new" element={<ContractCreate />} />
           <Route path="contracts/:id" element={<ContractDetail />} />
+          {/* Stage 7 — paths as documented/navigated by the pages themselves
+              (AmcDocument.jsx: /contracts/:id/amc-document?type=...;
+              Quotation pages: /quotations, /quotations/new, /quotations/:id).
+              Menu entries: nav/menuConfig.js NEW_APP_MENU_ADDITIONS (appended
+              after the unchanged PWA menus). */}
+          <Route path="contracts/:contractId/amc-document" element={<AmcDocument />} />
+          <Route path="quotations" element={<QuotationList />} />
+          <Route path="quotations/new" element={<QuotationCreate />} />
+          <Route path="quotations/:id" element={<QuotationDetail />} />
           <Route path="service-calls" element={<ServiceCallList />} />
           <Route path="service-calls/new" element={<ServiceCallCreate />} />
           <Route path="service-calls/:id" element={<ServiceCallDetail />} />
           <Route path="my-material" element={<MyMaterial />} />
+          <Route path="daily-tasks" element={<DailyTasks />} />
           <Route path="users" element={<UserManagement />} />
           <Route path="reports" element={<Reports />} />
           <Route path="notifications" element={<Notifications />} />
@@ -130,6 +149,8 @@ export default function App() {
           <Route path="admin/revenue" element={<SubscriptionRevenue />} />
           <Route path="admin/expiring" element={<ExpiringSubscriptions />} />
           <Route path="admin/locations" element={<LocationSubscribers />} />
+          <Route path="admin/subscriptions" element={<SubscriptionManagement />} />
+          <Route path="company-profile" element={<CompanyProfile />} />
 
           <Route path="*" element={<ComingSoon title="Not Found" />} />
         </Route>

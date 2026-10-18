@@ -20,6 +20,15 @@ export function AuthProvider({ children }) {
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    function onUnauthorized() {
+      setUser(null);
+      setStatus('anonymous');
+    }
+    window.addEventListener('mep:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('mep:unauthorized', onUnauthorized);
+  }, []);
+
+  useEffect(() => {
     const token = getStoredToken();
     if (!token) {
       setStatus('anonymous');
@@ -41,11 +50,9 @@ export function AuthProvider({ children }) {
   const login = useCallback(async ({ username, password, companyId }) => {
     setError(null);
     try {
-      const data = await api.post('/api/auth/login', {
-        username,
-        password,
-        companyId: companyId || null,
-      });
+      const body = { username, password };
+      if (companyId) body.companyId = companyId; // optional legacy disambiguation
+      const data = await api.post('/api/auth/login', body);
       setStoredToken(data.token);
       setUser(data.user);
       setStatus('authenticated');

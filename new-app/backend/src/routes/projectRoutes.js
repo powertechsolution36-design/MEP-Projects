@@ -1,8 +1,9 @@
 'use strict';
 
 const express = require('express');
+const { reportFilename } = require('../services/reportHeader');
 const service = require('../services/projectService');
-const { ServiceError } = require('../errors');
+const { ServiceError, mapPersistenceError } = require('../errors');
 const { createAuthMiddleware } = require('../middleware/authMiddleware');
 const { requireCompanyContext, rejectClientSuppliedCompanyId } = require('../middleware/tenantGuard');
 
@@ -62,6 +63,8 @@ function createProjectRouter(deps) {
         if (err instanceof ServiceError) {
           return res.status(err.status).json({ error: err.message, code: err.code });
         }
+        const mapped = mapPersistenceError(err);
+        if (mapped) return res.status(mapped.status).json({ error: mapped.message, code: mapped.code });
         // eslint-disable-next-line no-console
         console.error('[projectRoutes]', err);
         return res.status(500).json({ error: 'Internal error.' });
@@ -74,7 +77,9 @@ function createProjectRouter(deps) {
     handle(async (req, res) => {
       const csv = await service.exportProjectsCsv(req.auth, { filters: parseFilters(req.query) }, deps);
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="projects.csv"`);
+      // PWA FACT (dlProjects, index.html:3433): `projects-<division|all>-<today>.csv`.
+      const pmDivision = { hvac_pm: 'HVAC', solar_pm: 'Solar', mep_pm: 'MEP' }[req.auth.role] || 'all';
+      res.setHeader('Content-Disposition', `attachment; filename="${reportFilename(`projects-${pmDivision}`)}"`);
       return res.status(200).send(csv);
     })
   );
@@ -82,7 +87,14 @@ function createProjectRouter(deps) {
   router.get(
     '/',
     handle(async (req, res) => {
-      const projects = await service.listProjects(req.auth, { filters: parseFilters(req.query) }, deps);
+      // `?view=full` asks for the Projects screen's derived columns
+      // (PWA `vProjects`, index.html:2095-2106). Plain callers — the
+      // engineer dashboard, the team report — keep the lean payload.
+      const projects = await service.listProjects(
+        req.auth,
+        { filters: parseFilters(req.query), enrich: req.query.view === 'full' },
+        deps
+      );
       return res.status(200).json({ projects });
     })
   );
@@ -139,7 +151,7 @@ function createProjectRouter(deps) {
   router.patch(
     '/:id/checklist/:i/target-date',
     handle(async (req, res) => {
-      const project = await service.editChecklistItemDate(req.params.id, Number(req.params.i), req.body && req.body.targetDate, req.auth, deps);
+      const project = await service.editChecklistItemDate(req.params.id, Number(req.params.i), req.body && req.body.targetDate, req.auth, deps, req.body && req.body.completedDate);
       return res.status(200).json({ project });
     })
   );

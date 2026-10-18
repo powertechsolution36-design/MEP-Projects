@@ -3,8 +3,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api, getStoredToken } from '../../api/client';
 import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../auth/AuthContext';
-import { money, fmtDate, today } from '../../utils/format';
-import '../enquiries/enquiry.css';
+import { fmtDate } from '../../utils/format';
+import { addDaysKey, todayKey, spreadTimelineDates } from '../../utils/timeline';
+import DeliveryChallanPanel from './DeliveryChallanPanel';
+import SignaturePad from '../../components/SignaturePad';
 
 /**
  * Project Detail — PWA `vProject(x)` exact reproduction.
@@ -51,7 +53,26 @@ const SIGN_ROLES = {
 const PM_DIV = { hvac_pm: 'HVAC', solar_pm: 'Solar', mep_pm: 'MEP' };
 
 /* Engineer-candidate roles (company-wide pool, §14) */
-const ENGINEER_CANDIDATE_ROLES = ['engineer', 'hvac_pm', 'solar_pm', 'mep_pm', 'service_eng'];
+
+/** PWA FACT (itemStatus, index.html:2229-2240), on UTC day keys. */
+function dayKey(d) { return d ? new Date(d).toISOString().slice(0, 10) : ''; }
+function daysBetweenKeys(a, b) { return Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000); }
+
+function itemStatus(c) {
+  const plan = dayKey(c.targetDate);
+  const t = new Date().toISOString().slice(0, 10);
+  if (c.done) {
+    const done = dayKey(c.completedDate);
+    if (!plan) return { text: `Completed ${done}`, color: 'green' };
+    const v = daysBetweenKeys(plan, done || t);
+    if (v > 0) return { text: `Completed ${done} · ${v}d late`, color: '#b26a00' };
+    return { text: `Completed ${done}${v < 0 ? ` · ${-v}d early` : ' · on time'}`, color: 'green' };
+  }
+  if (!plan) return { text: 'No target date', color: '#888' };
+  const od = daysBetweenKeys(plan, t);
+  if (od > 0) return { text: `Overdue by ${od} day${od > 1 ? 's' : ''}`, color: '#c62828' };
+  return { text: `Scheduled ${plan}`, color: '#1565c0' };
+}
 
 export default function ProjectDetail() {
   const { id } = useParams();
@@ -64,7 +85,7 @@ export default function ProjectDetail() {
 
   /* ---------- Role helpers ---------- */
   const isPM = proj && (user?.role === 'admin' || PM_DIV[user?.role] === proj.division);
-  const isEng = proj && (proj.assignedEngineerIds || []).some(eid => String(eid) === String(user?.userId));
+  const isEng = proj && (proj.assignedEngineerIds || []).some(eid => String(eid) === String(user?.id));
   const canAct = isPM || isEng; // isPmOrAssignedEngineer
   const notInService = proj && proj.status !== 'In Service';
 
@@ -85,6 +106,8 @@ export default function ProjectDetail() {
   const [timelineDates, setTimelineDates] = useState([]);
   const [timelineStart, setTimelineStart] = useState('');
   const [timelineConfirmPartial, setTimelineConfirmPartial] = useState(false);
+  const [timelineEnd, setTimelineEnd] = useState('');
+  const [timelineNote, setTimelineNote] = useState('');
 
   const [showAddPoint, setShowAddPoint] = useState(false);
   const [newPointText, setNewPointText] = useState('');
@@ -98,19 +121,19 @@ export default function ProjectDetail() {
   const [remarkText, setRemarkText] = useState('');
 
   const [approveIdx, setApproveIdx] = useState(null);
+  const [dateIdx, setDateIdx] = useState(null);
+  const [dateForm, setDateForm] = useState({ targetDate: '', completedDate: '' });
+  const [showApplyChk, setShowApplyChk] = useState(false);
+  const [chkTemplates, setChkTemplates] = useState([]);
+  const [applyTplId, setApplyTplId] = useState('');
+  const [photoView, setPhotoView] = useState(null);
   const [approveForm, setApproveForm] = useState({ approverName: '', approvalRemark: '', signatureImage: '' });
 
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [updateForm, setUpdateForm] = useState({ actionDone: '', nextAction: '', nextActionDate: '' });
 
-  const [showDCModal, setShowDCModal] = useState(false);
-  const [dcForm, setDcForm] = useState({ date: today(), receivedByName: '', remark: '', items: [{ materialName: '', quantity: '', unit: '', returnable: false }] });
 
-  const [editDCIdx, setEditDCIdx] = useState(null);
-  const [editDCForm, setEditDCForm] = useState(null);
 
-  const [returnDCIdx, setReturnDCIdx] = useState(null);
-  const [returnQty, setReturnQty] = useState('');
 
   /* ---------- Load ---------- */
   const load = useCallback(async () => {
@@ -227,9 +250,32 @@ export default function ProjectDetail() {
   function openTimelineModal() {
     const cl = proj.checklist || [];
     setTimelineDates(cl.map(c => fmtDate(c.targetDate)));
-    setTimelineStart(fmtDate(proj.startDate));
+    setTimelineStart(fmtDate(proj.startDate) || todayKey());
+    // PWA FACT (mTimeline, index.html:2584): the spread target defaults to the
+    // project's current end date, or 60 days out when it has none.
+    setTimelineEnd(fmtDate(proj.endDate) || addDaysKey(todayKey(), 60));
     setTimelineConfirmPartial(false);
+    setTimelineNote('');
     setShowTimelineModal(true);
+  }
+
+  /**
+   * PWA FACT (autoFillTimeline, index.html:2592-2602): spread every checklist
+   * point evenly between the project start and the chosen end date —
+   *   point i (0-based) = start + round(span * (i + 1) / n)
+   * so the last point lands exactly on the end date and the first lands one
+   * interval in. A span of less than a day falls back to one day per point.
+   *
+   * This only fills the inputs; nothing is saved until Save Timeline, which
+   * is also where validation, the partial-date confirmation and the
+   * optimistic-lock retry live. Matching the PWA, it overwrites every row,
+   * including ones just edited by hand — hence the explicit button and the
+   * note telling the user to adjust rows afterwards.
+   */
+  function autoFillTimeline() {
+    if (checklist.length === 0) return;
+    setTimelineDates(spreadTimelineDates(timelineStart, timelineEnd, checklist.length));
+    setTimelineNote('Dates spread evenly — adjust any row as needed.');
   }
 
   async function handleTimelineSubmit() {
@@ -332,7 +378,22 @@ export default function ProjectDetail() {
       reader.onload = async () => {
         setBusy(true);
         try {
-          const data = await api.post(`/api/projects/${id}/checklist/${idx}/photos`, { photo: reader.result });
+          // PWA FACT (addPhoto, index.html:2648-2660): scale to max 480px
+          // wide, JPEG quality 0.6, before saving.
+          const photo = await new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+              const sc = Math.min(1, 480 / img.width);
+              const cv = document.createElement('canvas');
+              cv.width = img.width * sc;
+              cv.height = img.height * sc;
+              cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+              resolve(cv.toDataURL('image/jpeg', 0.6));
+            };
+            img.onerror = () => reject(new Error('Could not read the image.'));
+            img.src = reader.result;
+          });
+          const data = await api.post(`/api/projects/${id}/checklist/${idx}/photos`, { photo });
           setProj(data.project);
         } catch (err) { alert(err.message); }
         finally { setBusy(false); }
@@ -342,13 +403,76 @@ export default function ProjectDetail() {
     input.click();
   }
 
+  /* ---------- Checklist: point dates (PWA mItemDate/saveItemDate) ---------- */
+  function openItemDate(idx) {
+    const c = (proj.checklist || [])[idx];
+    setDateIdx(idx);
+    setDateForm({ targetDate: c?.targetDate ? fmtDate(c.targetDate) : '', completedDate: c?.completedDate ? fmtDate(c.completedDate) : '' });
+  }
+  async function handleItemDateSubmit() {
+    setBusy(true);
+    try {
+      const data = await api.patch(`/api/projects/${id}/checklist/${dateIdx}/target-date`, {
+        targetDate: dateForm.targetDate || null,
+        completedDate: dateForm.completedDate || undefined,
+      });
+      setProj(data.project);
+      setDateIdx(null);
+    } catch (err) { alert(err.message); }
+    finally { setBusy(false); }
+  }
+
+  /* ---------- Checklist: choose from library (PWA mApplyChkList) ---------- */
+  async function openApplyChecklist() {
+    try {
+      const data = await api.get(`/api/checklist-templates?division=${encodeURIComponent(proj.division)}`);
+      const list = data.templates || [];
+      setChkTemplates(list);
+      setApplyTplId(list[0]?.id || '');
+      setShowApplyChk(true);
+    } catch (err) { alert(err.message); }
+  }
+  async function handleApplyChecklist(mode) {
+    if (!applyTplId) { alert('Select a checklist'); return; }
+    setBusy(true);
+    try {
+      const data = await api.post(`/api/projects/${id}/checklist/apply`, { templateId: applyTplId, mode });
+      setProj(data.project);
+      setShowApplyChk(false);
+    } catch (err) { alert(err.message); }
+    finally { setBusy(false); }
+  }
+
+  /* ---------- Project report (PWA dlProjectReport / printProjectReport) ---------- */
+  async function handleReportCsv() {
+    try {
+      const resp = await fetch(`${API_BASE_URL}/api/projects/${id}/report/export.csv`, {
+        headers: { Authorization: `Bearer ${getStoredToken()}` },
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `project-report-${(proj.name || 'project').replace(/[^a-z0-9]+/gi, '_')}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) { alert('Export failed: ' + err.message); }
+  }
+
   /* ---------- Checklist: Approve ---------- */
   function openApprove(idx) {
     setApproveIdx(idx);
-    setApproveForm({ approverName: '', approvalRemark: '', signatureImage: '' });
+    setApproveForm({ approverName: '', approvalRemark: (checklist[idx]?.approval?.approvalRemark) || '', signatureImage: '' });
   }
+  const setApproveSignature = useCallback((sig) => setApproveForm(f => ({ ...f, signatureImage: sig })), []);
 
   async function handleApproveSubmit() {
+    // PWA FACT (doApprove, index.html:2318-2320)
+    if (checklist[approveIdx]?.signResponsibility === 'CLIENT') {
+      if (!approveForm.approverName.trim()) { alert('Enter client name'); return; }
+      if (!approveForm.signatureImage) { alert('Client signature required'); return; }
+    }
     setBusy(true);
     try {
       const data = await api.post(`/api/projects/${id}/checklist/${approveIdx}/approve`, approveForm);
@@ -380,92 +504,6 @@ export default function ProjectDetail() {
     finally { setBusy(false); }
   }
 
-  /* ---------- Delivery Challan: Create ---------- */
-  async function handleDCSubmit() {
-    setBusy(true);
-    try {
-      const body = {
-        date: dcForm.date,
-        receivedByName: dcForm.receivedByName,
-        remark: dcForm.remark,
-        items: dcForm.items.filter(r => r.materialName),
-      };
-      const data = await api.post(`/api/projects/${id}/delivery-challans`, body);
-      setProj(data.project);
-      setShowDCModal(false);
-      setDcForm({ date: today(), receivedByName: '', remark: '', items: [{ materialName: '', quantity: '', unit: '', returnable: false }] });
-    } catch (err) { alert(err.message); }
-    finally { setBusy(false); }
-  }
-
-  /* ---------- Delivery Challan: Edit ---------- */
-  function openEditDC(idx) {
-    const dc = proj.deliveryChallans[idx];
-    setEditDCIdx(idx);
-    setEditDCForm({
-      materialName: dc.materialName || '',
-      quantity: dc.quantity || '',
-      unit: dc.unit || '',
-      returnable: !!dc.returnable,
-      receivedByName: dc.receivedByName || '',
-      remark: dc.remark || '',
-    });
-  }
-
-  async function handleEditDCSubmit() {
-    setBusy(true);
-    try {
-      const data = await api.patch(`/api/projects/${id}/delivery-challans/${editDCIdx}`, editDCForm);
-      setProj(data.project);
-      setEditDCIdx(null);
-    } catch (err) { alert(err.message); }
-    finally { setBusy(false); }
-  }
-
-  /* ---------- Delivery Challan: Delete ---------- */
-  async function handleDeleteDC(idx) {
-    if (!confirm('Delete this delivery challan item?')) return;
-    setBusy(true);
-    try {
-      const data = await api.delete(`/api/projects/${id}/delivery-challans/${idx}`);
-      setProj(data.project);
-    } catch (err) { alert(err.message); }
-    finally { setBusy(false); }
-  }
-
-  /* ---------- Delivery Challan: Return ---------- */
-  function openReturnDC(idx) {
-    setReturnDCIdx(idx);
-    setReturnQty('');
-  }
-
-  async function handleReturnDCSubmit() {
-    setBusy(true);
-    try {
-      const data = await api.post(`/api/projects/${id}/delivery-challans/${returnDCIdx}/return`, { quantity: Number(returnQty) || 0 });
-      setProj(data.project);
-      setReturnDCIdx(null);
-    } catch (err) { alert(err.message); }
-    finally { setBusy(false); }
-  }
-
-  /* ---------- DC Export ---------- */
-  async function handleDCExport() {
-    try {
-      const resp = await fetch(
-        API_BASE_URL + `/api/projects/${id}/delivery-challans/export.csv`,
-        { headers: { Authorization: `Bearer ${getStoredToken()}` } }
-      );
-      const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'delivery-challan.csv';
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err) { alert('Export failed: ' + err.message); }
-  }
-
   /* ---------- Render ---------- */
   if (loading) return <p className="muted">Loading...</p>;
   if (error) return <div className="alert alert-error">{error}</div>;
@@ -473,7 +511,6 @@ export default function ProjectDetail() {
 
   const checklist = proj.checklist || [];
   const updates = proj.executionUpdates || [];
-  const dcs = proj.deliveryChallans || [];
   const stages = STAGES_BY_DIVISION[proj.division] || [];
   const tlReady = isTimelineReady(proj);
 
@@ -528,8 +565,13 @@ export default function ProjectDetail() {
             <button className="btn sec sm" onClick={openVendorModal}>🏢 Edit Vendor</button>
             <button className="btn sec sm" onClick={openEngModal}>👷 Assign Engineers</button>
             <button className="btn sec sm" onClick={openTimelineModal}>📅 {proj.timelineSet ? 'Edit' : 'Set'} Timeline</button>
+            <button className="btn sec sm" onClick={openApplyChecklist}>✅ Choose Checklist</button>
           </div>
         )}
+        <div className="detail-actions" style={{ marginTop: 8 }}>
+          <button className="btn sec sm" onClick={handleReportCsv}>⬇ Project Report (CSV)</button>
+          <button className="btn sec sm" onClick={() => window.print()}>🖨 Print / PDF</button>
+        </div>
 
         {/* PWA FACT (§18): Convert to Service — admin/service_mgr only,
             Completed status + non-MEP division. Sets project status to
@@ -549,7 +591,9 @@ export default function ProjectDetail() {
         <div className="panel" style={{ maxWidth: 900 }}>
           <h3>Assigned Engineers</h3>
           <p className="muted">
-            {(proj.assignedEngineerIds || []).length} engineer(s) assigned
+            {(proj.engineerNames && proj.engineerNames.length)
+              ? proj.engineerNames.join(', ')
+              : `${(proj.assignedEngineerIds || []).length} engineer(s) assigned`}
             {/* Engineer names are resolved server-side in search; here we show IDs
                 until we have a name-resolve helper. The engineer-candidates modal
                 shows full names for selection. */}
@@ -589,7 +633,7 @@ export default function ProjectDetail() {
                   <th>Done</th>
                   <th>Text</th>
                   <th>Sign</th>
-                  <th>Target</th>
+                  <th>Dates / Status</th>
                   <th>Approved</th>
                   <th>PM</th>
                   <th>Actions</th>
@@ -597,7 +641,9 @@ export default function ProjectDetail() {
               </thead>
               <tbody>
                 {checklist.map((c, i) => {
-                  const canApproveThis = c.done && SIGN_ROLES[c.signResponsibility]?.includes(user?.role);
+                  // PWA FACT (vProject, index.html:2199): Approve hidden once approved.
+                  const canApproveThis = c.done && !c.approval?.approverName && SIGN_ROLES[c.signResponsibility]?.includes(user?.role);
+                  const st = itemStatus(c);
                   return (
                     <tr key={i}>
                       <td>{i + 1}</td>
@@ -617,15 +663,28 @@ export default function ProjectDetail() {
                       <td style={{ whiteSpace: 'normal', maxWidth: 200 }}>
                         {c.text}
                         {c.remark && <div className="muted" style={{ fontSize: 11 }}>💬 {c.remark}</div>}
-                        {(c.photos || []).length > 0 && <div className="muted" style={{ fontSize: 11 }}>📷 {c.photos.length} photo(s)</div>}
+                        {(c.photos || []).length > 0 && (
+                          <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+                            {c.photos.map((ph, k) => (
+                              <img key={k} src={ph} alt={`photo ${k + 1}`} onClick={() => setPhotoView(ph)}
+                                style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4, cursor: 'pointer' }} />
+                            ))}
+                          </div>
+                        )}
                       </td>
                       <td>{c.signResponsibility}</td>
-                      <td>{fmtDate(c.targetDate)}</td>
+                      <td>
+                        <div style={{ fontSize: 11 }}>Scheduled: {c.targetDate ? fmtDate(c.targetDate) : '—'}</div>
+                        <div style={{ fontSize: 11 }}>Completed: {c.done && c.completedDate ? fmtDate(c.completedDate) : '—'}</div>
+                        <span style={{ fontSize: 11, color: st.color }}>{st.text}</span>
+                      </td>
                       <td>
                         {c.approval?.approverName ? (
-                          <span className="status-badge status-won" title={`${c.approval.approvedByRole} — ${c.approval.approverName}`}>
-                            ✅ {c.approval.approverName}
-                          </span>
+                          <div title={c.approval.approvalRemark || ''}>
+                            <span className="status-badge status-won">✅ {c.approval.approverName}</span>
+                            <div className="muted" style={{ fontSize: 11 }}>{c.approval.approvedByRole} · {fmtDate(c.approval.approvedDate)}</div>
+                            {c.approval.signatureImage && <img src={c.approval.signatureImage} alt="signature" style={{ height: 28, display: 'block' }} />}
+                          </div>
                         ) : '—'}
                       </td>
                       <td>{c.pmSigned ? '✅' : '—'}</td>
@@ -642,10 +701,12 @@ export default function ProjectDetail() {
                         {isPM && c.done && c.approval?.approverName && !c.pmSigned && (
                           <button className="btn sec sm" onClick={() => handlePMSign(i)} title="PM Counter-sign" style={{ padding: '2px 6px', fontSize: 11 }}>🔏</button>
                         )}
-                        {isPM && !c.done && (
+                        {isPM && (
                           <>
+                            {/* PWA FACT (index.html:2203): PM can edit and re-date any point; remove only while not done. */}
+                            <button className="btn sec sm" onClick={() => openItemDate(i)} title="Dates" style={{ padding: '2px 6px', fontSize: 11 }}>📅</button>
                             <button className="btn sec sm" onClick={() => openEditPoint(i)} title="Edit" style={{ padding: '2px 6px', fontSize: 11 }}>✏️</button>
-                            <button className="btn danger sm" onClick={() => handleRemovePoint(i)} title="Remove" style={{ padding: '2px 6px', fontSize: 11 }}>×</button>
+                            {!c.done && <button className="btn danger sm" onClick={() => handleRemovePoint(i)} title="Remove" style={{ padding: '2px 6px', fontSize: 11 }}>×</button>}
                           </>
                         )}
                       </td>
@@ -685,63 +746,15 @@ export default function ProjectDetail() {
       </div>
 
       {/* ======== Delivery Challans ======== */}
-      <div className="panel" style={{ maxWidth: 900 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <h3 style={{ margin: 0 }}>Delivery Challans ({dcs.length})</h3>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {canAct && notInService && (
-              <button className="btn sec sm" onClick={() => setShowDCModal(true)}>+ Add DC</button>
-            )}
-            <button className="btn sec sm" onClick={handleDCExport}>📥 Export CSV</button>
-          </div>
-        </div>
-        {dcs.length === 0 ? (
-          <p className="muted">No delivery challans.</p>
-        ) : (
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>DC#</th>
-                  <th>Date</th>
-                  <th>Material</th>
-                  <th>Qty</th>
-                  <th>Unit</th>
-                  <th>Ret?</th>
-                  <th>Returned</th>
-                  <th>Received By</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dcs.map((dc, i) => (
-                  <tr key={i}>
-                    <td>{dc.challanNumber}</td>
-                    <td>{fmtDate(dc.date)}</td>
-                    <td>{dc.materialName}</td>
-                    <td>{dc.quantity}</td>
-                    <td>{dc.unit}</td>
-                    <td>{dc.returnable ? 'Yes' : 'No'}</td>
-                    <td>{dc.returnedQuantity || 0}</td>
-                    <td>{dc.receivedByName || '—'}</td>
-                    <td style={{ whiteSpace: 'nowrap' }}>
-                      {canAct && notInService && (
-                        <>
-                          <button className="btn sec sm" onClick={() => openEditDC(i)} style={{ padding: '2px 6px', fontSize: 11 }}>✏️</button>
-                          <button className="btn danger sm" onClick={() => handleDeleteDC(i)} style={{ padding: '2px 6px', fontSize: 11 }}>×</button>
-                          {dc.returnable && (
-                            <button className="btn sec sm" onClick={() => openReturnDC(i)} style={{ padding: '2px 6px', fontSize: 11 }}>↩️</button>
-                          )}
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      {/* PWA `challanPanel(p,isPM,isEng)` (index.html:2154, 2336-2370):
+          grouped by DC number, each group printable as its own challan. */}
+      <DeliveryChallanPanel
+        project={proj}
+        projectId={id}
+        canAct={canAct}
+        notInService={notInService}
+        onProjectUpdated={setProj}
+      />
 
       {/* ====================== MODALS ====================== */}
 
@@ -828,10 +841,27 @@ export default function ProjectDetail() {
         <div className="modal-overlay" onClick={() => setShowTimelineModal(false)}>
           <div className="modal modal-wide" onClick={e => e.stopPropagation()}>
             <h3>{proj.timelineSet ? 'Edit' : 'Set'} Timeline</h3>
-            <div className="filter-field" style={{ marginBottom: 12 }}>
-              <label>Project Start Date</label>
-              <input type="date" value={timelineStart} onChange={e => setTimelineStart(e.target.value)} />
+            <div className="filter-grid">
+              <div className="filter-field">
+                <label>Project Start Date</label>
+                <input type="date" value={timelineStart} onChange={e => setTimelineStart(e.target.value)} />
+              </div>
+              <div className="filter-field">
+                <label>Auto-fill: spread all points evenly up to</label>
+                <div className="filter-pair">
+                  <input type="date" value={timelineEnd} onChange={e => setTimelineEnd(e.target.value)} />
+                  <button
+                    type="button"
+                    className="btn sec sm"
+                    onClick={autoFillTimeline}
+                    disabled={checklist.length === 0}
+                  >
+                    Auto-fill
+                  </button>
+                </div>
+              </div>
             </div>
+            {timelineNote && <p className="muted" style={{ marginBottom: 12 }}>{timelineNote}</p>}
             {checklist.length === 0 ? (
               <p className="muted">No checklist points to set dates for.</p>
             ) : (
@@ -931,17 +961,85 @@ export default function ProjectDetail() {
         </div>
       )}
 
+      {/* Point Dates Modal (PWA mItemDate) */}
+      {dateIdx !== null && (
+        <div className="modal-overlay" onClick={() => setDateIdx(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h3>Checklist Point Dates</h3>
+            <p className="muted">{checklist[dateIdx]?.text}</p>
+            <div className="form-grid">
+              <div className="filter-field"><label>Scheduled / Target Date</label>
+                <input type="date" value={dateForm.targetDate} onChange={e => setDateForm(f => ({ ...f, targetDate: e.target.value }))} />
+              </div>
+              <div className="filter-field"><label>Completed Date</label>
+                <input type="date" value={dateForm.completedDate} disabled={!checklist[dateIdx]?.done}
+                  onChange={e => setDateForm(f => ({ ...f, completedDate: e.target.value }))} />
+              </div>
+            </div>
+            {!checklist[dateIdx]?.done && <p className="muted">Completed date is filled automatically when the point is ticked.</p>}
+            <div className="modal-actions">
+              <button className="btn sec sm" onClick={() => setDateIdx(null)}>Cancel</button>
+              <button className="btn pri sm" onClick={handleItemDateSubmit} disabled={busy}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Choose Checklist Modal (PWA mApplyChkList) */}
+      {showApplyChk && (
+        <div className="modal-overlay" onClick={() => setShowApplyChk(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h3>Choose Checklist — {proj.name}</h3>
+            {checklist.some(c => c.done) ? (
+              <p style={{ color: '#c62828' }}>⚠ {checklist.filter(c => c.done).length} point(s) already completed. Replacing will lose their ticks, dates and approvals. Use <b>Append</b> to keep them.</p>
+            ) : (
+              <p className="muted">Pick a {proj.division} checklist from the library. You can still add or edit points afterwards.</p>
+            )}
+            {chkTemplates.length === 0 ? <p className="muted">No {proj.division} checklists in the library.</p> : (
+              <div className="filter-field"><label>Checklist</label>
+                <select value={applyTplId} onChange={e => setApplyTplId(e.target.value)}>
+                  {chkTemplates.map(t => <option key={t.id} value={t.id}>{t.name} ({(t.items || []).length} points){t.isDefault ? ' — default' : ''}</option>)}
+                </select>
+              </div>
+            )}
+            <div className="modal-actions">
+              <button className="btn sec sm" onClick={() => setShowApplyChk(false)}>Cancel</button>
+              <button className="btn sec sm" onClick={() => handleApplyChecklist('append')} disabled={busy || !applyTplId}>Append points</button>
+              <button className="btn pri sm" onClick={() => handleApplyChecklist('replace')} disabled={busy || !applyTplId}>Replace checklist</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {photoView && (
+        <div className="modal-overlay" onClick={() => setPhotoView(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <img src={photoView} alt="checklist photo" style={{ maxWidth: '100%' }} />
+            <div className="modal-actions"><button className="btn sec sm" onClick={() => setPhotoView(null)}>Close</button></div>
+          </div>
+        </div>
+      )}
+
       {/* Approve Modal */}
       {approveIdx !== null && (
         <div className="modal-overlay" onClick={() => setApproveIdx(null)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <h3>Approve Point #{approveIdx + 1}</h3>
             <p className="muted">Sign Responsibility: {checklist[approveIdx]?.signResponsibility}</p>
-            {checklist[approveIdx]?.signResponsibility === 'CLIENT' && (
-              <div className="filter-field">
-                <label>Client Name (on-site)</label>
-                <input value={approveForm.approverName} onChange={e => setApproveForm(f => ({ ...f, approverName: e.target.value }))} />
-              </div>
+            {checklist[approveIdx]?.signResponsibility === 'CLIENT' ? (
+              <>
+                <div className="filter-field">
+                  <label>Client Name</label>
+                  <input value={approveForm.approverName} placeholder="name of person approving on site"
+                    onChange={e => setApproveForm(f => ({ ...f, approverName: e.target.value }))} />
+                </div>
+                <div className="filter-field">
+                  <label>Client Signature (sign on phone)</label>
+                  <SignaturePad onChange={setApproveSignature} />
+                </div>
+              </>
+            ) : (
+              <p className="muted">Approving as <b>{user?.name}</b> for <b>{checklist[approveIdx]?.signResponsibility}</b> sign-off.</p>
             )}
             <div className="filter-field">
               <label>Remark</label>
@@ -980,118 +1078,6 @@ export default function ProjectDetail() {
         </div>
       )}
 
-      {/* Add Delivery Challan Modal */}
-      {showDCModal && (
-        <div className="modal-overlay" onClick={() => setShowDCModal(false)}>
-          <div className="modal modal-wide" onClick={e => e.stopPropagation()}>
-            <h3>Add Delivery Challan</h3>
-            <div className="form-grid">
-              <div className="filter-field">
-                <label>Date</label>
-                <input type="date" value={dcForm.date} onChange={e => setDcForm(f => ({ ...f, date: e.target.value }))} />
-              </div>
-              <div className="filter-field">
-                <label>Received By (site)</label>
-                <input value={dcForm.receivedByName} onChange={e => setDcForm(f => ({ ...f, receivedByName: e.target.value }))} />
-              </div>
-              <div className="filter-field full-width">
-                <label>Remark</label>
-                <input value={dcForm.remark} onChange={e => setDcForm(f => ({ ...f, remark: e.target.value }))} />
-              </div>
-            </div>
-            <h4>Items</h4>
-            {dcForm.items.map((item, i) => (
-              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                <input placeholder="Material Name" value={item.materialName} onChange={e => {
-                  const items = [...dcForm.items]; items[i] = { ...items[i], materialName: e.target.value };
-                  setDcForm(f => ({ ...f, items }));
-                }} style={{ flex: 2, minWidth: 120 }} />
-                <input type="number" placeholder="Qty" value={item.quantity} onChange={e => {
-                  const items = [...dcForm.items]; items[i] = { ...items[i], quantity: e.target.value };
-                  setDcForm(f => ({ ...f, items }));
-                }} style={{ width: 70 }} />
-                <input placeholder="Unit" value={item.unit} onChange={e => {
-                  const items = [...dcForm.items]; items[i] = { ...items[i], unit: e.target.value };
-                  setDcForm(f => ({ ...f, items }));
-                }} style={{ width: 70 }} />
-                <label style={{ fontSize: 12 }}>
-                  <input type="checkbox" checked={item.returnable} onChange={e => {
-                    const items = [...dcForm.items]; items[i] = { ...items[i], returnable: e.target.checked };
-                    setDcForm(f => ({ ...f, items }));
-                  }} /> Ret.
-                </label>
-                {dcForm.items.length > 1 && (
-                  <button type="button" className="btn danger sm" onClick={() => {
-                    setDcForm(f => ({ ...f, items: f.items.filter((_, j) => j !== i) }));
-                  }} style={{ padding: '2px 6px' }}>×</button>
-                )}
-              </div>
-            ))}
-            <button type="button" className="btn sec sm" onClick={() => {
-              setDcForm(f => ({ ...f, items: [...f.items, { materialName: '', quantity: '', unit: '', returnable: false }] }));
-            }}>+ Add Row</button>
-            <div className="modal-actions">
-              <button className="btn sec sm" onClick={() => setShowDCModal(false)}>Cancel</button>
-              <button className="btn pri sm" onClick={handleDCSubmit} disabled={busy}>Save DC</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit DC Modal */}
-      {editDCIdx !== null && editDCForm && (
-        <div className="modal-overlay" onClick={() => setEditDCIdx(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <h3>Edit DC Item #{editDCIdx + 1}</h3>
-            <div className="filter-field">
-              <label>Material Name</label>
-              <input value={editDCForm.materialName} onChange={e => setEditDCForm(f => ({ ...f, materialName: e.target.value }))} />
-            </div>
-            <div className="form-grid">
-              <div className="filter-field">
-                <label>Quantity</label>
-                <input type="number" value={editDCForm.quantity} onChange={e => setEditDCForm(f => ({ ...f, quantity: e.target.value }))} />
-              </div>
-              <div className="filter-field">
-                <label>Unit</label>
-                <input value={editDCForm.unit} onChange={e => setEditDCForm(f => ({ ...f, unit: e.target.value }))} />
-              </div>
-            </div>
-            <div>
-              <label><input type="checkbox" checked={editDCForm.returnable} onChange={e => setEditDCForm(f => ({ ...f, returnable: e.target.checked }))} /> Returnable</label>
-            </div>
-            <div className="filter-field">
-              <label>Received By</label>
-              <input value={editDCForm.receivedByName} onChange={e => setEditDCForm(f => ({ ...f, receivedByName: e.target.value }))} />
-            </div>
-            <div className="modal-actions">
-              <button className="btn sec sm" onClick={() => setEditDCIdx(null)}>Cancel</button>
-              <button className="btn pri sm" onClick={handleEditDCSubmit} disabled={busy}>Save</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Return DC Modal */}
-      {returnDCIdx !== null && (
-        <div className="modal-overlay" onClick={() => setReturnDCIdx(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <h3>Record Material Return</h3>
-            <p className="muted">
-              DC #{dcs[returnDCIdx]?.challanNumber} — {dcs[returnDCIdx]?.materialName}
-              <br />Sent: {dcs[returnDCIdx]?.quantity}, Already Returned: {dcs[returnDCIdx]?.returnedQuantity || 0}
-            </p>
-            <div className="filter-field">
-              <label>Return Quantity</label>
-              <input type="number" value={returnQty} onChange={e => setReturnQty(e.target.value)} />
-            </div>
-            <div className="modal-actions">
-              <button className="btn sec sm" onClick={() => setReturnDCIdx(null)}>Cancel</button>
-              <button className="btn pri sm" onClick={handleReturnDCSubmit} disabled={busy || !returnQty}>Return</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

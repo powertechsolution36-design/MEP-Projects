@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, getStoredToken } from '../../api/client';
+import { api, getStoredToken, assertDownloadOk } from '../../api/client';
 import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../auth/AuthContext';
 import { money, fmtDate } from '../../utils/format';
-import '../enquiries/enquiry.css';
 
 /**
  * Service Call List — PWA `viewServiceCalls()` exact reproduction.
@@ -76,6 +75,7 @@ export default function ServiceCallList() {
         API_BASE_URL + '/api/service-calls/export.csv' + (params.toString() ? '?' + params.toString() : ''),
         { headers: { Authorization: `Bearer ${getStoredToken()}` } }
       );
+      await assertDownloadOk(resp); // a refused export must not be saved as a file
       const blob = await resp.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

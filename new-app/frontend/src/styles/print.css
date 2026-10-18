@@ -1,0 +1,90 @@
+/* ============================================================
+   Print — for the screens people put on paper.
+
+   The quotation, AMC document and delivery challan each open their
+   own print window with their own stylesheet. These rules cover the
+   other case: someone pressing Ctrl+P on a normal app screen, which
+   previously printed the navigation rail and the header too.
+   ============================================================ */
+
+@media print {
+  @page { margin: 14mm; }
+
+  :root {
+    --canvas: #fff;
+    --surface: #fff;
+    --shadow-xs: none;
+    --shadow-sm: none;
+    --shadow-md: none;
+    --shadow-lg: none;
+  }
+
+  body { background: #fff; color: #000; font-size: 11pt; }
+
+  /* App chrome never goes on paper. */
+  .shell-header,
+  .shell-nav,
+  .shell-scrim,
+  .nav-toggle,
+  .icon-button,
+  .skip-link,
+  .search-bar,
+  .filter-panel,
+  .page-actions,
+  .enq-actions, .so-actions, .pay-actions, .proj-actions, .svc-actions, .inv-actions,
+  .detail-actions,
+  .modal-actions,
+  .btn,
+  .login-help { display: none !important; }
+
+  .shell, .shell-body { display: block; }
+  .shell-content { padding: 0; overflow: visible; }
+
+  /* Flatten cards: borders read better than shadows in print. */
+  .panel, .kpi-card, .user-card, .filter-panel, .doc-preview {
+    border: 1px solid #bbb;
+    border-radius: 0;
+    box-shadow: none;
+    break-inside: avoid;
+  }
+  .panel { margin-bottom: 8mm; padding: 4mm; }
+
+  /* Tables: repeat headers across pages, never split a row. */
+  .table-wrap { overflow: visible; box-shadow: none; }
+  .data-table { font-size: 9pt; }
+  .data-table thead { display: table-header-group; }
+  .data-table tfoot { display: table-footer-group; }
+  .data-table tr { break-inside: avoid; }
+  .data-table th {
+    position: static;
+    background: #f0f0f0 !important;
+    color: #000;
+    border-bottom: 1px solid #999;
+  }
+  .data-table th, .data-table td {
+    border-bottom: 1px solid #ddd;
+    white-space: normal;
+  }
+
+  /* Keep status colour meaningful without flooding the page with ink. */
+  .status-badge, .badge, .bdg, .div-chip, .rail-chip {
+    border: 1px solid #999;
+    background: transparent !important;
+    color: #000 !important;
+    padding: 0 4px;
+  }
+
+  .kpi-bar { display: flex; flex-wrap: wrap; gap: 3mm; }
+  .kpi-card { flex: 1 1 32%; padding: 3mm; }
+  .kpi-card::before { display: none; }
+
+  a { color: #000; text-decoration: none; }
+
+  /* Explicit page break, used by the document screens. */
+  .page-break { break-before: page; page-break-before: always; }
+  .no-print { display: none !important; }
+  .print-only { display: block !important; }
+}
+
+/* Visible only on paper. */
+.print-only { display: none; }

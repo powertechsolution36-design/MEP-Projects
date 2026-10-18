@@ -73,6 +73,36 @@ const companySchema = new Schema(
     // NEW BACKEND DESIGN — replaces the PWA's hard-coded "company id 1 is undeletable".
     // UNSPECIFIED BY PWA whether this concept is wanted at all (OPEN_DECISIONS.md #14).
     protected: { type: Boolean, default: false },
+
+    // ── Company Profile (Stage 7) ──
+    // Tenant-specific branding used by quotation and AMC document
+    // generation. Field set matches exactly what is already consumed by
+    // services/quotationService.js (quotationPrefix),
+    // services/amcDocumentService.js (company block), and
+    // frontend/src/pages/company/CompanyProfile.jsx / QuotationDetail.jsx /
+    // AmcDocument.jsx. tagline, phone, email and gstNumber are the existing
+    // PWA FACT fields above and are reused, not duplicated. Nothing here is
+    // hardcoded to any one tenant.
+    displayName: { type: String, default: '' },
+    subtitle: { type: String, default: '' },
+    website: { type: String, default: '' },
+    logoBase64: { type: String, default: '' },
+    quotationPrefix: { type: String, trim: true, default: 'QTN' },
+    bankDetails: {
+      bankName: { type: String, default: '' },
+      accountNumber: { type: String, default: '' },
+      ifscCode: { type: String, default: '' },
+      branch: { type: String, default: '' },
+      accountType: { type: String, default: '' },
+    },
+    authorizedPerson: {
+      name: { type: String, default: '' },
+      designation: { type: String, default: '' },
+      signatureBase64: { type: String, default: '' },
+      stampBase64: { type: String, default: '' },
+      contactPhone: { type: String, default: '' },
+      contactEmail: { type: String, default: '' },
+    },
   },
   { timestamps: true, collection: 'companies' }
 );

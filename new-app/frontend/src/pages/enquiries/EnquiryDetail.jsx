@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { money, fmtDate } from '../../utils/format';
-import './enquiry.css';
+import useMyDivisions from '../../hooks/useMyDivisions';
 
 /**
  * Enquiry Detail — PWA `vEnq(x)` exact reproduction.
@@ -28,6 +28,7 @@ const LOST_REASONS = [
 ];
 
 export default function EnquiryDetail() {
+  const myDivisions = useMyDivisions(); // PWA myDivs()
   const { id } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -291,7 +292,7 @@ export default function EnquiryDetail() {
                   <label>Segment *</label>
                   <select value={editData.segment} onChange={e => setEditData(d => ({ ...d, segment: e.target.value }))}>
                     <option value="">—</option>
-                    {['HVAC', 'Solar', 'MEP', 'AMC'].map(o => <option key={o}>{o}</option>)}
+                    {[...myDivisions, 'AMC'].map(o => <option key={o}>{o}</option>)}
                   </select>
                 </div>
                 <div className="filter-field">

@@ -1,0 +1,398 @@
+/* ============================================================
+   Layout — app shell, top bar, navigation rail, page scaffold.
+   ============================================================ */
+
+.shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas);
+}
+
+/* ---- Top bar ---------------------------------------------------- */
+.shell-header {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-header);
+  height: var(--header-h);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  padding: 0 var(--s-6);
+  background: var(--header-bg);
+  color: var(--text-inverse);
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.shell-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.shell-brand em { color: var(--brand-600); font-style: normal; }  /* red "MEP", white "PROJECTS" */
+/* Option D (approved): the original logo, unmodified, on a small white
+   circle so its red line art stays legible on the dark bar. */
+.shell-logo-plate {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.shell-logo { width: 28px; height: 28px; object-fit: contain; display: block; }
+
+.shell-user {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  margin-left: auto;
+  font-size: var(--fs-md);
+  min-width: 0;
+}
+.shell-user-name {
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 22ch;
+}
+
+.shell-role-badge {
+  padding: 3px 9px;
+  border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semi);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+/* Header icon buttons (bell, hamburger) and the text link-button. */
+.icon-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  border: 0;
+  border-radius: var(--r-sm);
+  font-size: 16px;
+  line-height: 1;
+  transition: background var(--dur-fast) var(--ease);
+}
+.icon-button:hover { background: rgba(255, 255, 255, 0.14); }
+
+.icon-badge {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bad-600);
+  color: #fff;
+  border: 1.5px solid var(--header-bg);
+  border-radius: var(--r-pill);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.link-button {
+  padding: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  font-size: var(--fs-md);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+/* Approved mobile fix: "Log out" never wraps; the user name truncates instead. */
+.shell-user .link-button { white-space: nowrap; flex: none; }
+.link-button:hover { opacity: 0.8; }
+
+/* Hamburger: hidden on desktop, shown when the rail collapses. */
+.nav-toggle { display: none; }
+
+/* ---- Body: rail + content --------------------------------------- */
+.shell-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.shell-nav {
+  width: var(--rail-w);
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-5) var(--s-4) var(--s-7);
+  background: var(--rail);
+  color: var(--rail-fg);
+  overflow-y: auto;
+  position: sticky;
+  top: var(--header-h);
+  height: calc(100vh - var(--header-h));
+  height: calc(100dvh - var(--header-h));
+}
+
+/* Company identity block at the top of the rail. */
+.shell-company {
+  padding: var(--s-4) var(--s-5) var(--s-5);
+  margin-bottom: var(--s-4);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+}
+.shell-company-name {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semi);
+  color: #fff;
+  line-height: var(--lh-snug);
+}
+.shell-company-meta {
+  margin-top: var(--s-3);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+.shell-company-label {
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semi);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.6);
+}
+/* Division chips, legible on the dark rail. */
+.rail-chip {
+  padding: 2px 7px;
+  border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.13);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semi);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  min-height: var(--control-h-lg);
+  padding: 0 var(--s-5);
+  border-radius: var(--r-sm);
+  color: var(--rail-fg);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
+  text-decoration: none;
+  white-space: nowrap;
+  position: relative;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.nav-item:hover {
+  background: var(--rail-hover);
+  color: #fff;
+  text-decoration: none;
+}
+.nav-item.active {
+  background: var(--rail-hover);
+  color: #fff;
+  font-weight: var(--fw-semi);
+}
+/* Accent bar marks the current section. */
+.nav-item.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 0 var(--r-pill) var(--r-pill) 0;
+  background: var(--accent-300);   /* small blue marker, as in the approved preview */
+}
+.nav-item:focus-visible { outline-color: var(--accent-200); }
+
+/* The emoji each menu entry already carries, sized consistently. */
+.nav-item-icon {
+  flex: none;
+  width: 18px;
+  text-align: center;
+  font-size: 14px;
+  opacity: 0.95;
+}
+.nav-item-label { overflow: hidden; text-overflow: ellipsis; }
+
+.shell-scrim { display: none; }
+
+/* ---- Content ---------------------------------------------------- */
+.shell-content {
+  flex: 1;
+  min-width: 0;
+  padding: var(--page-pad);
+  overflow-x: hidden;
+}
+
+/* Page scaffold. `.page` is the preferred name; the module-specific
+   aliases below it are the names the existing screens already use and
+   are kept so no page has to be rewritten to be styled. */
+.page,
+.enq-page, .so-page, .pay-page, .proj-page, .svc-page, .inv-page {
+  max-width: var(--page-max);
+  margin: 0 auto;
+}
+
+.page-head,
+.enq-header, .so-header, .pay-header, .proj-header, .svc-header, .inv-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s-5);
+  margin-bottom: var(--s-7);
+}
+.page-head h2, .page-head h1,
+.enq-header h2, .so-header h2, .pay-header h2, .proj-header h2,
+.svc-header h2, .inv-header h2 { margin: 0; }
+
+/* Optional supporting line under a page title. */
+.page-subtitle {
+  margin: var(--s-2) 0 0;
+  font-size: var(--fs-md);
+  color: var(--text-muted);
+}
+
+.page-actions,
+.enq-actions, .so-actions, .pay-actions, .proj-actions, .svc-actions, .inv-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+}
+
+/* A back link above a detail title. */
+.page-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin-bottom: var(--s-4);
+  font-size: var(--fs-md);
+  color: var(--text-muted);
+  background: none;
+  border: 0;
+  padding: 0;
+}
+.page-back:hover { color: var(--text-link); }
+
+/* Section rhythm inside a page. */
+.section { margin-bottom: var(--s-8); }
+.section:last-child { margin-bottom: 0; }
+.section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-5);
+  margin-bottom: var(--s-5);
+}
+.section-title h3 { margin: 0; }
+
+/* ---- Responsive ------------------------------------------------
+   Below 1024px the rail becomes an off-canvas drawer: the hamburger
+   appears, the rail slides over the content and a scrim closes it. */
+@media (max-width: 1024px) {
+  :root { --page-pad: var(--s-6); }
+
+  .nav-toggle {
+    display: inline-flex;
+    margin-left: calc(var(--s-5) * -1);
+  }
+
+  .shell-nav {
+    position: fixed;
+    top: var(--header-h);
+    bottom: 0;
+    left: 0;
+    height: auto;
+    width: min(290px, 84vw);
+    z-index: var(--z-rail);
+    box-shadow: var(--shadow-lg);
+    transform: translateX(-100%);
+    transition: transform var(--dur-base) var(--ease);
+  }
+  .shell.nav-open .shell-nav { transform: translateX(0); }
+
+  .shell-scrim {
+    display: block;
+    position: fixed;
+    inset: var(--header-h) 0 0;
+    z-index: calc(var(--z-rail) - 1);
+    background: rgba(16, 24, 36, 0.45);
+    border: 0;
+    padding: 0;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--dur-base) var(--ease);
+  }
+  .shell.nav-open .shell-scrim { opacity: 1; pointer-events: auto; }
+}
+
+@media (max-width: 640px) {
+  :root { --page-pad: var(--s-5); }
+
+  .shell-header { padding: 0 var(--s-5); gap: var(--s-4); }
+  /* On a phone the role badge and the full name are the first things
+     to go — the name stays, the role is on the rail anyway. */
+  .shell-role-badge { display: none; }
+  .shell-user { gap: var(--s-4); }
+  .shell-user-name { max-width: 10ch; }
+  .shell-brand { font-size: var(--fs-sm); }
+
+  .page-head,
+  .enq-header, .so-header, .pay-header, .proj-header, .svc-header, .inv-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--s-4);
+    margin-bottom: var(--s-6);
+  }
+  .page-actions,
+  .enq-actions, .so-actions, .pay-actions, .proj-actions, .svc-actions, .inv-actions {
+    width: 100%;
+  }
+  /* Full-width buttons in a page header read as a clear action bar
+     instead of a cramped row. */
+  .page-actions > .btn,
+  .enq-actions > .btn, .so-actions > .btn, .pay-actions > .btn,
+  .proj-actions > .btn, .svc-actions > .btn, .inv-actions > .btn { flex: 1 1 auto; justify-content: center; }
+}
+
+/* ---- Full-screen states ----------------------------------------- */
+.full-page-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-5);
+  min-height: 100vh;
+  min-height: 100dvh;
+  color: var(--text-muted);
+  font-size: var(--fs-md);
+}

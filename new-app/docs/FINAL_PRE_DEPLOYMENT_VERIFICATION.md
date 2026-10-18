@@ -20,7 +20,7 @@
 | Models | 24 (User, AuthSession, Company, Counter, Enquiry, SalesOrder, Payment, Project, Contract, ServiceCall, Notification, ChecklistTemplate, InventoryCategory, InventoryLocation, InventoryItem, InventoryIssue, InventoryTransaction, Quotation, AmcTemplate, ItemName, PaymentTermTemplate, Plan, Subscription, index.js) |
 | Services | 16 |
 | Routes | 17 |
-| Middleware | 4 (authMiddleware, tenantGuard, roleMiddleware, divisionGuard) |
+| Middleware | 4 files (authMiddleware, tenantGuard, roleMiddleware, divisionGuard). UPDATE (completion order): divisionGuard is not mounted; division entitlement is enforced in the services (`assertDivisionEntitled`). |
 | Frontend pages | 43+ components |
 
 ---

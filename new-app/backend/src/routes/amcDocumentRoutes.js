@@ -1,8 +1,9 @@
 'use strict';
 
 const express = require('express');
+const { sendError } = require('../errors');
 const { createAuthMiddleware } = require('../middleware/authMiddleware');
-const { requireCompanyContext } = require('../middleware/tenantGuard');
+const { requireCompanyContext, requireOwnCompany } = require('../middleware/tenantGuard');
 const {
   getTemplate, saveTemplate, generateAmcDocument, listTemplates,
 } = require('../services/amcDocumentService');
@@ -22,7 +23,7 @@ function createAmcDocumentRouter(deps) {
       const templates = await listTemplates(req.auth.companyId, deps);
       return res.json({ templates });
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message });
+      return sendError(res, err, 'amcDocumentRoutes');
     }
   });
 
@@ -32,12 +33,12 @@ function createAmcDocumentRouter(deps) {
       const template = await getTemplate(req.auth.companyId, req.params.type, deps);
       return res.json({ template });
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message });
+      return sendError(res, err, 'amcDocumentRoutes');
     }
   });
 
   // Save/update company template (admin only)
-  router.put('/templates', async (req, res) => {
+  router.put('/templates', requireOwnCompany, async (req, res) => {
     try {
       if (!['super', 'admin'].includes(req.auth.role)) {
         return res.status(403).json({ error: 'Only admin can modify templates.' });
@@ -45,7 +46,7 @@ function createAmcDocumentRouter(deps) {
       const template = await saveTemplate(req.auth.companyId, req.body, deps);
       return res.json({ template });
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message });
+      return sendError(res, err, 'amcDocumentRoutes');
     }
   });
 
@@ -62,7 +63,7 @@ function createAmcDocumentRouter(deps) {
       );
       return res.json({ document: doc });
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message });
+      return sendError(res, err, 'amcDocumentRoutes');
     }
   });
 

@@ -15,7 +15,12 @@ function getConfig(env = process.env) {
   const dbName = env.MONGODB_DB_NAME || 'mep_new_app';
 
   const authTokenSecret = env.AUTH_TOKEN_SECRET || '';
-  const authTokenExpiry = env.AUTH_TOKEN_EXPIRY || '15m';
+  // Session length. Default = the PWA's own: its backends (v2/server and
+  // v3/server) issue tokens with JWT_EXPIRES default '30d', and the PWA keeps
+  // the session until the server rejects it. Sessions stay revocable here
+  // (logout, user removal, role change, company suspension are checked on
+  // every request). Override per environment with AUTH_TOKEN_EXPIRY.
+  const authTokenExpiry = env.AUTH_TOKEN_EXPIRY || '30d';
   const port = Number(env.PORT) || 4000;
 
   return {

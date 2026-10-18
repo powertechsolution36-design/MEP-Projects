@@ -76,6 +76,7 @@ export const MENUS = {
   ],
   engineer: [
     ['dash', '🏠 My Work', '/'],
+    ['dailyTasks', '✅ Daily Tasks', '/daily-tasks'],
     ['mymaterial', '📦 My Material', '/my-material'],
   ],
   inventory: [
@@ -95,6 +96,7 @@ export const MENUS = {
   ],
   service_eng: [
     ['dash', '🏠 My Service Jobs', '/'],
+    ['dailyTasks', '✅ Daily Tasks', '/daily-tasks'],
     ['mymaterial', '📦 My Material', '/my-material'],
   ],
   finance: [
@@ -104,6 +106,23 @@ export const MENUS = {
   ],
 };
 
+/**
+ * NEW APP additions (owner-approved, Completion order): Stage 7 screens that
+ * have no PWA menu item. Appended AFTER each role's PWA items so the PWA
+ * menus above stay exactly as traced (same items, labels, order).
+ */
+export const NEW_APP_MENU_ADDITIONS = {
+  super: [['subscriptions', '💳 Subscriptions', '/admin/subscriptions']],
+  admin: [
+    ['dailyTasks', '✅ Daily Tasks', '/daily-tasks'],
+    ['quotations', '📄 Quotations', '/quotations'],
+    ['companyprofile', '🏷️ Company Profile', '/company-profile'],
+  ],
+  sales: [['quotations', '📄 Quotations', '/quotations']],
+  finance: [['quotations', '📄 Quotations', '/quotations']],
+  service_mgr: [['dailyTasks', '✅ Daily Tasks', '/daily-tasks']],
+};
+
 export function menuForRole(role) {
-  return MENUS[role] || [];
+  return [...(MENUS[role] || []), ...(NEW_APP_MENU_ADDITIONS[role] || [])];
 }

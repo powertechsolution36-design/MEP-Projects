@@ -136,6 +136,12 @@ const projectSchema = new Schema(
     deliveryChallans: { type: [deliveryChallanItemSchema], default: [] }, // PWA FACT
     timelineSet: { type: Boolean, default: false }, // PWA FACT
     lastDelayNotifiedDate: { type: Date, default: null }, // PWA FACT — throttle marker
+    // NEW BACKEND DESIGN (Completion order, concurrency): optimistic-lock
+    // counter. Every read-modify-write of the embedded arrays (checklist,
+    // deliveryChallans, executionUpdates) only applies if the project is
+    // still at the revision that was read, so two people editing the same
+    // project at once can never silently overwrite each other's change.
+    revision: { type: Number, default: 0 },
   },
   { timestamps: true, collection: 'projects' }
 );

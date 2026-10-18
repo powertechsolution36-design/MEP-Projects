@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link, useLocation } from 'react-router-dom';
 import { api, apiRequest } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { money, fmtDate } from '../../utils/format';
-import '../enquiries/enquiry.css';
+import SignaturePad from '../../components/SignaturePad';
 
 /**
  * Service Call Detail — PWA `viewServiceCall(x)` exact reproduction.
@@ -28,7 +28,6 @@ import '../enquiries/enquiry.css';
 const MANAGE_ROLES = ['admin', 'service_mgr'];
 const CHECKLIST_KEYS = ['Cooling Testing', 'Gas Pressure', 'Filter Clean', 'Indoor Coil', 'Outdoor Coil', 'Body Cleaning'];
 const SERVICE_TYPES = ['Installation', 'Warranty', 'AMC', 'Chargeable'];
-const CHECKLIST_OPTIONS = ['OK', 'Not OK', 'N/A'];
 
 function statusClass(status) {
   if (status === 'Registered') return 'status-pending';
@@ -77,7 +76,10 @@ export default function ServiceCallDetail() {
   /* Completion */
   const [signatureImage, setSignatureImage] = useState('');
   const [completing, setCompleting] = useState(false);
-  const [completionMessage, setCompletionMessage] = useState('');
+  // Also carries the registration confirmation message handed over by
+  // ServiceCallCreate (PWA FACT: saveCall() shows it right after saving).
+  const location = useLocation();
+  const [completionMessage, setCompletionMessage] = useState(location.state?.customerMessage || '');
 
   /* Show/hide sections */
   const [showAssign, setShowAssign] = useState(false);
@@ -111,7 +113,8 @@ export default function ServiceCallDetail() {
         materialUsed: r.materialUsed || '',
         serviceDescription: r.serviceDescription || '',
         checklistResults: cl,
-        serviceType: r.serviceType || '',
+        // PWA FACT (index.html:3571): defaults to AMC for PM calls, Chargeable for complaints.
+        serviceType: r.serviceType || (call.type === 'PM' ? 'AMC' : 'Chargeable'),
         amount: r.amount != null ? String(r.amount) : '',
         engineerRemark: r.engineerRemark || '',
         customerRemark: r.customerRemark || '',
@@ -402,7 +405,6 @@ export default function ServiceCallDetail() {
                 <div className="filter-field">
                   <label>Service Type</label>
                   <select value={reportForm.serviceType} onChange={e => setReportForm(prev => ({ ...prev, serviceType: e.target.value }))}>
-                    <option value="">— Select —</option>
                     {SERVICE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
@@ -424,7 +426,9 @@ export default function ServiceCallDetail() {
                   {CHECKLIST_KEYS.map(key => (
                     <div key={key} style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 6 }}>
                       <span style={{ minWidth: 140, fontSize: 13 }}>{key}</span>
-                      <select
+                      {/* PWA FACT (index.html:3578): free-text values, e.g. "120 PSI". */}
+                      <input
+                        type="text"
                         value={reportForm.checklistResults[key] || ''}
                         onChange={e => {
                           const val = e.target.value;
@@ -434,10 +438,7 @@ export default function ServiceCallDetail() {
                           }));
                         }}
                         style={{ padding: '4px 8px', fontSize: 13, borderRadius: 6, border: '1px solid var(--color-border)' }}
-                      >
-                        <option value="">—</option>
-                        {CHECKLIST_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
-                      </select>
+                      />
                     </div>
                   ))}
                 </div>
@@ -521,13 +522,8 @@ export default function ServiceCallDetail() {
           {showComplete && (
             <div style={{ marginTop: 8 }}>
               <div className="filter-field">
-                <label>Client Signature (base64 image or text) *</label>
-                <textarea
-                  rows={3}
-                  value={signatureImage}
-                  onChange={e => setSignatureImage(e.target.value)}
-                  placeholder="Paste base64 data URI or signature text..."
-                />
+                <label>Client Signature (sign on phone) *</label>
+                <SignaturePad onChange={setSignatureImage} />
               </div>
               <div className="modal-actions" style={{ justifyContent: 'flex-start', marginTop: 8 }}>
                 <button
@@ -543,7 +539,7 @@ export default function ServiceCallDetail() {
         </div>
       )}
 
-      {/* ---- Customer Message (post-completion) ---- */}
+      {/* ---- Customer Message (registration / completion) ---- */}
       {completionMessage && (
         <div className="panel">
           <h3>Customer Message</h3>
@@ -561,15 +557,11 @@ export default function ServiceCallDetail() {
         </div>
       )}
 
-      {/* ---- Payment Link (Chargeable completion creates payment) ---- */}
-      {isCompleted && sc.report?.serviceType === 'Chargeable' && sc.report?.amount > 0 && sc.paymentId && (
-        <div className="panel">
-          <h3>Payment Created</h3>
-          <Link to={`/payments`} className="btn sec sm">
-            View Payment Ledger
-          </Link>
-        </div>
-      )}
+      {/* PWA FACT (saveReport, Chargeable branch): the completion pushes a
+          Pending payment for Finance and notifies them; the call itself keeps
+          no payment reference and shows no payment panel. (A former
+          "Payment Created" panel here depended on a paymentId the server
+          never stores, so it could never appear; removed.) */}
     </div>
   );
 }

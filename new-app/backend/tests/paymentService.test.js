@@ -82,7 +82,10 @@ test('editPartPayment — stamps editedBy/editedOn and re-syncs status', async (
   assert.equal(updated.status, 'Received'); // now fully covers the 100000 milestone
 });
 
-test('editMilestone — Payment-side amount edit writes FORWARD to the SO milestone (locked asymmetric sync), rejects below-received, does NOT call syncPayStatus (PWA FACT)', async () => {
+// UPDATE (Completion order): the PWA's savePayEdit DOES call syncPayStatus
+// (MEP_PROJECTS_PWA/index.html:3844); the earlier "does NOT call" reading
+// was incorrect. Status is now recomputed after an amount edit.
+test('editMilestone — Payment-side amount edit writes FORWARD to the SO milestone (locked asymmetric sync), rejects below-received, and re-syncs status (PWA savePayEdit calls syncPayStatus)', async () => {
   const store = createEnquiryFakeStore({
     payments: [soLinkedPayment({ partPayments: [{ id: 'pp1', amount: 30000, date: new Date(), mode: 'Cash', recordedByUserId: 'u1' }] })],
     salesOrders: [baseSalesOrder()],
@@ -95,9 +98,13 @@ test('editMilestone — Payment-side amount edit writes FORWARD to the SO milest
   assert.equal(updated.amount, 150000);
   const so = await store.salesOrderRepo.findById('co1', 'so1');
   assert.equal(so.paymentMilestones[0].amount, 150000); // written forward
-  // status is NOT recomputed here (PWA FACT: savePayEdit never calls syncPayStatus) —
-  // it stays whatever it was before this edit (still Pending from the seed).
+  // 150000 > 30000 received -> still Pending after the re-sync.
   assert.equal(updated.status, 'Pending');
+  // Editing the amount down to exactly what was received settles it.
+  const settled = await service.editMilestone('pay1', { amount: 30000 }, auth(), store);
+  assert.equal(settled.status, 'Received');
+  const so2 = await store.salesOrderRepo.findById('co1', 'so1');
+  assert.equal(so2.paymentMilestones[0].received, true);
 });
 
 test('editSalesOrder (SO-side) amount edit does NOT push forward to the Payment record (locked asymmetric sync, other direction)', async () => {
@@ -171,8 +178,16 @@ test('FIX-6-05 — exportPendingPaymentsCsv reproduces dlPayments() in full: ALL
       { id: 'pay3', companyId: 'co2', projectOrReference: 'Other Co', personName: 'X', amount: 1000, status: 'Pending', partPayments: [] },
     ],
   });
-  const csv = await service.exportPendingPaymentsCsv(auth(), store);
-  const [, , header, ...bodyLines] = csv.split('\n');
+  const csv = await service.exportPendingPaymentsCsv(auth(), {}, store);
+  // PWA FACT (rptHead, index.html:3417): four preamble rows — the
+  // upper-cased title with the company name, who generated it, the active
+  // filter (one empty cell when no search), then a blank row.
+  const allLines = csv.split('\n');
+  assert.match(allLines[0], /^PAYMENTS REPORT/);
+  assert.match(allLines[1], /^Generated,\d{4}-\d{2}-\d{2} by /);
+  assert.equal(allLines[2], '');
+  assert.equal(allLines[3], '');
+  const [header, ...bodyLines] = allLines.slice(4);
   assert.deepEqual(
     header.split(','),
     ['Project', 'SO No', 'Person', 'Phone', 'Milestone Amount', 'Received', 'Balance', 'Status', 'Raised by PM', 'Raised On', 'Collect By', 'Last Call', 'Discussion', 'Next Call', 'Remark', 'Part Payments']
@@ -202,10 +217,10 @@ test('FIX-6-05 — exportPendingPaymentsCsv reproduces dlPayments() in full: ALL
 test('FIX-6-05 — role restriction unaffected: only finance/admin can export payment reports', async () => {
   const store = createEnquiryFakeStore({ payments: [soLinkedPayment()] });
   await assert.rejects(
-    () => service.exportPendingPaymentsCsv(auth({ role: 'sales' }), store),
+    () => service.exportPendingPaymentsCsv(auth({ role: 'sales' }), {}, store),
     (err) => err.code === 'FORBIDDEN'
   );
-  const csv = await service.exportPendingPaymentsCsv(auth({ role: 'admin' }), store);
+  const csv = await service.exportPendingPaymentsCsv(auth({ role: 'admin' }), {}, store);
   assert.match(csv, /PAYMENTS REPORT/);
 });
 

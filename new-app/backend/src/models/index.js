@@ -29,4 +29,11 @@ module.exports = {
   AuthSession: require('./AuthSession'),
   Plan: require('./Plan'),
   Subscription: require('./Subscription'),
+  // Stage 7 commercial-document collections (quotations, item-name
+  // library, AMC document templates, payment-term templates).
+  Quotation: require('./Quotation'),
+  ItemName: require('./ItemName'),
+  AmcTemplate: require('./AmcTemplate'),
+  PaymentTermTemplate: require('./PaymentTermTemplate'),
+  DailyTask: require('./DailyTask'),
 };

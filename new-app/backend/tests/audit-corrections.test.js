@@ -149,7 +149,7 @@ test('audit-correction: no status-derivation function was introduced on the Inve
 // explicitly-authorized scope each time rather than removed, so it still
 // catches any UNAUTHORIZED module being added by mistake.
 
-test('audit-correction scope guard: only the auth/company foundation plus the authorized Enquiry/SalesOrder/Payment/Project/Contract/ServiceCall/Inventory/ChecklistTemplate/Notification/User modules exist as routes/services', () => {
+test('audit-correction scope guard: only authorized routes and services exist', () => {
   const fs = require('fs');
   const path = require('path');
   const routesDir = path.join(__dirname, '..', 'src', 'routes');
@@ -168,20 +168,42 @@ test('audit-correction scope guard: only the auth/company foundation plus the au
   // UPDATE (Subscription Integration Repair): subscriptionRoutes.js and
   // subscriptionService.js were authorized and wired in the subscription
   // integration repair task.
+  // UPDATE (Master fix -- Stage 7 production wiring): the Stage 7
+  // commercial-document modules -- Quotation (quotationRoutes.js/
+  // quotationService.js), Item Name Library (itemNameRoutes.js/
+  // itemNameService.js), AMC document templates/generation
+  // (amcDocumentRoutes.js/amcDocumentService.js) and Payment Term
+  // Templates (paymentTermTemplateRoutes.js; repository-backed, no service
+  // file) -- were authorized in Stage 7 (see
+  // new-app/docs/FINAL_IMPLEMENTATION_REPORT.md) and are now mounted in
+  // src/app.js. The Daily Tasks assignment/review workflow was then
+  // explicitly requested by the owner and added as its own module.
+  // Any OTHER route/service file still fails this guard.
   assert.deepEqual(routeFiles, [
-    'authRoutes.js', 'checklistTemplateRoutes.js', 'companyRoutes.js', 'contractRoutes.js', 'enquiryRoutes.js',
-    'inventoryRoutes.js', 'notificationRoutes.js', 'paymentRoutes.js',
-    'projectRoutes.js', 'salesOrderRoutes.js', 'serviceCallRoutes.js', 'subscriptionRoutes.js', 'userRoutes.js',
+    'amcDocumentRoutes.js', 'authRoutes.js', 'checklistTemplateRoutes.js', 'companyRoutes.js', 'contractRoutes.js', 'dailyTaskRoutes.js', 'dashboardRoutes.js',
+    'enquiryRoutes.js', 'inventoryRoutes.js', 'itemNameRoutes.js', 'notificationRoutes.js', 'paymentRoutes.js',
+    'paymentTermTemplateRoutes.js', 'projectRoutes.js', 'quotationRoutes.js', 'salesOrderRoutes.js',
+    'serviceCallRoutes.js', 'subscriptionRoutes.js', 'userRoutes.js',
   ]);
   assert.deepEqual(serviceFiles, [
+    'amcDocumentService.js',
     'checklistTemplateService.js',
     'companyService.js',
     'contractService.js',
+    'dailyTaskService.js',
+    'dashboardService.js',
     'enquiryService.js',
     'inventoryService.js',
+    'itemNameService.js',
     'notificationService.js',
     'paymentService.js',
     'projectService.js',
+    'quotationService.js',
+    // UPDATE (Claude design + completion directive, Oct 2026): a shared
+    // helper, not a business module — the PWA's `rptHead()` CSV report
+    // preamble (index.html:3417), used by the payment and project exports
+    // so every report names the company and who generated it.
+    'reportHeader.js',
     'salesOrderCascade.js',
     'salesOrderService.js',
     'serviceCallService.js',

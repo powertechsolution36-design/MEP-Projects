@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { api, getStoredToken } from '../../api/client';
+import { api, getStoredToken, assertDownloadOk } from '../../api/client';
 import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../auth/AuthContext';
 import { fmtDate } from '../../utils/format';
-import '../enquiries/enquiry.css';
 
 /**
  * My Material — PWA `vMyMaterial()` exact reproduction.
@@ -51,6 +50,7 @@ export default function MyMaterial() {
   /* Return request modal */
   const [showReturn, setShowReturn] = useState(null);
   const [returnQty, setReturnQty] = useState('');
+  const [returnNote, setReturnNote] = useState('');
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -76,7 +76,9 @@ export default function MyMaterial() {
       const issueId = showReturn.id || showReturn._id;
       await api.post(`/api/inventory/issues/${issueId}/return-request`, {
         quantity: Number(returnQty) || 0,
+        note: returnNote || undefined, // PWA FACT (mReturnReq): optional note to the store
       });
+      setReturnNote('');
       setShowReturn(null);
       setReturnQty('');
       alert('Return request submitted.');
@@ -94,6 +96,7 @@ export default function MyMaterial() {
         API_BASE_URL + '/api/inventory/reports/my-material.csv',
         { headers: { Authorization: `Bearer ${getStoredToken()}` } }
       );
+      await assertDownloadOk(resp); // a refused export must not be saved as a file
       const blob = await resp.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -146,12 +149,12 @@ export default function MyMaterial() {
                 const status = issStatus(iss);
                 return (
                   <tr key={iss.id || iss._id}>
-                    <td>{iss.itemName || iss.itemId}</td>
+                    <td>{iss.itemName || '—'}{iss.unit ? ` (${iss.unit})` : ''}</td>
                     <td>{iss.quantityIssued}</td>
                     <td>{iss.quantityReturned || 0}</td>
                     <td>{iss.quantityUsed || 0}</td>
                     <td><strong>{bal}</strong></td>
-                    <td>{fmtDate(iss.issuedAt || iss.createdAt)}</td>
+                    <td>{fmtDate(iss.date || iss.createdAt)}</td>
                     <td>{iss.site || '—'}</td>
                     <td><span className={`status-badge ${statusClass(status)}`}>{status}</span></td>
                     <td>
@@ -178,7 +181,7 @@ export default function MyMaterial() {
           <div className="modal" onClick={e => e.stopPropagation()}>
             <h3>Request Return</h3>
             <p style={{ marginBottom: 12 }}>
-              Item: <strong>{showReturn.itemName || showReturn.itemId}</strong><br />
+              Item: <strong>{showReturn.itemName || '—'}</strong><br />
               Balance: <strong>{issBal(showReturn)}</strong>
             </p>
             <form onSubmit={handleReturnRequest}>
@@ -186,6 +189,9 @@ export default function MyMaterial() {
                 <div className="filter-field"><label>Quantity to return *</label>
                   <input type="number" value={returnQty} onChange={e => setReturnQty(e.target.value)}
                     required min="1" max={issBal(showReturn)} />
+                </div>
+                <div className="filter-field"><label>Note</label>
+                  <input value={returnNote} onChange={e => setReturnNote(e.target.value)} placeholder="e.g. leftover after job" />
                 </div>
               </div>
               <div className="modal-actions">

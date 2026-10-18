@@ -1,7 +1,8 @@
 import { useAuth } from '../auth/AuthContext';
 import { API_BASE_URL } from '../config';
-import { getStoredToken } from '../api/client';
-import './enquiries/enquiry.css';
+import { useEffect, useState } from 'react';
+import { getStoredToken, api } from '../api/client';
+import { todayKey, downloadCsv as dlCSV, buildRevenueRows, buildSubscriberRows } from '../utils/platform';
 
 /**
  * Reports — PWA `vReports()` exact reproduction.
@@ -106,22 +107,49 @@ export default function Reports() {
         </div>
       </div>
 
-      {isSuper && (
-        <div className="panel">
-          <h3>Platform Reports (Super Admin)</h3>
-          <p className="muted" style={{ marginBottom: 12 }}>
-            Revenue and subscriber reports are computed from company subscription data.
-          </p>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button className="btn" onClick={() => window.location.href = '/admin/revenue'}>
-              📈 Revenue Dashboard
-            </button>
-            <button className="btn" onClick={() => window.location.href = '/admin/usage'}>
-              📊 Client Business
-            </button>
-          </div>
-        </div>
-      )}
+      {isSuper && <SuperReports />}
     </div>
+  );
+}
+
+/* PWA FACT: vReports() (index.html:1546-1555) and dlReport(type, period)
+   (index.html:1564-1590) — six client-side CSV reports built from the
+   company list. Columns, ordering, TOTAL row and filenames match the PWA. */
+function SuperReports() {
+  const [companies, setCompanies] = useState(null);
+  const [error, setError] = useState('');
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    api.get('/api/companies').then((r) => setCompanies(r.companies || [])).catch((e) => setError(e.message));
+  }, []);
+  function dl(type, period) {
+    if (!companies) return;
+    const name = `${type === 'revenue' ? 'revenue' : 'subscribers'}-${period}-${todayKey()}.csv`;
+    dlCSV(name, type === 'revenue' ? buildRevenueRows(companies, period) : buildSubscriberRows(companies, period));
+    setMsg(`Report downloaded: ${name}`);
+  }
+  const off = !companies;
+  return (
+    <>
+      {error && <p style={{ color: 'red' }}>{error}</p>}
+      {msg && <p className="muted">{msg}</p>}
+      <div className="panel" style={{ marginBottom: 16 }}>
+        <h3>📊 Revenue Reports</h3>
+        <div className="muted" style={{ marginBottom: 10 }}>CSV downloads — open directly in Excel.</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn blu" disabled={off} onClick={() => dl('revenue', 'month')}>Revenue — This Month</button>
+          <button className="btn blu" disabled={off} onClick={() => dl('revenue', 'year')}>Revenue — This Year</button>
+          <button className="btn blu" disabled={off} onClick={() => dl('revenue', 'all')}>Revenue — All Time</button>
+        </div>
+      </div>
+      <div className="panel">
+        <h3>📊 Subscriber Reports (status wise)</h3>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn sec" disabled={off} onClick={() => dl('subs', 'month')}>Subscribers — Joined This Month</button>
+          <button className="btn sec" disabled={off} onClick={() => dl('subs', 'year')}>Subscribers — Joined This Year</button>
+          <button className="btn sec" disabled={off} onClick={() => dl('subs', 'all')}>Subscribers — All Time</button>
+        </div>
+      </div>
+    </>
   );
 }

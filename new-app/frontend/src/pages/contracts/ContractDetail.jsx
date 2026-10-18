@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { money, fmtDate } from '../../utils/format';
-import '../enquiries/enquiry.css';
 
 /**
  * Contract Detail — PWA `vContract(x)` / `vPM()`'s detail view exact
@@ -82,6 +81,14 @@ export default function ContractDetail() {
         <button className="btn sec sm" onClick={() => navigate('/contracts')}>Back</button>
         <h2>Contract Detail</h2>
         <span className={`status-badge ${statusClass(status)}`}>{status}</span>
+        <div className="detail-actions" style={{ marginLeft: 'auto' }}>
+          {/* Stage 7: AMC documents (Comprehensive / Non-Comprehensive / Letter) */}
+          <button className="btn sm pri" onClick={() => navigate(`/contracts/${contract.id}/amc-document?type=comprehensive`)}>📄 AMC Document</button>
+          {/* PWA FACT (pmDuePanel, index.html:3645-3656): "Schedule PM" -> mCall(contractId); admin/service_mgr only */}
+          {['admin', 'service_mgr'].includes(user?.role) && (
+            <button className="btn sm sec" onClick={() => navigate(`/service-calls/new?contractId=${contract.id}`)}>Schedule PM</button>
+          )}
+        </div>
       </div>
 
       {/* Identity */}

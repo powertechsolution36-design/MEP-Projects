@@ -1,7 +1,7 @@
 'use strict';
 
 const mongoose = require('mongoose');
-const { wrapDuplicateKeyError } = require('../errors');
+const { wrapDuplicateKeyError, ServiceError } = require('../errors');
 const {
   Enquiry,
   SalesOrder,
@@ -19,6 +19,11 @@ const {
   InventoryTransaction,
   Plan,
   Subscription,
+  Quotation,
+  ItemName,
+  AmcTemplate,
+  PaymentTermTemplate,
+  DailyTask,
 } = require('../models');
 const { Counter } = require('../models/Counter');
 
@@ -198,8 +203,8 @@ const projectRepo = {
     const doc = await Project.findOne({ companyId, salesOrderId }).lean();
     return toPlainLean(doc);
   },
-  async findById(companyId, id) {
-    const doc = await Project.findOne({ _id: id, companyId }).lean();
+  async findById(companyId, id, session) {
+    const doc = await Project.findOne({ _id: id, companyId }).session(session || null).lean();
     return toPlainLean(doc);
   },
   async listByCompany(companyId) {
@@ -223,8 +228,19 @@ const projectRepo = {
    * explicit allowance to decide this per-item-by-index question during
    * implementation.
    */
-  async update(companyId, id, patch, session) {
-    const doc = await Project.findOneAndUpdate({ _id: id, companyId }, { $set: patch }, { new: true, session }).lean();
+  async update(companyId, id, patch, session, options = {}) {
+    const filter = { _id: id, companyId };
+    // Optimistic lock: `expectedRevision` is the `revision` of the copy the
+    // caller read and modified. undefined revision = a pre-existing document
+    // that has never been written through this guard.
+    const guarded = Object.prototype.hasOwnProperty.call(options, 'expectedRevision');
+    if (guarded) {
+      filter.revision = options.expectedRevision == null ? { $in: [null, 0] } : options.expectedRevision;
+    }
+    const doc = await Project.findOneAndUpdate(filter, { $set: patch, $inc: { revision: 1 } }, { new: true, session }).lean();
+    if (!doc && guarded && (await Project.exists({ _id: id, companyId }).session(session || null))) {
+      throw new ServiceError('This project was just changed by someone else. Reload and try again.', 'CONFLICT', 409);
+    }
     return toPlainLean(doc);
   },
   /**
@@ -240,6 +256,17 @@ const projectRepo = {
   },
 };
 
+// Part-payment subdocuments come back from .lean() with only `_id`; the
+// services and the frontend address them by `id` (the in-memory test fakes
+// always carried `id`, which hid this). Add `id` to every entry.
+function toPlainPayment(doc) {
+  const plain = doc && doc.toObject ? toPlain(doc) : toPlainLean(doc);
+  if (plain && Array.isArray(plain.partPayments)) {
+    plain.partPayments = plain.partPayments.map((pp) => ({ ...pp, id: String(pp._id) }));
+  }
+  return plain;
+}
+
 const paymentRepo = {
   // FIX-6-03 (B2 -- Company deletion/cascade): part of the PWA's
   // literal 8-collection cascade list (delCompany, index.html:1811-1817).
@@ -252,28 +279,28 @@ const paymentRepo = {
     // with itself; translate the resulting E11000 into a friendly error.
     try {
       const [doc] = await Payment.create([data], { session });
-      return toPlain(doc);
+      return toPlainPayment(doc);
     } catch (err) {
       wrapDuplicateKeyError(err, 'A payment record already exists for this sales order milestone.', 'PAYMENT_ALREADY_EXISTS');
     }
   },
   async findById(companyId, id) {
     const doc = await Payment.findOne({ _id: id, companyId }).lean();
-    return toPlainLean(doc);
+    return toPlainPayment(doc);
   },
   async findBySalesOrderAndMilestone(companyId, salesOrderId, milestoneIndex) {
     const doc = await Payment.findOne({ companyId, salesOrderId, milestoneIndex }).lean();
-    return toPlainLean(doc);
+    return toPlainPayment(doc);
   },
   async listByCompany(companyId, { status } = {}) {
     const query = { companyId };
     if (status) query.status = status;
     const docs = await Payment.find(query).lean();
-    return docs.map((d) => ({ ...d, id: String(d._id) }));
+    return docs.map(toPlainPayment);
   },
   async update(companyId, id, patch, session) {
     const doc = await Payment.findOneAndUpdate({ _id: id, companyId }, { $set: patch }, { new: true, session }).lean();
-    return toPlainLean(doc);
+    return toPlainPayment(doc);
   },
   async pushPartPayment(companyId, id, partPayment, session) {
     const doc = await Payment.findOneAndUpdate(
@@ -281,7 +308,7 @@ const paymentRepo = {
       { $push: { partPayments: partPayment } },
       { new: true, session }
     ).lean();
-    return toPlainLean(doc);
+    return toPlainPayment(doc);
   },
   async updatePartPayment(companyId, id, partPaymentId, patch, session) {
     const setPatch = {};
@@ -291,7 +318,7 @@ const paymentRepo = {
       { $set: setPatch },
       { new: true, session }
     ).lean();
-    return toPlainLean(doc);
+    return toPlainPayment(doc);
   },
   async removePartPayment(companyId, id, partPaymentId, session) {
     const doc = await Payment.findOneAndUpdate(
@@ -299,7 +326,7 @@ const paymentRepo = {
       { $pull: { partPayments: { _id: partPaymentId } } },
       { new: true, session }
     ).lean();
-    return toPlainLean(doc);
+    return toPlainPayment(doc);
   },
   /** PWA FACT (`delPayRow`): whole-record delete, only ever offered for a
    * non-SO-linked Payment — enforced at the service layer, not here. */
@@ -465,8 +492,10 @@ const inventoryItemRepo = {
     const [doc] = await InventoryItem.create([data], { session });
     return toPlain(doc);
   },
-  async findById(companyId, id) {
-    const doc = await InventoryItem.findOne({ _id: id, companyId }).lean();
+  // `session` (optional): reads made inside a transaction must use the
+  // transaction's session, otherwise they see data outside its snapshot.
+  async findById(companyId, id, session) {
+    const doc = await InventoryItem.findOne({ _id: id, companyId }).session(session || null).lean();
     return toPlainLean(doc);
   },
   async listByCompany(companyId) {
@@ -480,14 +509,29 @@ const inventoryItemRepo = {
   /**
    * Concurrency-safe stock mutation (INVENTORY_DECISION_LOCK.md Decision
    * 10/§25 item 6) — an atomic `$inc` on the Map path replaces the PWA's
-   * synchronous, no-lock `moveStock()` read-modify-write, then a follow-up
-   * clamp-to-zero pass reproduces `moveStock()`'s own zero-floor exactly
-   * (PRESERVE PWA — the clamp is a real, independently verified PWA quirk,
-   * not something to "fix" into a rejection).
+   * synchronous, no-lock `moveStock()` read-modify-write.
+   * UPDATE (Completion order): a decrement is applied only when the location
+   * still holds enough stock (conditional `$gte` filter) and is otherwise
+   * rejected with INSUFFICIENT_STOCK. The PWA's zero-floor clamp was only
+   * reachable through a concurrent race (every PWA caller pre-checks stock),
+   * where clamping would silently hide an over-issue. The legacy clamp pass
+   * below only repairs a location that is already negative.
    */
   async incrementStockAtLocation(companyId, id, locationId, delta, session) {
     const key = `stockByLocation.${String(locationId)}`;
-    await InventoryItem.updateOne({ _id: id, companyId }, { $inc: { [key]: delta } }, { session });
+    // A decrement only applies when the location still holds enough stock
+    // (checked atomically in the same update), so two concurrent issues or
+    // transfers can never take a location below zero / over-issue. The
+    // services already pre-check availability; this is the authoritative
+    // guard.
+    const filter = { _id: id, companyId };
+    if (delta < 0) filter[key] = { $gte: -delta };
+    const res = await InventoryItem.updateOne(filter, { $inc: { [key]: delta } }, { session });
+    if (delta < 0 && res.matchedCount === 0) {
+      const exists = await InventoryItem.exists({ _id: id, companyId }).session(session || null);
+      if (!exists) return null;
+      throw new ServiceError('Insufficient stock at this location.', 'INSUFFICIENT_STOCK', 400);
+    }
     const doc = await InventoryItem.findOne({ _id: id, companyId }).session(session || null);
     if (!doc) return null;
     const current = Number(doc.stockByLocation.get(String(locationId))) || 0;
@@ -508,8 +552,8 @@ const inventoryIssueRepo = {
     const [doc] = await InventoryIssue.create([data], { session });
     return toPlain(doc);
   },
-  async findById(companyId, id) {
-    const doc = await InventoryIssue.findOne({ _id: id, companyId }).lean();
+  async findById(companyId, id, session) {
+    const doc = await InventoryIssue.findOne({ _id: id, companyId }).session(session || null).lean();
     return toPlainLean(doc);
   },
   async listByCompany(companyId) {
@@ -578,6 +622,40 @@ const notificationRepo = {
     const doc = await Notification.findOneAndUpdate(
       { _id: id, companyId },
       { $addToSet: { readByUserIds: userId } },
+      { new: true }
+    ).lean();
+    return toPlainLean(doc);
+  },
+};
+
+const dailyTaskRepo = {
+  async deleteManyByCompany(companyId, session) {
+    await DailyTask.deleteMany({ companyId }, { session });
+  },
+  async create(data) {
+    const doc = await DailyTask.create(data);
+    return toPlain(doc);
+  },
+  async findById(companyId, id) {
+    const doc = await DailyTask.findOne({ _id: id, companyId }).lean();
+    return toPlainLean(doc);
+  },
+  async listByCompany(companyId, filters = {}) {
+    const query = { companyId };
+    if (filters.assigneeUserId) query.assigneeUserId = filters.assigneeUserId;
+    if (filters.taskDate) {
+      const start = new Date(filters.taskDate);
+      const end = new Date(start);
+      end.setUTCDate(end.getUTCDate() + 1);
+      query.taskDate = { $gte: start, $lt: end };
+    }
+    const docs = await DailyTask.find(query).sort({ taskDate: -1, createdAt: -1, _id: -1 }).lean();
+    return docs.map((d) => ({ ...d, id: String(d._id) }));
+  },
+  async transition(companyId, id, expectedStatus, patch) {
+    const doc = await DailyTask.findOneAndUpdate(
+      { _id: id, companyId, status: expectedStatus },
+      { $set: patch },
       { new: true }
     ).lean();
     return toPlainLean(doc);
@@ -690,6 +768,9 @@ const subscriptionRepo = {
     const doc = await Subscription.findOne({ companyId }).lean();
     return toPlainLean(doc);
   },
+  async deleteByCompany(companyId, session) {
+    await Subscription.deleteMany({ companyId }, { session });
+  },
   async create(data) {
     const doc = await Subscription.create(data);
     return toPlain(doc);
@@ -713,6 +794,192 @@ const subscriptionRepo = {
     if (Object.keys(rest).length > 0) ops.$set = rest;
     const doc = await Subscription.findByIdAndUpdate(id, ops, { new: true }).lean();
     return toPlainLean(doc);
+  },
+};
+
+// ── Stage 7: Item Name Library ──
+//
+// Name-only, reusable library (NOT InventoryItem — no stock, no price).
+// Scoped by companyId + division. Interface consumed by
+// services/itemNameService.js.
+
+function escapeRegex(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const itemNameRepo = {
+  async findByNormalized(companyId, division, normalizedName) {
+    const doc = await ItemName.findOne({ companyId, division, normalizedName }).lean();
+    return toPlainLean(doc);
+  },
+  async incrementUsage(id) {
+    const doc = await ItemName.findByIdAndUpdate(
+      id,
+      { $inc: { usageCount: 1 }, $set: { lastUsedAt: new Date() } },
+      { new: true }
+    ).lean();
+    return toPlainLean(doc);
+  },
+  async create(data) {
+    try {
+      const doc = await ItemName.create(data);
+      return toPlain(doc);
+    } catch (err) {
+      // Concurrent first-save of the same name (unique companyId +
+      // division + normalizedName index): the name already exists, so this
+      // save counts as one more usage of it rather than failing the
+      // document save that triggered it.
+      if (err && err.code === 11000) {
+        const doc = await ItemName.findOneAndUpdate(
+          { companyId: data.companyId, division: data.division, normalizedName: data.normalizedName },
+          { $inc: { usageCount: 1 }, $set: { lastUsedAt: new Date() } },
+          { new: true }
+        ).lean();
+        if (doc) return toPlainLean(doc);
+      }
+      throw err;
+    }
+  },
+  async listByCompanyDivision(companyId, division, limit) {
+    const docs = await ItemName.find({ companyId, division })
+      .sort({ usageCount: -1, normalizedName: 1 })
+      .limit(limit || 20)
+      .lean();
+    return docs.map(toPlainLean);
+  },
+  /** Case-insensitive prefix + substring match on the normalized name. */
+  async search(companyId, division, query, limit) {
+    const normalizedQuery = String(query || '').toLowerCase().trim().replace(/\s+/g, ' ');
+    const docs = await ItemName.find({
+      companyId,
+      division,
+      normalizedName: { $regex: escapeRegex(normalizedQuery) },
+    })
+      .sort({ usageCount: -1, normalizedName: 1 })
+      .limit(limit || 20)
+      .lean();
+    return docs.map(toPlainLean);
+  },
+  async findById(companyId, id) {
+    const doc = await ItemName.findOne({ _id: id, companyId }).lean();
+    return toPlainLean(doc);
+  },
+  async delete(companyId, id) {
+    await ItemName.deleteOne({ _id: id, companyId });
+  },
+};
+
+// ── Stage 7: Quotation ──
+//
+// Interface consumed by services/quotationService.js. Every query is
+// company-scoped. No inventory collection is read or written here.
+
+const quotationRepo = {
+  async create(data) {
+    try {
+      const doc = await Quotation.create(data);
+      return toPlain(doc);
+    } catch (err) {
+      wrapDuplicateKeyError(err, 'A quotation with that number already exists.', 'QUOTATION_NUMBER_DUPLICATE');
+    }
+  },
+  async findById(companyId, id) {
+    const doc = await Quotation.findOne({ _id: id, companyId }).lean();
+    return toPlainLean(doc);
+  },
+  async listByCompany(companyId, filters = {}) {
+    const query = { companyId };
+    if (filters.division) query.division = filters.division;
+    if (filters.status) query.status = filters.status;
+    if (filters.customerName) {
+      query.customerName = { $regex: escapeRegex(filters.customerName), $options: 'i' };
+    }
+    const docs = await Quotation.find(query).sort({ createdAt: -1 }).lean();
+    return docs.map(toPlainLean);
+  },
+  async updateFields(companyId, id, patch) {
+    const doc = await Quotation.findOneAndUpdate(
+      { _id: id, companyId },
+      { $set: patch },
+      { new: true, runValidators: true }
+    ).lean();
+    return toPlainLean(doc);
+  },
+  async delete(companyId, id) {
+    await Quotation.deleteOne({ _id: id, companyId });
+  },
+};
+
+// ── Stage 7: AMC document templates (company overrides only) ──
+//
+// System default wording lives in services/amcDocumentService.js and is
+// never written to the database; this repo stores only a company's own
+// saved override (one per company per template type).
+
+const amcTemplateRepo = {
+  async findDefault(companyId, type) {
+    const doc = await AmcTemplate.findOne({ companyId, type, isDefault: true }).lean();
+    return toPlainLean(doc);
+  },
+  async upsertDefault(companyId, data) {
+    if (!data.name || !String(data.name).trim()) {
+      throw new ServiceError('Template name is required.');
+    }
+    const doc = await AmcTemplate.findOneAndUpdate(
+      { companyId, type: data.type, isDefault: true },
+      {
+        $set: { name: data.name, sections: data.sections || [] },
+        $inc: { version: 1 },
+        $setOnInsert: { companyId, type: data.type, isDefault: true },
+      },
+      { new: true, upsert: true, runValidators: true }
+    ).lean();
+    return toPlainLean(doc);
+  },
+  async listByCompany(companyId) {
+    const docs = await AmcTemplate.find({ companyId }).sort({ type: 1 }).lean();
+    return docs.map(toPlainLean);
+  },
+};
+
+// ── Stage 7: Payment term templates ──
+//
+// Interface consumed by routes/paymentTermTemplateRoutes.js.
+
+const paymentTermTemplateRepo = {
+  async listByCompany(companyId, filters = {}) {
+    const query = { companyId };
+    if (filters.division) query.division = filters.division;
+    if (filters.documentType) query.documentType = filters.documentType;
+    const docs = await PaymentTermTemplate.find(query).sort({ name: 1 }).lean();
+    return docs.map(toPlainLean);
+  },
+  async findById(companyId, id) {
+    const doc = await PaymentTermTemplate.findOne({ _id: id, companyId }).lean();
+    return toPlainLean(doc);
+  },
+  async create(data) {
+    try {
+      const doc = await PaymentTermTemplate.create(data);
+      return toPlain(doc);
+    } catch (err) {
+      wrapDuplicateKeyError(err, 'A payment term template with that name already exists.', 'PAYMENT_TERM_TEMPLATE_DUPLICATE');
+    }
+  },
+  async updateFields(companyId, id, patch) {
+    try {
+      const doc = await PaymentTermTemplate.findOneAndUpdate(
+        { _id: id, companyId },
+        { $set: patch },
+        { new: true, runValidators: true }
+      ).lean();
+      return toPlainLean(doc);
+    } catch (err) {
+      wrapDuplicateKeyError(err, 'A payment term template with that name already exists.', 'PAYMENT_TERM_TEMPLATE_DUPLICATE');
+    }
+  },
+  async delete(companyId, id) {
+    await PaymentTermTemplate.deleteOne({ _id: id, companyId });
   },
 };
 
@@ -748,6 +1015,7 @@ module.exports = {
   contractRepo,
   serviceCallRepo,
   notificationRepo,
+  dailyTaskRepo,
   checklistTemplateRepo,
   userRepoForEnquiry,
   counterRepo,
@@ -759,4 +1027,8 @@ module.exports = {
   inventoryTransactionRepo,
   planRepo,
   subscriptionRepo,
+  itemNameRepo,
+  quotationRepo,
+  amcTemplateRepo,
+  paymentTermTemplateRepo,
 };

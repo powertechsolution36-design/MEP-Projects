@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, apiRequest, getStoredToken } from '../../api/client';
+import { api, apiRequest, getStoredToken, assertDownloadOk } from '../../api/client';
 import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../auth/AuthContext';
 import { money } from '../../utils/format';
-import '../enquiries/enquiry.css';
 
 /**
  * Inventory Stock — PWA `vStock()` exact reproduction.
@@ -117,6 +116,10 @@ export default function InventoryStock() {
   /* ---- Create Item ---- */
   async function handleCreate(e) {
     e.preventDefault();
+    if (createForm.openingStock && Number(createForm.openingStock) !== 0 && !createForm.openingLocationId) {
+      setError('Choose the location for the opening stock.');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -128,8 +131,10 @@ export default function InventoryStock() {
         returnable: createForm.returnable,
         minimumStockLevel: createForm.minimumStockLevel ? Number(createForm.minimumStockLevel) : undefined,
         ratePerUnit: createForm.ratePerUnit ? Number(createForm.ratePerUnit) : undefined,
-        openingStock: createForm.openingStock ? Number(createForm.openingStock) : undefined,
-        openingLocationId: createForm.openingLocationId || undefined,
+        // Backend contract: { <locationId>: qty } (PWA per-location opening entry).
+        openingStock: createForm.openingStock && createForm.openingLocationId
+          ? { [createForm.openingLocationId]: Number(createForm.openingStock) }
+          : undefined,
       });
       setShowCreate(false);
       setCreateForm({ code: '', name: '', categoryId: '', unit: 'Nos', returnable: false, minimumStockLevel: '', ratePerUnit: '', openingStock: '', openingLocationId: '' });
@@ -224,6 +229,7 @@ export default function InventoryStock() {
         API_BASE_URL + '/api/inventory/reports/stock.csv',
         { headers: { Authorization: `Bearer ${getStoredToken()}` } }
       );
+      await assertDownloadOk(resp); // a refused export must not be saved as a file
       const blob = await resp.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { today } from '../../utils/format';
-import './enquiry.css';
+import useMyDivisions from '../../hooks/useMyDivisions';
 
 /**
  * Enquiry → SalesOrder Conversion — PWA `mSO(0, enqId)` exact reproduction.
@@ -19,9 +19,9 @@ import './enquiry.css';
  */
 
 const DEFAULT_TERMS = '1) Fabrication not in our scope. 2) Civil and interior work not in our scope. 3) Mathadi not in our scope.';
-const DIVISIONS = ['HVAC', 'Solar', 'MEP'];
 
 export default function EnquiryConvert() {
+  const DIVISIONS = useMyDivisions(); // company's purchased divisions (PWA myDivs())
   const { id } = useParams();
   const navigate = useNavigate();
   const [enq, setEnq] = useState(null);
@@ -180,11 +180,11 @@ export default function EnquiryConvert() {
           <h3>Costing</h3>
           <div className="form-grid">
             <div className="filter-field"><label>Total Cost</label><input type="number" value={form.totalCost} onChange={e => setField('totalCost', e.target.value)} /></div>
-            <div className="filter-field"><label>HS Selling</label><input type="number" value={form.highSideSelling} onChange={e => setField('highSideSelling', e.target.value)} /></div>
-            <div className="filter-field"><label>HS Purchase</label><input type="number" value={form.highSidePurchase} onChange={e => setField('highSidePurchase', e.target.value)} /></div>
-            <div className="filter-field"><label>LS Cost</label><input type="number" value={form.lowSideCost} onChange={e => setField('lowSideCost', e.target.value)} /></div>
-            <div className="filter-field"><label>LS Target Exp</label><input type="number" value={form.lowSideTargetExpense} onChange={e => setField('lowSideTargetExpense', e.target.value)} /></div>
-            <div className="filter-field"><label>LS Actual Exp</label><input type="number" value={form.lowSideActualExpense} onChange={e => setField('lowSideActualExpense', e.target.value)} /></div>
+            <div className="filter-field"><label>Equipment Selling</label><input type="number" value={form.highSideSelling} onChange={e => setField('highSideSelling', e.target.value)} /></div>
+            <div className="filter-field"><label>Equipment Purchase</label><input type="number" value={form.highSidePurchase} onChange={e => setField('highSidePurchase', e.target.value)} /></div>
+            <div className="filter-field"><label>Accessories Cost</label><input type="number" value={form.lowSideCost} onChange={e => setField('lowSideCost', e.target.value)} /></div>
+            <div className="filter-field"><label>Accessories Target Exp.</label><input type="number" value={form.lowSideTargetExpense} onChange={e => setField('lowSideTargetExpense', e.target.value)} /></div>
+            <div className="filter-field"><label>Accessories Actual Exp.</label><input type="number" value={form.lowSideActualExpense} onChange={e => setField('lowSideActualExpense', e.target.value)} /></div>
           </div>
 
           <div className="filter-field full-width">

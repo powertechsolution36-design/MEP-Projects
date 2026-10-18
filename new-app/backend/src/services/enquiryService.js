@@ -1,6 +1,7 @@
 'use strict';
 
 const { ServiceError } = require('../errors');
+const { assertDivisionEntitled } = require('./subscriptionService');
 const { PROJECT_STAGES_BY_DIVISION } = require('../models/shared/enums');
 const cascade = require('./salesOrderCascade');
 
@@ -105,11 +106,16 @@ async function createEnquiry(input, actorAuth, deps) {
       400
     );
   }
+  // PWA FACT (mEnq, index.html:1916): segment options are the company's
+  // divisions plus "AMC" -- enforced server-side (owner-approved).
+  await assertDivisionEntitled(actorAuth.companyId, segment, deps, { allowAmc: true });
 
   const data = {
     companyId: actorAuth.companyId,
     name,
-    siteType,
+    // A blank select value means "not chosen" -- never store '' into the
+    // siteType enum (it would fail validation with a 500).
+    siteType: siteType || undefined,
     capacity,
     segment,
     phone,
@@ -160,6 +166,9 @@ async function editEnquiry(id, patchInput, actorAuth, deps) {
     }
   }
 
+  if (Object.prototype.hasOwnProperty.call(patch, 'siteType') && !patch.siteType) {
+    delete patch.siteType; // blank select value never written into the enum
+  }
   if (Object.prototype.hasOwnProperty.call(patch, 'name') && !patch.name) {
     throw new ServiceError('Project name is required.', 'VALIDATION_ERROR', 400);
   }
@@ -169,6 +178,9 @@ async function editEnquiry(id, patchInput, actorAuth, deps) {
     }
     if (!VALID_SEGMENTS.includes(patch.segment)) {
       throw new ServiceError(`Segment must be one of: ${VALID_SEGMENTS.join(', ')}.`, 'VALIDATION_ERROR', 400);
+    }
+    if (patch.segment !== existing.segment) {
+      await assertDivisionEntitled(actorAuth.companyId, patch.segment, deps, { allowAmc: true });
     }
   }
 
@@ -220,6 +232,12 @@ async function markLost(id, input, actorAuth, deps) {
   const existing = await deps.enquiryRepo.findById(actorAuth.companyId, id);
   if (!existing) {
     throw new ServiceError('Enquiry not found.', 'NOT_FOUND', 404);
+  }
+
+  // PWA FACT (vEnq, index.html:1935): the "Mark Lost" action is only offered
+  // while the enquiry is Open -- a Won (converted) enquiry cannot be lost.
+  if (existing.status !== 'Open') {
+    throw new ServiceError('Only an Open enquiry can be marked Lost.', 'INVALID_STATUS', 400);
   }
 
   const { reason, remark } = input || {};
@@ -514,6 +532,7 @@ async function convertEnquiryToSalesOrder(id, soOverrides, actorAuth, deps) {
 
   const draft = buildSalesOrderDraft(enquiry, soOverrides, actorName);
   validateSalesOrderDraft(draft);
+  await assertDivisionEntitled(actorAuth.companyId, draft.division, deps);
 
   return deps.withTransaction(deps, async (txnDeps) => {
     const { session } = txnDeps;

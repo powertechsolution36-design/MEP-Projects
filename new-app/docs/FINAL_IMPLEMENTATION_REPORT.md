@@ -32,7 +32,7 @@ New modules added for quotation/AMC/subscription features:
 | Subscription/Plans | Plan.js, Subscription.js | subscriptionService.js | subscriptionRoutes.js | SubscriptionManagement.jsx + 4 admin pages | included above |
 | Payment Term Templates | PaymentTermTemplate.js | (inline in routes) | paymentTermTemplateRoutes.js | (selector in quotation forms) | included above |
 | Company Profile | (extended Company.js) | (extended companyService.js) | (extended companyRoutes.js) | CompanyProfile.jsx | included above |
-| Division Guard | - | (middleware) | divisionGuard.js | DivisionSelector component | included above |
+| Division Guard | - | (service layer) | `subscriptionService.assertDivisionEntitled` + per-service list filters (UPDATE, completion order: `middleware/divisionGuard.js` exists but is not mounted on any route) | DivisionSelector / `useMyDivisions` | included above |
 
 ---
 

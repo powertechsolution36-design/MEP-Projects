@@ -4,7 +4,6 @@ import { useAuth } from '../../auth/AuthContext';
 import { api } from '../../api/client';
 import { money, fmtDate } from '../../utils/format';
 import DivisionSelector from '../../components/DivisionSelector';
-import '../enquiries/enquiry.css';
 
 /**
  * Quotation list — admin, sales, finance roles.
@@ -18,7 +17,7 @@ const STATUS_OPTIONS = ['', 'Draft', 'Sent', 'Accepted', 'Rejected', 'Revised', 
 export default function QuotationList() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const canCreate = ['admin', 'sales'].includes(user?.role);
+  const canCreate = ['admin', 'sales', 'finance'].includes(user?.role);
 
   const [quotations, setQuotations] = useState([]);
   const [loading, setLoading] = useState(true);

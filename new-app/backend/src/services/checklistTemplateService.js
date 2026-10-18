@@ -1,6 +1,7 @@
 'use strict';
 
 const { ServiceError } = require('../errors');
+const { getEffectiveDivisions, assertDivisionEntitled } = require('./subscriptionService');
 const { DIVISIONS, SIGN_RESPONSIBILITIES } = require('../models/shared/enums');
 const { PM_DIVISION_FOR_ROLE } = require('./projectService');
 
@@ -89,7 +90,11 @@ async function listTemplates(actorAuth, filters, deps) {
     validateDivision(requestedDivision);
     return deps.checklistTemplateRepo.listByDivision(actorAuth.companyId, requestedDivision);
   }
-  return deps.checklistTemplateRepo.listByCompany(actorAuth.companyId);
+  // PWA FACT (vChecklists, index.html:2683): admin sees `myDivs()` -- the
+  // company's (purchased) divisions only.
+  const divisions = await getEffectiveDivisions(actorAuth.companyId, deps);
+  const all = await deps.checklistTemplateRepo.listByCompany(actorAuth.companyId);
+  return all.filter((t) => divisions.includes(t.division));
 }
 
 // PWA FACT (`vChklist`/`chkListById`): no extra role/division restriction on
@@ -114,6 +119,7 @@ async function createTemplate(input, actorAuth, deps) {
   assertCanEditChecklistLibrary(actorAuth, 'create a checklist template');
   const { division, name, sourceTemplateId, isDefault } = input || {};
   validateDivision(division);
+  await assertDivisionEntitled(actorAuth.companyId, division, deps);
   if (!name || !String(name).trim()) {
     throw new ServiceError('Enter checklist name.', 'VALIDATION_ERROR', 400); // PWA FACT: `if(!gv("nl_n")){toast("Enter checklist name")}`
   }

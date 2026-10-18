@@ -70,10 +70,35 @@ export async function apiRequest(path, { method = 'GET', body, token } = {}) {
 
   if (!response.ok) {
     const message = (data && data.error) || `Request failed with status ${response.status}`;
+    // An expired/revoked session (or a deactivated user / suspended company)
+    // ends the local session everywhere instead of leaving pages failing
+    // silently; AuthContext listens and sends the user to the login screen.
+    if (response.status === 401 && path !== '/api/auth/login') {
+      setStoredToken(null);
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('mep:unauthorized'));
+    }
     throw new ApiError(message, response.status, data);
   }
 
   return data;
+}
+
+/**
+ * For pages that download a file with fetch() (CSV exports): call right
+ * after the fetch. On a non-2xx reply it throws an ApiError carrying the
+ * server's message, so the page shows the error instead of saving the JSON
+ * error body as a ".csv"; a 401 ends the local session exactly as
+ * apiRequest does.
+ */
+export async function assertDownloadOk(response) {
+  if (response.ok) return response;
+  let data = null;
+  try { data = JSON.parse(await response.text()); } catch { data = null; }
+  if (response.status === 401) {
+    setStoredToken(null);
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('mep:unauthorized'));
+  }
+  throw new ApiError((data && data.error) || `Request failed with status ${response.status}`, response.status, data);
 }
 
 export const api = {

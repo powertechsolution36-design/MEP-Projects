@@ -276,7 +276,9 @@ async function registerComplaint(input, actorAuth, deps) {
 
   const site = (input && input.site) || '';
   const phone = (input && input.phone) || '';
-  const complaintDescription = (input && input.complaint) || '';
+  // Accepts the frontend's field name (complaintDescription) as well as the
+  // PWA-derived name (complaint).
+  const complaintDescription = (input && (input.complaint || input.complaintDescription)) || '';
 
   const { serviceCall, psc } = await deps.withTransaction(deps, async (txnDeps) => {
     const { session } = txnDeps;
@@ -343,8 +345,11 @@ async function schedulePM(contractId, input, actorAuth, deps) {
   }
   const phone = (input && input.phone !== undefined ? input.phone : contract.phone) || '';
   const site = (input && input.site !== undefined ? input.site : contract.site) || '';
-  const appointmentDate = input && input.date ? new Date(input.date) : null;
-  const appointmentTime = (input && input.time) || '';
+  // date/time: PWA-derived names; appointmentDate/appointmentTime: the
+  // names the frontend sends.
+  const rawPmDate = input && (input.date || input.appointmentDate);
+  const appointmentDate = rawPmDate ? new Date(rawPmDate) : null;
+  const appointmentTime = (input && (input.time || input.appointmentTime)) || '';
 
   const { serviceCall, psc } = await deps.withTransaction(deps, async (txnDeps) => {
     const { session } = txnDeps;
@@ -460,6 +465,12 @@ async function listServiceCalls(actorAuth, { filters = {} } = {}, deps) {
  * not a broadening beyond MANAGE_ROLES, only a decision about where the
  * line is drawn for this narrower dashboard-widget query.
  */
+async function listMyServiceCalls(actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  const all = await deps.serviceCallRepo.listByCompany(actorAuth.companyId);
+  return all.filter((s) => s.engineerId && String(s.engineerId) === String(actorAuth.userId) && s.status !== 'Completed');
+}
+
 async function getOpenServiceCalls(actorAuth, deps) {
   assertCompanyContext(actorAuth);
   assertCanManageServiceCalls(actorAuth, 'view the Open Service Calls panel');
@@ -558,8 +569,12 @@ async function assignEngineer(id, input, actorAuth, deps) {
     engineerName = candidate.name;
   }
 
-  const appointmentDate = input && input.date ? new Date(input.date) : null; // PWA FACT: unconditional overwrite, blank tolerated.
-  const appointmentTime = (input && input.time) || '';
+  // PWA FACT: unconditional overwrite, blank tolerated. Accepts both the
+  // PWA-derived names (date/time) and the frontend's names
+  // (appointmentDate/appointmentTime).
+  const rawAssignDate = input && (input.date || input.appointmentDate);
+  const appointmentDate = rawAssignDate ? new Date(rawAssignDate) : null;
+  const appointmentTime = (input && (input.time || input.appointmentTime)) || '';
   const nextStatus = engineerId && serviceCall.status === 'Registered' ? 'Assigned' : serviceCall.status; // PWA FACT: DO NOT FIX.
 
   const updated = await deps.withTransaction(deps, async (txnDeps) => {
@@ -641,13 +656,19 @@ async function completeServiceCall(id, input, actorAuth, deps) {
   if (!existing) throw new ServiceError('Service Call not found.', 'NOT_FOUND', 404);
   assertCanEditReport(actorAuth, existing);
 
-  const signature = input && input.signature;
+  const signature = input && (input.signature || input.clientSignatureImage);
   if (!signature) {
     // PWA FACT (§10/§11): `if(_sg&&_sg.empty){toast("Client signature required to complete the call");return}` -- the ONLY hard completion guard.
     throw new ServiceError('Client signature required to complete the call.', 'MISSING_SIGNATURE', 400);
   }
 
   const report = buildReport(input && (input.report || input));
+  // PWA FACT (vCall report form, index.html:3571/3579): the Service Type
+  // select always submits a value, defaulting to "AMC" for PM calls and
+  // "Chargeable" for complaints.
+  if (report.serviceType === undefined) {
+    report.serviceType = existing.type === 'PM' ? 'AMC' : 'Chargeable';
+  }
 
   // PWA FACT: completion notification text uses `s.eng||U.name` -- the
   // assigned engineer's display NAME if one was ever assigned, else the
@@ -773,6 +794,7 @@ async function listEngineerCandidates(actorAuth, deps) {
 }
 
 module.exports = {
+  listMyServiceCalls,
   registerComplaint,
   schedulePM,
   getServiceCall,

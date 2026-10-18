@@ -49,13 +49,17 @@ test('createCompanyWithAdmin rejects a duplicate username within the SAME compan
   await assert.rejects(
     () =>
       require('../../src/services/companyService').createCompanyWithAdmin(
-        { company: { name: 'Acme (dup attempt)' }, admin: { name: 'B', username: 'admin1', password: 'y' } },
+        { company: { name: 'Acme (dup attempt)', divisions: ['HVAC'] }, admin: { name: 'B', username: 'admin1', password: 'y' } },
         {
           ...deps(store),
           companyRepo: { create: async () => company, findById: store.companyRepo.findById }, // force same company id
         }
       ),
-    /already taken/
+    // UPDATE (Completion order -- owner-approved decision: usernames are
+    // globally unique, PWA saveCompany "Login ID already in use"): the
+    // duplicate is now caught by the platform-wide check, before any
+    // company is created.
+    /already (taken|in use)/
   );
 });
 

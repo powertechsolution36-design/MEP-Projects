@@ -98,8 +98,9 @@ test('6. unique indexes exist where DATABASE_SCHEMA.md documents a uniqueness ru
   assert.equal(counterUnique[1].unique, true);
 });
 
-test('9. counter definitions cover exactly the two true business sequences', () => {
-  assert.deepEqual([...COUNTER_NAMES].sort(), ['salesOrder', 'serviceCall'].sort());
+test('9. counter definitions cover exactly the three true business sequences', () => {
+  // UPDATE (Completion order): 'quotation' is a real, used sequence (Stage 7 quotation numbers).
+  assert.deepEqual([...COUNTER_NAMES].sort(), ['salesOrder', 'serviceCall', 'quotation'].sort());
   const enumValidator = Counter.schema.path('name').enumValues;
-  assert.deepEqual([...enumValidator].sort(), ['salesOrder', 'serviceCall'].sort());
+  assert.deepEqual([...enumValidator].sort(), ['salesOrder', 'serviceCall', 'quotation'].sort());
 });

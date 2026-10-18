@@ -2,7 +2,7 @@
 
 const express = require('express');
 const service = require('../services/inventoryService');
-const { ServiceError } = require('../errors');
+const { ServiceError, mapPersistenceError } = require('../errors');
 const { createAuthMiddleware } = require('../middleware/authMiddleware');
 const { requireCompanyContext, rejectClientSuppliedCompanyId } = require('../middleware/tenantGuard');
 
@@ -54,6 +54,8 @@ function createInventoryRouter(deps) {
         if (err instanceof ServiceError) {
           return res.status(err.status).json({ error: err.message, code: err.code });
         }
+        const mapped = mapPersistenceError(err);
+        if (mapped) return res.status(mapped.status).json({ error: mapped.message, code: mapped.code });
         // eslint-disable-next-line no-console
         console.error('[inventoryRoutes]', err);
         return res.status(500).json({ error: 'Internal error.' });
@@ -130,6 +132,23 @@ function createInventoryRouter(deps) {
   }));
 
   /* ---- Issues / Returns / Mark-used ---- */
+  // List issues (store view) -- registered before '/issues/:id/...' routes;
+  // query: open=1 (balance still out), returnRequested=1 (pending requests).
+  router.get('/issues', handle(async (req, res) => {
+    const issues = await service.listIssues(req.auth, {
+      open: req.query.open === '1' || req.query.open === 'true',
+      returnRequested: req.query.returnRequested === '1' || req.query.returnRequested === 'true',
+    }, deps);
+    return res.status(200).json({ issues });
+  }));
+  router.get('/site-options', handle(async (req, res) => {
+    const sites = await service.listSiteOptions(req.auth, deps);
+    return res.status(200).json({ sites });
+  }));
+  router.get('/transactions', handle(async (req, res) => {
+    const transactions = await service.listTransactions(req.auth, { itemId: req.query.itemId || null }, deps);
+    return res.status(200).json({ transactions });
+  }));
   router.post('/issues', handle(async (req, res) => {
     const result = await service.issueMaterial(req.body, req.auth, deps);
     return res.status(201).json(result);

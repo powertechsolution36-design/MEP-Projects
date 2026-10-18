@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api, apiRequest } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
-import '../enquiries/enquiry.css';
 
 /**
  * Categories & Locations — PWA `vCat()` + `vLoc()` exact reproduction.

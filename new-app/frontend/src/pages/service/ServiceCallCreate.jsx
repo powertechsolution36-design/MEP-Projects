@@ -3,7 +3,6 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { today } from '../../utils/format';
-import '../enquiries/enquiry.css';
 
 /**
  * Service Call Creation — supports two paths:
@@ -80,7 +79,7 @@ export default function ServiceCallCreate() {
         };
         const data = await api.post(`/api/service-calls/pm/${contractId}`, body);
         const id = data.serviceCall?.id || data.serviceCall?._id;
-        navigate(`/service-calls/${id}`);
+        navigate(`/service-calls/${id}`, { state: { customerMessage: data.customerMessage || '' } });
       } else {
         /* Path A — Register Complaint */
         const body = {
@@ -93,7 +92,7 @@ export default function ServiceCallCreate() {
         };
         const data = await api.post('/api/service-calls/complaints', body);
         const id = data.serviceCall?.id || data.serviceCall?._id;
-        navigate(`/service-calls/${id}`);
+        navigate(`/service-calls/${id}`, { state: { customerMessage: data.customerMessage || '' } });
       }
     } catch (err) {
       setError(err.message);

@@ -17,6 +17,12 @@ const { createInventoryRouter } = require('./routes/inventoryRoutes');
 const { createChecklistTemplateRouter } = require('./routes/checklistTemplateRoutes');
 const { createNotificationRouter } = require('./routes/notificationRoutes');
 const { createSubscriptionRouter } = require('./routes/subscriptionRoutes');
+const { createQuotationRouter } = require('./routes/quotationRoutes');
+const { createItemNameRouter } = require('./routes/itemNameRoutes');
+const { createAmcDocumentRouter } = require('./routes/amcDocumentRoutes');
+const { createPaymentTermTemplateRouter } = require('./routes/paymentTermTemplateRoutes');
+const { createDashboardRouter } = require('./routes/dashboardRoutes');
+const { createDailyTaskRouter } = require('./routes/dailyTaskRoutes');
 const { startDelayCheckScheduler } = require('./jobs/delayCheckScheduler');
 const {
   enquiryRepo,
@@ -37,6 +43,11 @@ const {
   inventoryTransactionRepo,
   planRepo,
   subscriptionRepo,
+  itemNameRepo,
+  quotationRepo,
+  amcTemplateRepo,
+  paymentTermTemplateRepo,
+  dailyTaskRepo,
 } = require('./repositories/businessRepositories.mongoose');
 
 /**
@@ -62,7 +73,10 @@ const {
  * Return request/accept/reject, Mark Used, Transfer, Adjustments,
  * dashboard/reports -- see PWA_COVERAGE_AUDIT_INVENTORY.md /
  * INVENTORY_DECISION_LOCK.md; no edit/delete for InventoryTransaction,
- * append-only).
+ * append-only), plus Subscription/Plan (Super-Admin plan catalog and
+ * per-company purchased divisions) and the Stage 7 commercial documents:
+ * Quotation, Item Name Library, AMC document templates/generation,
+ * Payment Term Templates, and Company Profile (/api/companies/my-profile).
  *
  * This module wires the REAL Mongoose-backed repositories — it is not
  * exercised by the test suite (which injects in-memory fakes instead, so no
@@ -99,9 +113,23 @@ function createApp(overrideConfig) {
     inventoryTransactionRepo,
     planRepo,
     subscriptionRepo,
+    itemNameRepo,
+    quotationRepo,
+    amcTemplateRepo,
+    paymentTermTemplateRepo,
+    dailyTaskRepo,
   };
 
   const app = express();
+  // Company Profile carries base64 logo / signature / stamp images (the
+  // frontend caps each file at 500 KB), which exceeds express.json()'s
+  // default 100 KB body limit. A larger limit is applied to that one route
+  // only; it parses first, so the global parser below skips it.
+  app.use('/api/companies/my-profile', express.json({ limit: '5mb' }));
+  // Checklist photos / approval signatures (projects) and the client
+  // signature on service-call completion are base64 images too.
+  app.use('/api/projects', express.json({ limit: '5mb' }));
+  app.use('/api/service-calls', express.json({ limit: '5mb' }));
   app.use(express.json());
 
   app.get('/api/health', (req, res) => res.status(200).json({ ok: true }));
@@ -118,6 +146,13 @@ function createApp(overrideConfig) {
   app.use('/api/checklist-templates', createChecklistTemplateRouter(businessDeps));
   app.use('/api/notifications', createNotificationRouter(businessDeps));
   app.use('/api/subscriptions', createSubscriptionRouter(businessDeps));
+  // Stage 7 commercial documents.
+  app.use('/api/quotations', createQuotationRouter(businessDeps));
+  app.use('/api/item-names', createItemNameRouter(businessDeps));
+  app.use('/api/amc-documents', createAmcDocumentRouter(businessDeps));
+  app.use('/api/payment-term-templates', createPaymentTermTemplateRouter(businessDeps));
+  app.use('/api/dashboard', createDashboardRouter(businessDeps));
+  app.use('/api/daily-tasks', createDailyTaskRouter(businessDeps));
 
   app.startDelayCheckScheduler = (options) => startDelayCheckScheduler(businessDeps, options);
 
