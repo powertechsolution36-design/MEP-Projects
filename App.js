@@ -44,7 +44,7 @@ export default function App() {
       var meta = document.querySelector('meta[name="viewport"]');
       if (meta) meta.setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover');
       var style = document.createElement('style');
-      style.textContent = 'input,select,textarea{font-size:16px !important} body{padding-top:env(safe-area-inset-top)}';
+      style.textContent = 'input,select,textarea{font-size:16px !important} body{padding-top:env(safe-area-inset-top)} .app-download{display:none !important}';
       document.head.appendChild(style);
       true;
     })();
