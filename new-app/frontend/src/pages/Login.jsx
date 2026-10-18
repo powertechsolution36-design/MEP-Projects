@@ -132,7 +132,7 @@ export default function Login() {
             )}
           </div>
         </div>
-        <p className="app-download-note">Preview only — download buttons must connect to verified app packages before release.</p>
+        <p className="app-download-note">The Android app is available to install. An iOS app is not available yet.</p>
       </section>
       </div>
     </div>
