@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
-import { menuForRole, ROLE_LABELS } from './menuConfig';
+import { menuForRole, mobileMenuForRole, ROLE_LABELS } from './menuConfig';
 import { api } from '../api/client';
 
 /**
@@ -35,6 +35,7 @@ export default function Shell() {
   const navigate = useNavigate();
   const location = useLocation();
   const menu = menuForRole(user?.role);
+  const mobileMenu = mobileMenuForRole(user?.role);
   const [unreadCount, setUnreadCount] = useState(0);
   const [companyInfo, setCompanyInfo] = useState(null);
   const [navOpen, setNavOpen] = useState(false);
@@ -122,7 +123,7 @@ export default function Shell() {
             )}
           </button>
           <span className="shell-role-badge">{ROLE_LABELS[user?.role] || user?.role}</span>
-          <span className="shell-user-name">{user?.name}</span>
+          <span className="shell-user-name">{user?.name || user?.username}</span>
           <button className="link-button" onClick={handleLogout}>Log out</button>
         </div>
       </header>
@@ -178,6 +179,25 @@ export default function Shell() {
           <Outlet />
         </main>
       </div>
+
+      <nav className="shell-mobile-nav" aria-label="Mobile navigation">
+        {mobileMenu.map(([key, label, path]) => {
+          const { icon, text } = splitLabel(label);
+          return (
+            <NavLink
+              key={key}
+              to={path}
+              end={path === '/'}
+              className={({ isActive }) => (isActive ? 'mobile-nav-item active' : 'mobile-nav-item')}
+              aria-label={text}
+              title={text}
+            >
+              {icon && <span className="mobile-nav-icon" aria-hidden="true">{icon}</span>}
+              <span className="mobile-nav-label">{text}</span>
+            </NavLink>
+          );
+        })}
+      </nav>
     </div>
   );
 }

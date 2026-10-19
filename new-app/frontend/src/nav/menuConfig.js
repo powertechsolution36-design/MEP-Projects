@@ -126,3 +126,27 @@ export const NEW_APP_MENU_ADDITIONS = {
 export function menuForRole(role) {
   return [...(MENUS[role] || []), ...(NEW_APP_MENU_ADDITIONS[role] || [])];
 }
+
+// Mobile shortcuts use the same authenticated user's role menu. Keep the
+// full role menu in the sidebar; this only selects the most-used destinations
+// for the compact bottom navigation.
+const MOBILE_NAV_KEYS = {
+  super: ['dash', 'companies', 'usage', 'reports'],
+  admin: ['dash', 'dailyTasks', 'users', 'checklists'],
+  sales: ['dash', 'enquiries', 'sos', 'lost'],
+  hvac_pm: ['dash', 'projects', 'sos', 'checklists'],
+  solar_pm: ['dash', 'projects', 'sos', 'checklists'],
+  mep_pm: ['dash', 'projects', 'sos', 'checklists'],
+  engineer: ['dash', 'dailyTasks', 'mymaterial'],
+  inventory: ['dash', 'stock', 'invissue', 'invreturn'],
+  service_mgr: ['dash', 'service', 'pmlist', 'dailyTasks'],
+  service_eng: ['dash', 'dailyTasks', 'mymaterial'],
+  finance: ['dash', 'payments', 'sos', 'quotations'],
+};
+
+export function mobileMenuForRole(role) {
+  const entries = new Map(menuForRole(role).map((entry) => [entry[0], entry]));
+  return (MOBILE_NAV_KEYS[role] || ['dash'])
+    .map((key) => entries.get(key))
+    .filter(Boolean);
+}

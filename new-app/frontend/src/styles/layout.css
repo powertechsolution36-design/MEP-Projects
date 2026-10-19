@@ -244,6 +244,9 @@
 
 .shell-scrim { display: none; }
 
+/* Shared compact navigation for the signed-in user's most-used destinations. */
+.shell-mobile-nav { display: none; }
+
 /* ---- Content ---------------------------------------------------- */
 .shell-content {
   flex: 1;
@@ -332,7 +335,7 @@
     bottom: 0;
     left: 0;
     height: auto;
-    width: min(290px, 84vw);
+    width: min(290px, 78vw);
     z-index: var(--z-rail);
     box-shadow: var(--shadow-lg);
     transform: translateX(-100%);
@@ -365,6 +368,64 @@
   .shell-user { gap: var(--s-4); }
   .shell-user-name { max-width: 10ch; }
   .shell-brand { font-size: var(--fs-sm); }
+
+  .shell-content {
+    padding-bottom: calc(var(--page-pad) + 68px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .shell-mobile-nav {
+    position: fixed;
+    z-index: var(--z-sticky);
+    left: 0;
+    right: 0;
+    bottom: 0;
+    min-height: calc(64px + env(safe-area-inset-bottom, 0px));
+    padding: 5px max(var(--s-4), env(safe-area-inset-left, 0px)) env(safe-area-inset-bottom, 0px);
+    display: flex;
+    align-items: stretch;
+    justify-content: space-around;
+    gap: var(--s-2);
+    background: var(--surface);
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .mobile-nav-item {
+    min-width: 0;
+    min-height: var(--tap-min);
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 2px var(--s-2);
+    color: var(--text-muted);
+    text-decoration: none;
+    border-radius: var(--r-sm);
+  }
+
+  .mobile-nav-item.active {
+    color: var(--primary);
+    font-weight: var(--fw-semi);
+  }
+
+  .mobile-nav-icon {
+    height: 20px;
+    display: flex;
+    align-items: center;
+    font-size: 17px;
+    line-height: 1;
+  }
+
+  .mobile-nav-label {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-2xs);
+    line-height: var(--lh-snug);
+  }
 
   .page-head,
   .enq-header, .so-header, .pay-header, .proj-header, .svc-header, .inv-header {
