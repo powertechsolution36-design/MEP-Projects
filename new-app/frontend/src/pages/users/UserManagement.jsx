@@ -136,8 +136,8 @@ export default function UserManagement() {
       )}
 
       {!loading && filtered.length > 0 && (
-        <div className="panel">
-          <table className="data-table">
+        <div className="panel users-panel">
+          <table className="data-table users-table">
             <thead>
               <tr>
                 <th>Name</th>
@@ -152,11 +152,11 @@ export default function UserManagement() {
                 const isSelf = String(uid) === String(me?.id);
                 return (
                   <tr key={uid}>
-                    <td>{u.name}</td>
-                    <td>{u.username}</td>
-                    <td>{ROLE_LABELS[u.role] || u.role}</td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 6 }}>
+                    <td data-label="Name">{u.name}</td>
+                    <td data-label="Username">{u.username}</td>
+                    <td data-label="Role">{ROLE_LABELS[u.role] || u.role}</td>
+                    <td data-label="Actions">
+                      <div className="users-table-actions">
                         <button className="btn btn-sm" onClick={() => setShowModal({ userId: uid })}>Edit</button>
                         {/* PWA FACT: Remove button not rendered for self */}
                         {!isSelf && (

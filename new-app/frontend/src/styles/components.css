@@ -976,6 +976,50 @@
   .data-table th, .data-table td { padding: 8px var(--s-4); }
   .table-wrap { -webkit-overflow-scrolling: touch; }
 
+  /* User management becomes a set of readable cards so row actions stay
+     visible without making the whole phone page scroll sideways. */
+  .users-panel { padding: var(--s-4); }
+  .users-table,
+  .users-table tbody { display: block; width: 100%; }
+  .users-table thead { display: none; }
+  .users-table tbody tr {
+    display: block;
+    margin-bottom: var(--s-4);
+    padding: 0 var(--s-4);
+    overflow: hidden;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--r-md);
+    background: var(--surface);
+  }
+  .users-table tbody tr:last-child { margin-bottom: 0; }
+  .users-table tbody tr:hover { background: var(--surface); }
+  .users-table th,
+  .users-table td {
+    display: grid;
+    grid-template-columns: minmax(5.25rem, 32%) minmax(0, 1fr);
+    align-items: center;
+    gap: var(--s-3);
+    width: 100%;
+    padding: var(--s-3) 0;
+    border-bottom: 1px solid var(--border-subtle);
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .users-table td::before {
+    content: attr(data-label);
+    color: var(--text-muted);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semi);
+  }
+  .users-table tbody td:last-child { border-bottom: 0; }
+  .users-table .users-table-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+    min-width: 0;
+  }
+  .users-table .users-table-actions .btn { white-space: nowrap; }
+
   .milestone-row { flex-wrap: wrap; }
   .doc-preview { padding: var(--s-6); }
 }
