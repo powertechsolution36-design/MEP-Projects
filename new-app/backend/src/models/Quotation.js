@@ -65,6 +65,11 @@ const quotationSchema = new Schema(
       enum: DIVISIONS,
       required: true,
     },
+    // Which kind of offer this is — 'split' | 'ducted' | 'vrf' | 'solar', or
+    // '' for one started from scratch (owner request, 23 Oct 2026). It records
+    // the built-in starting point the document was opened from; it changes
+    // nothing about how the quotation prices or prints.
+    offerType: { type: String, default: '' },
     status: {
       type: String,
       enum: ['Draft', 'Sent', 'Accepted', 'Rejected', 'Revised', 'Cancelled'],

@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { ServiceError } = require('../errors');
 const { bulkUpsertFromLineItems } = require('./itemNameService');
 const { getEffectiveDivisions } = require('./subscriptionService');
+const { PRESET_CODES } = require('./quotationPresets');
 
 /**
  * Quotation business logic.
@@ -186,6 +187,7 @@ async function createQuotation(companyId, data, actorId, deps) {
     companyId,
     quotationNumber,
     division: data.division,
+    offerType: PRESET_CODES.includes(data.offerType) ? data.offerType : '',
     status: data.status || 'Draft',
     customerName: data.customerName,
     customerAddress: data.customerAddress || '',
@@ -247,7 +249,7 @@ async function updateQuotation(companyId, quotationId, data, actorId, deps) {
     'status', 'division', 'customerName', 'customerAddress', 'customerPhone',
     'customerEmail', 'customerGst', 'subject', 'system', 'capacity',
     'siteDescription', 'summaryText', 'technicalDescription', 'designApproval',
-    'benefitsOfSystem', 'designBy', 'systemApprovedBy',
+    'benefitsOfSystem', 'designBy', 'systemApprovedBy', 'offerType',
     'paymentTerms', 'paymentTermTemplateId', 'offerValidity', 'delivery',
     'excludedWorks', 'notes', 'date', 'revision',
   ];
@@ -301,7 +303,11 @@ async function duplicateQuotation(companyId, quotationId, actorId, deps) {
   if (!source) throw new ServiceError('Quotation not found.', 'NOT_FOUND', 404);
 
   const quotationNumber = await generateQuotationNumber(companyId, deps);
-  const { id, _id, quotationNumber: _qn, createdAt, updatedAt, ...rest } = source;
+  // pdfToken is dropped deliberately: it keys the client-facing link and is
+  // unique per quotation. Carrying it over would either be refused by the
+  // unique index or, worse, point two quotations at one link. The copy gets
+  // its own token the first time someone asks for its PDF link.
+  const { id, _id, quotationNumber: _qn, createdAt, updatedAt, pdfToken, ...rest } = source;
   return deps.quotationRepo.create({
     ...rest,
     quotationNumber,

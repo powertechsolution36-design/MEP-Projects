@@ -216,6 +216,10 @@ test('audit-correction scope guard: only authorized routes and services exist', 
     // UPDATE (owner request, 22 Oct 2026): renders the Quotation PDF the
     // customer is sent; a pure helper of quotationService.
     'quotationPdf.js',
+    // UPDATE (owner request, 23 Oct 2026): the built-in starting points, one
+    // per kind of offer, derived from the company's own workbooks. Pure data
+    // plus a lookup — a helper of quotationService, not a module of its own.
+    'quotationPresets.js',
     'quotationService.js',
     // UPDATE (Claude design + completion directive, Oct 2026): a shared
     // helper, not a business module — the PWA's `rptHead()` CSV report

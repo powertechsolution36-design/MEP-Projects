@@ -23,7 +23,7 @@ export default function QuotationCreate() {
   const [saveError, setSaveError] = useState('');
 
   const [form, setForm] = useState({
-    division: '', customerName: '', customerAddress: '', customerPhone: '',
+    division: '', offerType: '', customerName: '', customerAddress: '', customerPhone: '',
     customerEmail: '', customerGst: '', subject: '', system: '', capacity: '',
     siteDescription: '', summaryText: '', technicalDescription: '', designApproval: '',
     benefitsOfSystem: '', designBy: '', systemApprovedBy: '',
@@ -44,6 +44,12 @@ export default function QuotationCreate() {
   const [startingPoints, setStartingPoints] = useState([]);
   const [appliedStart, setAppliedStart] = useState('');
 
+  // Built-in starting points, one per kind of offer — Split, Ducted, VRF,
+  // Solar (owner request, 23 Oct 2026). The server filters these to the
+  // divisions this company has bought.
+  const [presets, setPresets] = useState([]);
+  const [appliedPreset, setAppliedPreset] = useState('');
+
   useEffect(() => {
     api.get('/api/payment-term-templates?documentType=quotation')
       .then(data => setTemplates(data.templates || []))
@@ -57,11 +63,14 @@ export default function QuotationCreate() {
         setPendingAuto(list.filter(t => t.isDefault));
       })
       .catch(() => { /* optional: the form works without any */ });
+    api.get('/api/quotation-templates/presets')
+      .then((data) => setPresets(data.presets || []))
+      .catch(() => { /* optional: the form works without any */ });
   }, []);
 
   const [pendingAuto, setPendingAuto] = useState([]);
   useEffect(() => {
-    if (!pendingAuto.length || appliedStart || !form.division) return;
+    if (!pendingAuto.length || appliedStart || appliedPreset || !form.division) return;
     const auto = pendingAuto.find(t => t.division === form.division);
     if (auto && formIsUntouched()) applyStartingPoint(auto.id, form.division);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -87,7 +96,51 @@ export default function QuotationCreate() {
     if (auto && formIsUntouched()) applyStartingPoint(auto.id, division);
   }
 
+  /**
+   * Pick the kind of offer (owner request, 23 Oct 2026). The preset carries
+   * its own division and the wording that is the same on every offer of that
+   * kind, so the table opens with its descriptions in place and only prices
+   * have to be typed. Rates all arrive at 0 — a price is never inherited.
+   */
+  function applyPreset(code) {
+    setAppliedPreset(code);
+    setAppliedStart('');
+    if (!code) {
+      // Back to a blank quotation: clear what a preset had filled in, but
+      // keep the division and anything the user typed about the customer.
+      setForm(prev => ({
+        ...prev, offerType: '', subject: '', system: '', siteDescription: '',
+        benefitsOfSystem: '', gstPercent: 18, offerValidity: '', delivery: '', notes: '',
+      }));
+      setEquipmentItems([{ ...EMPTY_LINE }]);
+      setAccessoriesItems([]);
+      setPaymentTerms([]);
+      setExcludedWorks(['']);
+      return;
+    }
+    const p = presets.find((x) => x.code === code);
+    if (!p) return;
+    setForm(prev => ({
+      ...prev,
+      division: p.division || prev.division,
+      offerType: p.code,
+      subject: p.subject || '',
+      system: p.system || '',
+      siteDescription: p.siteDescription || '',
+      benefitsOfSystem: p.benefitsOfSystem || '',
+      gstPercent: p.gstPercent != null ? p.gstPercent : 18,
+      offerValidity: p.offerValidity || '',
+      delivery: p.delivery || '',
+      notes: p.notes || '',
+    }));
+    setEquipmentItems((p.equipmentItems || []).length ? p.equipmentItems.map(i => ({ ...EMPTY_LINE, ...i })) : [{ ...EMPTY_LINE }]);
+    setAccessoriesItems((p.accessoriesItems || []).map(i => ({ ...EMPTY_LINE, ...i })));
+    setPaymentTerms((p.paymentTerms || []).map((r, i) => ({ ...r, sequence: r.sequence || i + 1 })));
+    setExcludedWorks((p.excludedWorks || []).length ? [...p.excludedWorks] : ['']);
+  }
+
   function applyStartingPoint(id, divisionOverride) {
+    setAppliedPreset('');
     setAppliedStart(id);
     if (!id) return;
     const t = startingPoints.find(x => x.id === id);
@@ -208,6 +261,45 @@ export default function QuotationCreate() {
   return (
     <div className="enq-page">
       <h2>New Quotation</h2>
+
+      {/* What kind of offer? (owner request, 23 Oct 2026) — picking one fills
+          in that offer's own descriptions, so only prices have to be typed. */}
+      {presets.length > 0 && (
+        <div className="panel" style={{ marginBottom: 12 }}>
+          <h3 style={{ marginTop: 0 }}>What kind of offer is this?</h3>
+          <div className="offer-types">
+            {presets.map(p => (
+              <button
+                key={p.code}
+                type="button"
+                aria-pressed={appliedPreset === p.code}
+                className={`offer-type${appliedPreset === p.code ? ' on' : ''}`}
+                onClick={() => applyPreset(p.code)}
+              >
+                <span className="offer-type-name">{p.name}</span>
+                <span className="offer-type-note">{p.description}</span>
+              </button>
+            ))}
+            <button
+              type="button"
+              aria-pressed={!appliedPreset}
+              className={`offer-type${!appliedPreset ? ' on' : ''}`}
+              onClick={() => applyPreset('')}
+            >
+              <span className="offer-type-name">Start from blank</span>
+              <span className="offer-type-note">Type every line yourself.</span>
+            </button>
+          </div>
+          {appliedPreset && (
+            <div style={{ color: '#5b6b7c', fontSize: 13, marginTop: 8 }}>
+              The descriptions below come from your own offer sheet. Fill in the capacities,
+              quantities and prices — every rate starts at 0, nothing is carried over from
+              another quotation. Change or remove any line you do not need.
+            </div>
+          )}
+        </div>
+      )}
+
       {startingPoints.length > 0 && (
         <div className="panel" style={{ marginBottom: 12 }}>
           <label className="filter-field" style={{ margin: 0 }}>

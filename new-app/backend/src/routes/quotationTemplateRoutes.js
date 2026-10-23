@@ -6,6 +6,8 @@ const { createAuthMiddleware } = require('../middleware/authMiddleware');
 const { requireCompanyContext } = require('../middleware/tenantGuard');
 const { requireRole } = require('../middleware/roleMiddleware');
 const { TEMPLATE_FIELDS } = require('../services/quotationService');
+const { listPresets } = require('../services/quotationPresets');
+const { getEffectiveDivisions } = require('../services/subscriptionService');
 
 /**
  * Quotation starting points — the saved wording for each kind of offer
@@ -32,6 +34,21 @@ function createQuotationTemplateRouter(deps) {
     }
     return out;
   }
+
+  /**
+   * The built-in starting points, one per kind of offer (owner request,
+   * 23 Oct 2026). Read-only and the same for every company, but filtered to
+   * the divisions this company has bought — a company without Solar is never
+   * offered the Solar preset, matching the check createQuotation enforces.
+   */
+  router.get('/presets', async (req, res) => {
+    try {
+      const divisions = await getEffectiveDivisions(req.auth.companyId, deps);
+      return res.json({ presets: listPresets(divisions) });
+    } catch (err) {
+      return sendError(res, err, 'quotationTemplateRoutes');
+    }
+  });
 
   router.get('/', async (req, res) => {
     try {
