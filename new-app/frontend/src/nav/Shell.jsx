@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { menuForRole, mobileMenuForRole, ROLE_LABELS } from './menuConfig';
 import { api } from '../api/client';
+import { onPushToken, currentPushToken } from '../utils/nativePush';
 
 /**
  * App shell: top bar + role-based navigation rail + routed content.
@@ -71,6 +72,15 @@ export default function Shell() {
     return () => clearInterval(iv);
   }, [fetchUnread]);
 
+  /* Phone push notifications (owner decision 21 Oct 2026): inside the Android
+     app, register this phone for the logged-in user's notifications. */
+  useEffect(() => {
+    if (!user || user.role === 'super') return undefined;
+    return onPushToken(({ token, platform }) => {
+      api.post('/api/push-devices', { token, platform: platform || 'android' }).catch(() => {});
+    });
+  }, [user]);
+
   /* Following a link inside the drawer should close it. */
   useEffect(() => { setNavOpen(false); }, [location.pathname]);
 
@@ -83,6 +93,11 @@ export default function Shell() {
   }, [navOpen]);
 
   async function handleLogout() {
+    const pushToken = currentPushToken();
+    if (pushToken) {
+      // Stop this phone receiving the old user's notifications.
+      await api.delete('/api/push-devices', { body: { token: pushToken.token } }).catch(() => {});
+    }
     await logout();
     navigate('/login', { replace: true });
   }

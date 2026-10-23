@@ -49,11 +49,14 @@ const { createProjectRouter } = require('./routes/projectRoutes');
 const { createContractRouter } = require('./routes/contractRoutes');
 const { createServiceCallRouter } = require('./routes/serviceCallRoutes');
 const { createDailyTaskRouter } = require('./routes/dailyTaskRoutes');
+const { createPublicRouter } = require('./routes/publicRoutes');
+const { createPushRouter } = require('./routes/pushRoutes');
 const { createInventoryRouter } = require('./routes/inventoryRoutes');
 const { createChecklistTemplateRouter } = require('./routes/checklistTemplateRoutes');
 const { createNotificationRouter } = require('./routes/notificationRoutes');
 const { createSubscriptionRouter } = require('./routes/subscriptionRoutes');
 const { createQuotationRouter } = require('./routes/quotationRoutes');
+const { createQuotationTemplateRouter } = require('./routes/quotationTemplateRoutes');
 const { createItemNameRouter } = require('./routes/itemNameRoutes');
 const { createAmcDocumentRouter } = require('./routes/amcDocumentRoutes');
 const { createPaymentTermTemplateRouter } = require('./routes/paymentTermTemplateRoutes');
@@ -189,6 +192,7 @@ function createDevRepositories() {
     contractRepo: store.contractRepo,
     serviceCallRepo: store.serviceCallRepo,
     notificationRepo: store.notificationRepo,
+    pushDeviceRepo: store.pushDeviceRepo,
     dailyTaskRepo: {
       async deleteManyByCompany(companyId) {
         for (let i = dailyTasks.length - 1; i >= 0; i -= 1) {
@@ -233,6 +237,7 @@ function createDevRepositories() {
     quotationRepo: store.quotationRepo,
     amcTemplateRepo: store.amcTemplateRepo,
     paymentTermTemplateRepo: store.paymentTermTemplateRepo,
+    quotationTemplateRepo: store.quotationTemplateRepo,
   };
 }
 
@@ -266,11 +271,14 @@ function createDevApp(deps, config) {
   app.use('/api/contracts', createContractRouter(fullDeps));
   app.use('/api/service-calls', createServiceCallRouter(fullDeps));
   app.use('/api/daily-tasks', createDailyTaskRouter(fullDeps));
+  app.use('/api/public', createPublicRouter(fullDeps));
+  app.use('/api/push-devices', createPushRouter(fullDeps));
   app.use('/api/inventory', createInventoryRouter(fullDeps));
   app.use('/api/checklist-templates', createChecklistTemplateRouter(fullDeps));
   app.use('/api/notifications', createNotificationRouter(fullDeps));
   app.use('/api/subscriptions', createSubscriptionRouter(fullDeps));
   app.use('/api/quotations', createQuotationRouter(fullDeps));
+  app.use('/api/quotation-templates', createQuotationTemplateRouter(fullDeps));
   app.use('/api/item-names', createItemNameRouter(fullDeps));
   app.use('/api/amc-documents', createAmcDocumentRouter(fullDeps));
   app.use('/api/payment-term-templates', createPaymentTermTemplateRouter(fullDeps));

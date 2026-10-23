@@ -94,6 +94,20 @@ export default function AmcDocument() {
     const content = printRef.current;
     if (!content) return;
     const win = window.open('', '_blank');
+    if (!win) {
+      // Pop-ups are refused inside the Android app (and by some browsers), so
+      // printing from here cannot work there. Say so instead of doing nothing.
+      if (templateType === 'amc-letter') {
+        api.get(`/api/contracts/${contractId}/letter-link`)
+          .then((d) => {
+            if (d && d.letterToken) window.location.assign(`${window.location.origin}/api/public/amc-letters/${d.letterToken}`);
+          })
+          .catch((err) => alert(err.message || 'The AMC letter can be opened once the AMC is marked paid.'));
+        return;
+      }
+      alert('Printing is not available inside the app. Open this page in a browser on a computer to print it.');
+      return;
+    }
     win.document.write(`<!DOCTYPE html><html><head><title>AMC Document</title>
       <style>
         body { font-family: Arial, sans-serif; padding: 20px; color: #333; font-size: 13px; line-height: 1.6; }

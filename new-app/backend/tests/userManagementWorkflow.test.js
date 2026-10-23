@@ -188,7 +188,7 @@ test('FIX-3.8-01 — a finance user created via userService receives the chargea
   const serviceEngActor = { userId: roster.service_eng.id, companyId: 'co1', role: 'service_eng', name: 'service_eng user' };
   await serviceCallService.completeServiceCall(
     serviceCall.id,
-    { report: { serviceType: 'Chargeable', amount: 1500 }, signature: 'data:image/png;base64,sig' },
+    { report: { serviceType: 'Chargeable', amount: 1500, serviceDescription: 'Serviced', checklistResults: { 'Cooling Testing': 'Done', 'Gas Pressure': 'Done', 'Filter Clean': 'Done', 'Indoor Coil': 'Done', 'Outdoor Coil': 'Done', 'Body Cleaning': 'Done' } }, signature: 'data:image/png;base64,sig' },
     serviceEngActor,
     store
   );

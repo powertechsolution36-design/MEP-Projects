@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { today } from '../../utils/format';
+import ClientPicker, { coverageOf, COVERAGE_TEXT } from './ClientPicker';
 
 /**
  * Service Call Creation — supports two paths:
@@ -28,6 +29,8 @@ export default function ServiceCallCreate() {
   const [searchParams] = useSearchParams();
   const contractId = searchParams.get('contractId');
   const visitMonth = searchParams.get('month');
+  // Arriving from an AMC client's page pre-selects that client.
+  const clientIdParam = searchParams.get('clientId');
 
   const isPM = !!contractId;
 
@@ -40,6 +43,9 @@ export default function ServiceCallCreate() {
     complaintDescription: '',
   });
   const [contract, setContract] = useState(null);
+  // Complaint path: the AMC / Warranty client it is for, or Chargeable.
+  const [client, setClient] = useState(null);
+  const [chargeable, setChargeable] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
@@ -64,6 +70,14 @@ export default function ServiceCallCreate() {
     setForm(prev => ({ ...prev, [field]: value }));
   }
 
+  function pickClient(c) {
+    setClient(c);
+    setChargeable(false);
+    if (c) {
+      setForm(prev => ({ ...prev, customer: c.customer || '', phone: c.phone || '', site: c.site || '' }));
+    }
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     setError(null);
@@ -82,7 +96,13 @@ export default function ServiceCallCreate() {
         navigate(`/service-calls/${id}`, { state: { customerMessage: data.customerMessage || '' } });
       } else {
         /* Path A — Register Complaint */
+        if (!client && !chargeable) {
+          setError('Choose the AMC / Warranty client, or mark it as not a client (Chargeable).');
+          setSaving(false);
+          return;
+        }
         const body = {
+          contractId: client ? client.id : undefined,
           customer: form.customer,
           phone: form.phone || undefined,
           site: form.site || undefined,
@@ -128,6 +148,23 @@ export default function ServiceCallCreate() {
       )}
 
       <form onSubmit={handleSubmit}>
+        {!isPM && (
+          <div className="panel">
+            <h3 style={{ marginTop: 0 }}>Who is this complaint for?</h3>
+            <ClientPicker
+              value={client}
+              chargeable={chargeable}
+              onPick={pickClient}
+              onChargeable={(v) => { setChargeable(v); if (v) setClient(null); }}
+              initialClientId={clientIdParam}
+            />
+            {(client || chargeable) && (
+              <div style={{ marginTop: 8, fontSize: 13 }}>
+                Service type will default to: <strong>{COVERAGE_TEXT[coverageOf(client)]}</strong>
+              </div>
+            )}
+          </div>
+        )}
         <div className="panel">
           <div className="form-grid">
             <div className="filter-field">

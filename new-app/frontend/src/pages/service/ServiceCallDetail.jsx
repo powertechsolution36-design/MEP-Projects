@@ -4,6 +4,7 @@ import { api, apiRequest } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { money, fmtDate } from '../../utils/format';
 import SignaturePad from '../../components/SignaturePad';
+import { whatsappUrl, displayNumber, canSendToClients } from '../../utils/whatsapp';
 
 /**
  * Service Call Detail — PWA `viewServiceCall(x)` exact reproduction.
@@ -27,7 +28,37 @@ import SignaturePad from '../../components/SignaturePad';
 
 const MANAGE_ROLES = ['admin', 'service_mgr'];
 const CHECKLIST_KEYS = ['Cooling Testing', 'Gas Pressure', 'Filter Clean', 'Indoor Coil', 'Outdoor Coil', 'Body Cleaning'];
+// OWNER DECISION (21 Oct 2026): each checklist item is a tick (Done) or a
+// cross (Not done), and the call can only be completed once the report is
+// filled -- Service Description written and every item answered. The server
+// enforces the same rule (REPORT_INCOMPLETE).
+const CHECK_DONE = 'Done';
+const CHECK_NOT_DONE = 'Not done';
+
+function missingReportParts(form) {
+  const missing = [];
+  if (!String(form.serviceDescription || '').trim()) missing.push('Service Description');
+  CHECKLIST_KEYS.forEach((key) => {
+    const v = form.checklistResults ? form.checklistResults[key] : '';
+    if (v !== CHECK_DONE && v !== CHECK_NOT_DONE) missing.push(key);
+  });
+  // A listed part must say whether it was repaired or replaced.
+  (form.partsWork || []).forEach((p) => {
+    if (String(p.part || '').trim() && p.action !== 'Repaired' && p.action !== 'Replaced') {
+      missing.push(`Repaired or Replaced for "${String(p.part).trim()}"`);
+    }
+  });
+  return missing;
+}
 const SERVICE_TYPES = ['Installation', 'Warranty', 'AMC', 'Chargeable'];
+
+/** Same rule as the server (serviceCallService.defaultServiceType). */
+function defaultServiceType(call) {
+  if (call.type === 'PM') return 'AMC';
+  if (call.coverage === 'AMC') return 'AMC';
+  if (call.coverage === 'Warranty') return 'Warranty';
+  return 'Chargeable';
+}
 
 function statusClass(status) {
   if (status === 'Registered') return 'status-pending';
@@ -70,6 +101,10 @@ export default function ServiceCallDetail() {
     amount: '',
     engineerRemark: '',
     customerRemark: '',
+    partsWork: [],
+    gasFilled: false,
+    gasType: '',
+    gasQtyKg: '',
   });
   const [reportSaving, setReportSaving] = useState(false);
 
@@ -80,6 +115,9 @@ export default function ServiceCallDetail() {
   // ServiceCallCreate (PWA FACT: saveCall() shows it right after saving).
   const location = useLocation();
   const [completionMessage, setCompletionMessage] = useState(location.state?.customerMessage || '');
+  // Owner decision (21 Oct 2026): the completed report goes to the client as
+  // a PDF link inside the WhatsApp message.
+  const [reportToken, setReportToken] = useState('');
 
   /* Show/hide sections */
   const [showAssign, setShowAssign] = useState(false);
@@ -113,11 +151,17 @@ export default function ServiceCallDetail() {
         materialUsed: r.materialUsed || '',
         serviceDescription: r.serviceDescription || '',
         checklistResults: cl,
-        // PWA FACT (index.html:3571): defaults to AMC for PM calls, Chargeable for complaints.
-        serviceType: r.serviceType || (call.type === 'PM' ? 'AMC' : 'Chargeable'),
+        // PWA FACT (index.html:3571): PM calls default to AMC. Since 22 Oct
+        // 2026 a complaint follows its coverage: a covered AMC / Warranty
+        // client defaults to that, everything else to Chargeable.
+        serviceType: r.serviceType || defaultServiceType(call),
         amount: r.amount != null ? String(r.amount) : '',
         engineerRemark: r.engineerRemark || '',
         customerRemark: r.customerRemark || '',
+        partsWork: Array.isArray(r.partsWork) ? r.partsWork.map(p => ({ ...p })) : [],
+        gasFilled: !!r.gasFilled,
+        gasType: r.gasType || '',
+        gasQtyKg: r.gasQtyKg ? String(r.gasQtyKg) : '',
       });
 
       setSignatureImage(call.clientSignatureImage || '');
@@ -149,6 +193,46 @@ export default function ServiceCallDetail() {
   const canEdit = canManage || isAssignedEngineer;
   const isCompleted = sc?.status === 'Completed';
 
+  useEffect(() => {
+    if (!isCompleted || reportToken) return undefined;
+    let cancelled = false;
+    api.get(`/api/service-calls/${id}/report-link`)
+      .then((d) => { if (!cancelled && d && d.reportToken) setReportToken(d.reportToken); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [id, isCompleted, reportToken]);
+
+  // Owner decision (22 Oct 2026): client messages go out from the company
+  // WhatsApp number, which lives on the service manager's / admin's device.
+  const [companyWa, setCompanyWa] = useState('');
+  useEffect(() => {
+    api.get('/api/companies/my-profile')
+      .then((d) => setCompanyWa((d.company && d.company.whatsappNumber) || ''))
+      .catch(() => {});
+  }, []);
+  const sender = canSendToClients(user?.role);
+  const fromLabel = companyWa ? ` (from ${displayNumber(companyWa)})` : '';
+
+  async function markSent() {
+    try {
+      await api.post(`/api/service-calls/${id}/report-sent`, {});
+      await reload();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  const reportUrl = reportToken && typeof window !== 'undefined'
+    ? `${window.location.origin}/api/public/service-reports/${reportToken}`
+    : '';
+  const messageWithReport = completionMessage && reportUrl
+    ? `${completionMessage}\n\nYour service report (PDF): ${reportUrl}`
+    : completionMessage;
+  const reportOnlyMessage = sc && reportUrl
+    ? `Dear ${sc.customer || 'Customer'},\n\nPlease find the service report for your service call PSC-${sc.complaintNumber}:\n${reportUrl}\n\nThank you.`
+    : '';
+  const reportMissing = missingReportParts(reportForm);
+
   /* ---- Assignment ---- */
   async function handleAssign(e) {
     e.preventDefault();
@@ -173,6 +257,35 @@ export default function ServiceCallDetail() {
   }
 
   /* ---- Report Draft Save ---- */
+  /** The report as the server expects it — shared by Save and Complete. */
+  function reportPayload() {
+    return {
+      make: reportForm.make,
+      model: reportForm.model,
+      capacity: reportForm.capacity,
+      type: reportForm.type,
+      materialUsed: reportForm.materialUsed,
+      serviceDescription: reportForm.serviceDescription,
+      checklistResults: reportForm.checklistResults,
+      serviceType: reportForm.serviceType,
+      amount: reportForm.amount !== '' ? Number(reportForm.amount) : 0,
+      engineerRemark: reportForm.engineerRemark,
+      customerRemark: reportForm.customerRemark,
+      partsWork: (reportForm.partsWork || []).filter(p => String(p.part || '').trim()),
+      gasFilled: !!reportForm.gasFilled,
+      gasType: reportForm.gasFilled ? reportForm.gasType : '',
+      gasQtyKg: reportForm.gasFilled && reportForm.gasQtyKg !== '' ? Number(reportForm.gasQtyKg) : 0,
+    };
+  }
+
+  function setPart(idx, key, value) {
+    setReportForm(prev => {
+      const list = [...(prev.partsWork || [])];
+      list[idx] = { ...list[idx], [key]: value };
+      return { ...prev, partsWork: list };
+    });
+  }
+
   async function handleSaveReport(e) {
     e.preventDefault();
     setReportSaving(true);
@@ -180,19 +293,7 @@ export default function ServiceCallDetail() {
     try {
       await apiRequest(`/api/service-calls/${id}/report`, {
         method: 'PUT',
-        body: {
-          make: reportForm.make,
-          model: reportForm.model,
-          capacity: reportForm.capacity,
-          type: reportForm.type,
-          materialUsed: reportForm.materialUsed,
-          serviceDescription: reportForm.serviceDescription,
-          checklistResults: reportForm.checklistResults,
-          serviceType: reportForm.serviceType,
-          amount: reportForm.amount !== '' ? Number(reportForm.amount) : 0,
-          engineerRemark: reportForm.engineerRemark,
-          customerRemark: reportForm.customerRemark,
-        },
+        body: reportPayload(),
       });
       setShowReport(false);
       await reload();
@@ -205,6 +306,7 @@ export default function ServiceCallDetail() {
 
   /* ---- Complete ---- */
   async function handleComplete() {
+    if (missingReportParts(reportForm).length) return;
     if (!signatureImage) {
       alert('Client signature is required to complete.');
       return;
@@ -215,20 +317,10 @@ export default function ServiceCallDetail() {
     try {
       const data = await api.post(`/api/service-calls/${id}/complete`, {
         clientSignatureImage: signatureImage,
-        /* report fields are rebuilt server-side from saved draft */
-        make: reportForm.make,
-        model: reportForm.model,
-        capacity: reportForm.capacity,
-        type: reportForm.type,
-        materialUsed: reportForm.materialUsed,
-        serviceDescription: reportForm.serviceDescription,
-        checklistResults: reportForm.checklistResults,
-        serviceType: reportForm.serviceType,
-        amount: reportForm.amount !== '' ? Number(reportForm.amount) : 0,
-        engineerRemark: reportForm.engineerRemark,
-        customerRemark: reportForm.customerRemark,
+        ...reportPayload(),
       });
       setCompletionMessage(data.customerMessage || '');
+      if (data.reportToken) setReportToken(data.reportToken);
       setShowComplete(false);
       await reload();
     } catch (err) {
@@ -239,14 +331,13 @@ export default function ServiceCallDetail() {
   }
 
   /* ---- WhatsApp deep-link ---- */
-  function whatsappLink() {
-    if (!sc?.phone || !completionMessage) return null;
-    const phone = sc.phone.replace(/\D/g, '');
-    return `https://wa.me/${phone}?text=${encodeURIComponent(completionMessage)}`;
+  function whatsappLink(text = messageWithReport) {
+    if (!sc?.phone || !text) return null;
+    return whatsappUrl(sc.phone, text);
   }
 
   function copyMessage() {
-    navigator.clipboard.writeText(completionMessage).then(
+    navigator.clipboard.writeText(messageWithReport).then(
       () => alert('Message copied to clipboard!'),
       () => alert('Failed to copy.')
     );
@@ -289,15 +380,16 @@ export default function ServiceCallDetail() {
           <div><strong>Registered:</strong> {fmtDate(sc.registeredDate)}</div>
           <div><strong>Appointment Date:</strong> {fmtDate(sc.appointmentDate) || '—'}</div>
           <div><strong>Appointment Time:</strong> {sc.appointmentTime || '—'}</div>
+          <div><strong>Coverage:</strong> {sc.coverage || 'Chargeable'}</div>
         </div>
       </div>
 
       {/* ---- Contract Link (PM calls) ---- */}
       {sc.contractId && (
         <div className="panel">
-          <h3>Contract Reference</h3>
+          <h3>AMC / Warranty Client</h3>
           <Link to={`/contracts/${sc.contractId}`} className="btn sec sm">
-            View Originating Contract
+            Open client history
           </Link>
         </div>
       )}
@@ -415,33 +507,130 @@ export default function ServiceCallDetail() {
               </div>
 
               <div className="filter-field full-width" style={{ marginTop: 8 }}>
-                <label>Service Description</label>
+                <label>Service Description *</label>
                 <textarea rows={3} value={reportForm.serviceDescription} onChange={e => setReportForm(prev => ({ ...prev, serviceDescription: e.target.value }))} />
               </div>
 
               {/* Checklist */}
               <div style={{ marginTop: 12 }}>
-                <strong>Checklist:</strong>
+                <strong>Checklist *</strong> <span className="muted" style={{ fontSize: 12 }}>tick if done, cross if not</span>
                 <div style={{ marginTop: 8 }}>
                   {CHECKLIST_KEYS.map(key => (
-                    <div key={key} style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 6 }}>
-                      <span style={{ minWidth: 140, fontSize: 13 }}>{key}</span>
-                      {/* PWA FACT (index.html:3578): free-text values, e.g. "120 PSI". */}
-                      <input
-                        type="text"
-                        value={reportForm.checklistResults[key] || ''}
-                        onChange={e => {
-                          const val = e.target.value;
-                          setReportForm(prev => ({
-                            ...prev,
-                            checklistResults: { ...prev.checklistResults, [key]: val },
-                          }));
-                        }}
-                        style={{ padding: '4px 8px', fontSize: 13, borderRadius: 6, border: '1px solid var(--color-border)' }}
-                      />
+                    <div key={key} className="check-row">
+                      <span className="check-row-label">{key}</span>
+                      <div className="check-toggle" role="group" aria-label={key}>
+                        {[[CHECK_DONE, '✓', 'Done'], [CHECK_NOT_DONE, '✗', 'Not done']].map(([val, mark, text]) => {
+                          const on = reportForm.checklistResults[key] === val;
+                          return (
+                            <button
+                              key={val}
+                              type="button"
+                              aria-pressed={on}
+                              aria-label={`${key}: ${text}`}
+                              className={`check-toggle-btn ${val === CHECK_DONE ? 'is-done' : 'is-not'}${on ? ' on' : ''}`}
+                              onClick={() => setReportForm(prev => ({
+                                ...prev,
+                                checklistResults: { ...prev.checklistResults, [key]: on ? '' : val },
+                              }))}
+                            >
+                              <span aria-hidden="true">{mark}</span> {text}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   ))}
                 </div>
+              </div>
+
+              {/* Parts repaired / replaced (owner request, 22 Oct 2026) */}
+              <div className="filter-field" style={{ marginTop: 12 }}>
+                <label>Parts repaired / replaced</label>
+                {(reportForm.partsWork || []).length === 0 && (
+                  <div style={{ color: '#5b6b7c', fontSize: 13, margin: '2px 0 6px' }}>None — add a part if one was repaired or replaced.</div>
+                )}
+                {(reportForm.partsWork || []).map((p, idx) => (
+                  <div key={idx} className="part-row">
+                    <input
+                      value={p.part || ''}
+                      onChange={e => setPart(idx, 'part', e.target.value)}
+                      placeholder="Part (e.g. Run capacitor 45µF)"
+                    />
+                    <div className="check-toggle" role="group" aria-label={`Was ${p.part || 'this part'} repaired or replaced?`}>
+                      {['Repaired', 'Replaced'].map(a => (
+                        <button
+                          key={a}
+                          type="button"
+                          className={`check-toggle-btn ${a === 'Repaired' ? 'is-done' : 'is-not'}${p.action === a ? ' on' : ''}`}
+                          aria-pressed={p.action === a}
+                          onClick={() => setPart(idx, 'action', a)}
+                        >
+                          {a}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      value={p.remark || ''}
+                      onChange={e => setPart(idx, 'remark', e.target.value)}
+                      placeholder="Remark (optional)"
+                    />
+                    <button
+                      type="button"
+                      className="btn danger sm"
+                      title="Remove this part"
+                      onClick={() => setReportForm(prev => ({ ...prev, partsWork: prev.partsWork.filter((_, i) => i !== idx) }))}
+                    >
+                      &times;
+                    </button>
+                  </div>
+                ))}
+                <div>
+                  <button
+                    type="button"
+                    className="btn sec sm"
+                    onClick={() => setReportForm(prev => ({ ...prev, partsWork: [...(prev.partsWork || []), { part: '', action: '', remark: '' }] }))}
+                  >
+                    + Add part
+                  </button>
+                </div>
+              </div>
+
+              {/* Gas filling (owner request, 22 Oct 2026) */}
+              <div className="filter-field" style={{ marginTop: 12 }}>
+                <label>Gas filled?</label>
+                <div className="check-toggle" role="group" aria-label="Gas filled?">
+                  {[['Yes', true], ['No', false]].map(([label, val]) => (
+                    <button
+                      key={label}
+                      type="button"
+                      className={`check-toggle-btn ${val ? 'is-done' : 'is-not'}${!!reportForm.gasFilled === val ? ' on' : ''}`}
+                      aria-pressed={!!reportForm.gasFilled === val}
+                      onClick={() => setReportForm(prev => ({ ...prev, gasFilled: val }))}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {reportForm.gasFilled && (
+                  <div className="form-grid" style={{ marginTop: 8 }}>
+                    <div className="filter-field">
+                      <label>Gas type</label>
+                      <select value={reportForm.gasType} onChange={e => setReportForm(prev => ({ ...prev, gasType: e.target.value }))}>
+                        <option value="">— Select —</option>
+                        {['R22', 'R32', 'R410A', 'R407C', 'R134a', 'R290', 'Other'].map(g => <option key={g} value={g}>{g}</option>)}
+                      </select>
+                    </div>
+                    <div className="filter-field">
+                      <label>Quantity (kg)</label>
+                      <input
+                        type="number" min={0} step="0.1"
+                        value={reportForm.gasQtyKg}
+                        onChange={e => setReportForm(prev => ({ ...prev, gasQtyKg: e.target.value }))}
+                        placeholder="e.g. 0.8"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="form-grid" style={{ marginTop: 8 }}>
@@ -479,6 +668,18 @@ export default function ServiceCallDetail() {
             <div><strong>Amount:</strong> {money(sc.report.amount)}</div>
             <div><strong>Service Desc:</strong> {sc.report.serviceDescription || '—'}</div>
             <div><strong>Engineer Remark:</strong> {sc.report.engineerRemark || '—'}</div>
+            <div>
+              <strong>Parts:</strong>{' '}
+              {Array.isArray(sc.report.partsWork) && sc.report.partsWork.length
+                ? sc.report.partsWork.map(p => `${p.part} (${p.action})`).join(', ')
+                : 'None'}
+            </div>
+            <div>
+              <strong>Gas filled:</strong>{' '}
+              {sc.report.gasFilled
+                ? `Yes — ${sc.report.gasType || 'type not given'}${Number(sc.report.gasQtyKg) > 0 ? `, ${sc.report.gasQtyKg} kg` : ''}`
+                : 'No'}
+            </div>
             <div><strong>Customer Remark:</strong> {sc.report.customerRemark || '—'}</div>
           </div>
           {/* Checklist results */}
@@ -487,9 +688,15 @@ export default function ServiceCallDetail() {
               <strong>Checklist:</strong>
               <div style={{ marginTop: 4 }}>
                 {CHECKLIST_KEYS.map(key => (
-                  <div key={key} style={{ display: 'flex', gap: 12, fontSize: 13, marginBottom: 2 }}>
+                  <div key={key} style={{ display: 'flex', gap: 12, fontSize: 13, marginBottom: 4, alignItems: 'center' }}>
                     <span style={{ minWidth: 140 }}>{key}:</span>
-                    <span>{sc.report.checklistResults[key] || '—'}</span>
+                    {sc.report.checklistResults[key] === CHECK_DONE ? (
+                      <span className="status-badge b-grn">✓ Done</span>
+                    ) : sc.report.checklistResults[key] === CHECK_NOT_DONE ? (
+                      <span className="status-badge b-red">✗ Not done</span>
+                    ) : (
+                      <span>{sc.report.checklistResults[key] || '—'}</span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -519,7 +726,14 @@ export default function ServiceCallDetail() {
               {showComplete ? 'Cancel' : 'Complete'}
             </button>
           </div>
-          {showComplete && (
+          {showComplete && reportMissing.length > 0 && (
+            <div className="report-missing" role="status">
+              <p style={{ margin: 0 }}><strong>Fill the service report before completing.</strong></p>
+              <p style={{ margin: '4px 0 8px' }}>Still needed: {reportMissing.join(', ')}.</p>
+              <button type="button" className="btn sec sm" onClick={() => setShowReport(true)}>Fill Service Report</button>
+            </div>
+          )}
+          {showComplete && reportMissing.length === 0 && (
             <div style={{ marginTop: 8 }}>
               <div className="filter-field">
                 <label>Client Signature (sign on phone) *</label>
@@ -529,7 +743,7 @@ export default function ServiceCallDetail() {
                 <button
                   className="btn pri"
                   onClick={handleComplete}
-                  disabled={completing || !signatureImage}
+                  disabled={completing || !signatureImage || reportMissing.length > 0}
                 >
                   {completing ? 'Completing...' : 'Complete & Generate Report'}
                 </button>
@@ -543,17 +757,73 @@ export default function ServiceCallDetail() {
       {completionMessage && (
         <div className="panel">
           <h3>Customer Message</h3>
-          <pre style={{ whiteSpace: 'pre-wrap', background: '#f4f6f8', padding: 12, borderRadius: 6, fontSize: 13 }}>
-            {completionMessage}
+          <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', background: '#f4f6f8', padding: 12, borderRadius: 6, fontSize: 13 }}>
+            {messageWithReport}
           </pre>
-          <div className="detail-actions">
-            <button className="btn sec sm" onClick={copyMessage}>Copy Message</button>
-            {whatsappLink() && (
-              <a href={whatsappLink()} target="_blank" rel="noopener noreferrer" className="btn pri sm">
-                Send via WhatsApp
-              </a>
+          {isCompleted && !reportUrl && <p className="muted" style={{ fontSize: 12 }}>Preparing the service report link…</p>}
+          {sender ? (
+            <div className="detail-actions">
+              <button className="btn sec sm" onClick={copyMessage}>Copy Message</button>
+              {whatsappLink() && (
+                <a
+                  href={whatsappLink()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn pri sm"
+                  onClick={() => { if (isCompleted) markSent(); }}
+                >
+                  Send via WhatsApp{fromLabel}
+                </a>
+              )}
+            </div>
+          ) : (
+            <p className="send-note">
+              {isCompleted
+                ? 'Done. The service manager has been asked to send this report to the client from the company WhatsApp.'
+                : 'The service manager sends client messages from the company WhatsApp.'}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ---- Service Report PDF + sending (owner decisions 21 & 22 Oct 2026) ---- */}
+      {isCompleted && (
+        <div className="panel">
+          <h3>Service Report (PDF)</h3>
+          <div style={{ marginBottom: 8 }}>
+            {sc.reportSendStatus === 'Sent' ? (
+              <span className="status-badge status-won">Sent to client{sc.reportSentAt ? ` · ${fmtDate(sc.reportSentAt)}` : ''}</span>
+            ) : (
+              <span className="status-badge status-pending">Waiting to be sent to the client</span>
             )}
           </div>
+          {!reportUrl && <p className="muted" style={{ fontSize: 12 }}>Preparing the service report link…</p>}
+          <div className="detail-actions" style={{ flexWrap: 'wrap' }}>
+            {reportUrl && <a href={reportUrl} target="_blank" rel="noopener noreferrer" className="btn sec sm">Open PDF</a>}
+            {sender && reportUrl && whatsappLink(reportOnlyMessage) && (
+              <a
+                href={whatsappLink(reportOnlyMessage)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn pri sm"
+                onClick={markSent}
+              >
+                {sc.reportSendStatus === 'Sent' ? 'Send again on WhatsApp' : 'Send report on WhatsApp'}{fromLabel}
+              </a>
+            )}
+            {sender && sc.reportSendStatus !== 'Sent' && (
+              <button type="button" className="btn sec sm" onClick={markSent}>Mark as sent</button>
+            )}
+          </div>
+          {sender && !sc.phone && <p className="muted" style={{ fontSize: 13 }}>Add the client&apos;s phone number to send on WhatsApp.</p>}
+          {sender && companyWa && (
+            <p className="muted" style={{ fontSize: 13 }}>
+              WhatsApp sends from the number logged in on this phone or laptop — use the device with {displayNumber(companyWa)}.
+            </p>
+          )}
+          {!sender && sc.reportSendStatus !== 'Sent' && (
+            <p className="send-note">The service manager has been asked to send this report to the client.</p>
+          )}
         </div>
       )}
 

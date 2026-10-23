@@ -258,7 +258,7 @@ test('CONCURRENCY: ServiceCall completion -- two concurrent completeServiceCall 
     companies: [{ id: 'co1', name: 'Test Co' }],
   });
   const a = auth({ role: 'service_eng', userId: 'eng1', name: 'Eng One' });
-  const input = { signature: 'data:sig', report: { serviceType: 'Chargeable', amount: 500, notes: 'done' } };
+  const input = { signature: 'data:sig', report: { serviceType: 'Chargeable', amount: 500, notes: 'done', serviceDescription: 'Serviced', checklistResults: { 'Cooling Testing': 'Done', 'Gas Pressure': 'Done', 'Filter Clean': 'Done', 'Indoor Coil': 'Done', 'Outdoor Coil': 'Done', 'Body Cleaning': 'Done' } } };
 
   const results = await Promise.allSettled([
     serviceCallService.completeServiceCall('sc1', input, a, store),

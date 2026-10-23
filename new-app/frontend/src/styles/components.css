@@ -1023,3 +1023,91 @@
   .milestone-row { flex-wrap: wrap; }
   .doc-preview { padding: var(--s-6); }
 }
+
+/* Service report checklist: tick (Done) / cross (Not done) toggles. */
+.check-row { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.check-row-label { min-width: 140px; font-size: 13px; }
+.check-toggle { display: inline-flex; gap: 8px; }
+.check-toggle-btn {
+  min-height: 40px; min-width: 96px; padding: 0 12px; border-radius: var(--r-control, 6px);
+  border: 1px solid var(--color-border); background: #fff; color: var(--color-text, #1c2733);
+  font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+.check-toggle-btn.is-done.on { background: var(--ok-50); color: var(--ok-700); border-color: var(--ok-700); }
+.check-toggle-btn.is-not.on  { background: var(--bad-50); color: var(--bad-700); border-color: var(--bad-700); }
+.check-toggle-btn:focus-visible { outline: 2px solid #d92b2b; outline-offset: 2px; }
+.report-missing { margin-top: 8px; padding: 10px 12px; border-radius: 8px; background: var(--warn-50); color: var(--warn-700); font-size: 13px; }
+
+/* Parts repaired / replaced rows on the service report (22 Oct 2026). */
+.part-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 2fr) auto minmax(120px, 2fr) auto;
+  gap: 6px;
+  align-items: center;
+  margin: 4px 0;
+}
+@media (max-width: 640px) {
+  .part-row { grid-template-columns: 1fr auto; }
+  .part-row > input:nth-of-type(2) { grid-column: 1 / -1; }
+}
+
+/* AMC / Warranty client picker on Register Complaint (22 Oct 2026). */
+.client-search { position: relative; }
+.client-search input[type="search"] { width: 100%; }
+.client-results {
+  list-style: none; margin: 4px 0 0; padding: 0; max-height: 280px; overflow-y: auto;
+  border: 1px solid var(--line, #e3e8ef); border-radius: 8px; background: #fff;
+}
+.client-results li + li { border-top: 1px solid var(--line, #e3e8ef); }
+.client-results button {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; width: 100%;
+  text-align: left; background: none; border: 0; padding: 10px 12px; cursor: pointer; font: inherit;
+}
+.client-results button:hover, .client-results button:focus-visible { background: #f2f4f8; }
+.client-picked {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
+  padding: 10px 12px; border: 1px solid var(--line, #e3e8ef); border-radius: 8px; background: #f8fafc;
+}
+
+/* AMC client page — service summary tiles (22 Oct 2026). */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+.stat-tile {
+  border: 1px solid var(--line, #e3e8ef);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fff;
+}
+.stat-value { font-size: 22px; font-weight: 800; color: var(--navy, #16202e); line-height: 1.2; }
+.stat-label { font-size: 12px; font-weight: 600; color: #5b6b7c; text-transform: uppercase; letter-spacing: .03em; margin-top: 2px; }
+.stat-sub { font-size: 12px; color: #5b6b7c; margin-top: 2px; }
+@media (max-width: 480px) {
+  .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* "The service manager will send this" note (22 Oct 2026). */
+.send-note {
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  border-left: 4px solid #137a47;
+  background: #e2f6ec;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.to-send-list { list-style: none; margin: 0; padding: 0; }
+.to-send-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line, #e3e8ef); flex-wrap: wrap; }
+.to-send-list li:first-child { border-top: 0; }
+
+/* Long "Send … on WhatsApp (from +91 …)" buttons wrap on a phone instead of
+   running off the panel. */
+.detail-actions .btn {
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.25;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}

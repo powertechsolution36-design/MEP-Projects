@@ -86,6 +86,10 @@ const companySchema = new Schema(
     displayName: { type: String, default: '' },
     subtitle: { type: String, default: '' },
     website: { type: String, default: '' },
+    // Owner request (22 Oct 2026): the company WhatsApp number client messages
+    // are sent from. The app shows it on every Send button so the person
+    // sending uses the phone/laptop that has this number logged in.
+    whatsappNumber: { type: String, default: '' },
     logoBase64: { type: String, default: '' },
     quotationPrefix: { type: String, trim: true, default: 'QTN' },
     bankDetails: {

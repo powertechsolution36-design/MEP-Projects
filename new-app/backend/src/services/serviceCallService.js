@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const { ServiceError } = require('../errors');
 const contractService = require('./contractService');
 
@@ -62,6 +63,62 @@ const ENGINEER_CANDIDATE_ROLES = Object.freeze(['service_eng', 'engineer', 'serv
 const CHECKLIST_KEYS = Object.freeze(['Cooling Testing', 'Gas Pressure', 'Filter Clean', 'Indoor Coil', 'Outdoor Coil', 'Body Cleaning']);
 // PWA FACT (§14, the report's `<select id="r_st">` options, exact order/values).
 const SERVICE_TYPES = Object.freeze(['Installation', 'Warranty', 'AMC', 'Chargeable']);
+// OWNER DECISION (21 Oct 2026): each checklist item is answered with a tick
+// (Done) or a cross (Not done) instead of free text, and a call can only be
+// completed once the service report is filled: "Service done" written and
+// every checklist item answered. Drafts may still be saved part-filled.
+const CHECKLIST_VALUES = Object.freeze(['Done', 'Not done']);
+// Owner request (22 Oct 2026): parts work and gas filling on every report.
+const PART_ACTIONS = Object.freeze(['Repaired', 'Replaced']);
+const GAS_TYPES = Object.freeze(['R22', 'R32', 'R410A', 'R407C', 'R134a', 'R290', 'Other']);
+const MAX_PARTS = 30;
+
+/** Validates and tidies the parts list. Blank rows are dropped, not rejected. */
+function buildPartsWork(input) {
+  if (input === undefined || input === null) return [];
+  if (!Array.isArray(input)) {
+    throw new ServiceError('Parts must be a list.', 'VALIDATION_ERROR', 400);
+  }
+  const out = [];
+  for (const row of input) {
+    const part = row && typeof row.part === 'string' ? row.part.trim() : '';
+    if (!part) continue;
+    const action = row.action;
+    if (!PART_ACTIONS.includes(action)) {
+      throw new ServiceError(`Say whether "${part}" was Repaired or Replaced.`, 'VALIDATION_ERROR', 400);
+    }
+    out.push({ part: part.slice(0, 120), action, remark: String(row.remark || '').trim().slice(0, 300) });
+  }
+  if (out.length > MAX_PARTS) {
+    throw new ServiceError(`At most ${MAX_PARTS} parts can be listed on one report.`, 'VALIDATION_ERROR', 400);
+  }
+  return out;
+}
+
+/** Gas filling: blank unless gas was actually filled. */
+function buildGas(src) {
+  const filled = src.gasFilled === true || src.gasFilled === 'true' || src.gasFilled === 'Yes';
+  if (!filled) return { gasFilled: false, gasType: '', gasQtyKg: 0 };
+  const gasType = String(src.gasType || '').trim();
+  if (gasType && !GAS_TYPES.includes(gasType)) {
+    throw new ServiceError(`Invalid gas type "${gasType}". Must be one of: ${GAS_TYPES.join(', ')}.`, 'VALIDATION_ERROR', 400);
+  }
+  const qty = src.gasQtyKg === '' || src.gasQtyKg === undefined || src.gasQtyKg === null ? 0 : Number(src.gasQtyKg);
+  if (!Number.isFinite(qty) || qty < 0 || qty > 1000) {
+    throw new ServiceError('Gas quantity must be a number of kg between 0 and 1000.', 'VALIDATION_ERROR', 400);
+  }
+  return { gasFilled: true, gasType, gasQtyKg: Math.round(qty * 100) / 100 };
+}
+
+function missingReportFields(report) {
+  const missing = [];
+  if (!String((report && report.serviceDescription) || '').trim()) missing.push('Service description');
+  const results = (report && report.checklistResults) || {};
+  CHECKLIST_KEYS.forEach((key) => {
+    if (!CHECKLIST_VALUES.includes(results[key])) missing.push(key);
+  });
+  return missing;
+}
 
 function assertCompanyContext(actorAuth) {
   if (!actorAuth || !actorAuth.companyId) {
@@ -254,7 +311,30 @@ function buildReport(input) {
     amount: Number(src.amount) || 0, // PWA FACT: non-numeric/blank -> 0; negative is NOT rejected (§14/§21.13).
     engineerRemark: src.engineerRemark || src.remark || '',
     customerRemark: src.customerRemark || src.custRemark || '',
+    partsWork: buildPartsWork(src.partsWork),
+    ...buildGas(src),
   };
+}
+
+/* ================= Coverage (owner request, 22 Oct 2026) ================= */
+
+/**
+ * What an AMC/Warranty client is covered by today. An expired AMC is still
+ * that client — the service is recorded under them — but it is no longer
+ * covered, so it is charged.
+ */
+function coverageFor(contract, refDate) {
+  const category = contract && contract.category === 'Warranty' ? 'Warranty' : 'AMC';
+  const status = contractService.computeContractStatus(contract, refDate);
+  return status === 'Expired' ? `${category} expired` : category;
+}
+
+/** The report's default Service Type for a call, from its coverage. */
+function defaultServiceType(serviceCall) {
+  if (serviceCall.type === 'PM') return 'AMC'; // PWA FACT: PM calls default to AMC.
+  if (serviceCall.coverage === 'AMC') return 'AMC';
+  if (serviceCall.coverage === 'Warranty') return 'Warranty';
+  return 'Chargeable';
 }
 
 /* ================= Creation: Complaint ================= */
@@ -269,13 +349,26 @@ async function registerComplaint(input, actorAuth, deps) {
   assertCompanyContext(actorAuth);
   assertCanManageServiceCalls(actorAuth, 'register a Service complaint');
 
-  const customer = input && typeof input.customer === 'string' ? input.customer.trim() : '';
+  // Owner request (22 Oct 2026): a complaint can be raised for an AMC or
+  // Warranty client — picked from a list — so it is kept on that client's
+  // history, even if their AMC has already run out. Without one it is a
+  // Chargeable walk-in call, exactly as before.
+  const contractId = input && input.contractId ? String(input.contractId) : null;
+  let contract = null;
+  if (contractId) {
+    contract = await deps.contractRepo.findById(actorAuth.companyId, contractId);
+    if (!contract) throw new ServiceError('That AMC / Warranty client was not found.', 'NOT_FOUND', 404);
+  }
+  const coverage = contract ? coverageFor(contract) : 'Chargeable';
+
+  const typedCustomer = input && typeof input.customer === 'string' ? input.customer.trim() : '';
+  const customer = typedCustomer || (contract && contract.customer ? String(contract.customer).trim() : '');
   if (!customer) {
     throw new ServiceError('Customer name required.', 'VALIDATION_ERROR', 400); // PWA FACT: `if(!gv("sc_n"))`.
   }
 
-  const site = (input && input.site) || '';
-  const phone = (input && input.phone) || '';
+  const site = (input && input.site) || (contract && contract.site) || '';
+  const phone = (input && input.phone) || (contract && contract.phone) || '';
   // Accepts the frontend's field name (complaintDescription) as well as the
   // PWA-derived name (complaint).
   const complaintDescription = (input && (input.complaint || input.complaintDescription)) || '';
@@ -299,7 +392,8 @@ async function registerComplaint(input, actorAuth, deps) {
         registeredDate: todayDate(),
         report: null,
         clientSignatureImage: null,
-        contractId: null,
+        contractId: contract ? contract.id : null,
+        coverage,
       },
       session
     );
@@ -371,6 +465,7 @@ async function schedulePM(contractId, input, actorAuth, deps) {
         report: null,
         clientSignatureImage: null,
         contractId,
+        coverage: coverageFor(contract),
       },
       session
     );
@@ -595,6 +690,8 @@ async function assignEngineer(id, input, actorAuth, deps) {
           date: todayDate(),
           targetRoles: ['*'],
           readByUserIds: [],
+          // Phone push goes to the assigned engineer only (owner decision 21 Oct 2026).
+          push: { userIds: [engineerId], path: `/service-calls/${id}` },
         },
         session
       );
@@ -663,11 +760,19 @@ async function completeServiceCall(id, input, actorAuth, deps) {
   }
 
   const report = buildReport(input && (input.report || input));
+  const missing = missingReportFields(report);
+  if (missing.length) {
+    throw new ServiceError(
+      `Fill the service report before completing. Missing: ${missing.join(', ')}.`,
+      'REPORT_INCOMPLETE',
+      400
+    );
+  }
   // PWA FACT (vCall report form, index.html:3571/3579): the Service Type
   // select always submits a value, defaulting to "AMC" for PM calls and
   // "Chargeable" for complaints.
   if (report.serviceType === undefined) {
-    report.serviceType = existing.type === 'PM' ? 'AMC' : 'Chargeable';
+    report.serviceType = defaultServiceType(existing);
   }
 
   // PWA FACT: completion notification text uses `s.eng||U.name` -- the
@@ -685,7 +790,17 @@ async function completeServiceCall(id, input, actorAuth, deps) {
     const updated = await txnDeps.serviceCallRepo.completeIfNotCompleted(
       actorAuth.companyId,
       id,
-      { report, clientSignatureImage: signature, status: 'Completed' },
+      {
+        report,
+        clientSignatureImage: signature,
+        status: 'Completed',
+        completedAt: new Date(),
+        reportToken: newReportToken(),
+        // Owner decision (22 Oct 2026): the service manager sends the report
+        // to the client from the company WhatsApp number.
+        reportSendStatus: 'Pending',
+        reportSendRequestedAt: new Date(),
+      },
       session
     );
 
@@ -697,9 +812,12 @@ async function completeServiceCall(id, input, actorAuth, deps) {
       return { serviceCall: current, completedNow: false };
     }
 
-    if (updated.contractId) {
+    if (updated.contractId && updated.type === 'PM') {
       // SERVICECALL_DECISION_LOCK.md §14/§15: reuse the existing Contract-facing
       // boundary EXACTLY as built -- do not reimplement PM-slot logic here.
+      // Only a PM visit ticks off a scheduled visit: since 22 Oct 2026 a
+      // complaint can also be linked to an AMC client, and fixing a
+      // breakdown is not one of the contracted services.
       await contractService.completePmVisitForContract(updated.contractId, actorAuth, txnDeps, {
         assignedEngineerUserId: updated.engineerId,
       });
@@ -751,6 +869,8 @@ async function completeServiceCall(id, input, actorAuth, deps) {
     }
 
     // PWA FACT (§11/§15): unconditional -- fires regardless of the Contract/Payment branches above.
+    // Since 22 Oct 2026 this is also the service manager's "send the report"
+    // request: the phone notification opens the call, where Send is waiting.
     await txnDeps.notificationRepo.create(
       {
         companyId: actorAuth.companyId,
@@ -758,6 +878,7 @@ async function completeServiceCall(id, input, actorAuth, deps) {
         date: todayDate(),
         targetRoles: ['service_mgr', 'admin'],
         readByUserIds: [],
+        push: { path: `/service-calls/${updated.id}` },
       },
       session
     );
@@ -772,7 +893,101 @@ async function completeServiceCall(id, input, actorAuth, deps) {
       ? msgPMdone(sc.complaintNumber, dayKeyUTC(sc.appointmentDate), sc.appointmentTime, company)
       : msgDone(sc.complaintNumber, company);
 
-  return { serviceCall: sc, completedNow: result.completedNow, customerMessage };
+  return { serviceCall: sc, completedNow: result.completedNow, customerMessage, reportToken: sc.reportToken || null };
+}
+
+/* ================= Sending the report (owner decision 22 Oct 2026) ================= */
+
+/**
+ * Completed calls whose report the service manager has not sent yet — the
+ * "Reports to send" list. Only the people who hold the company WhatsApp
+ * number (admin, service manager) see it.
+ */
+async function listReportsToSend(actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  assertCanManageServiceCalls(actorAuth, 'see the reports waiting to be sent');
+  const all = await deps.serviceCallRepo.listByCompany(actorAuth.companyId);
+  const names = await engineerNameMap(actorAuth, deps);
+  return all
+    .filter((c) => c.status === 'Completed' && c.reportSendStatus === 'Pending')
+    .sort((a, b) => new Date(b.completedAt || 0) - new Date(a.completedAt || 0))
+    .map((c) => ({
+      id: c.id,
+      complaintNumber: c.complaintNumber,
+      type: c.type,
+      customer: c.customer,
+      phone: c.phone,
+      site: c.site,
+      coverage: c.coverage || null,
+      completedAt: c.completedAt || null,
+      engineer: c.engineerId ? names.get(String(c.engineerId)) || '' : '',
+    }));
+}
+
+/** Records that the service manager sent the report to the client. */
+async function markReportSent(id, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  assertCanManageServiceCalls(actorAuth, 'send the service report to the client');
+  const call = await deps.serviceCallRepo.findById(actorAuth.companyId, id);
+  if (!call) throw new ServiceError('Service Call not found.', 'NOT_FOUND', 404);
+  if (call.status !== 'Completed') {
+    throw new ServiceError('The report can be sent once the call is completed.', 'NOT_COMPLETED', 400);
+  }
+  return deps.serviceCallRepo.update(actorAuth.companyId, id, {
+    reportSendStatus: 'Sent',
+    reportSentAt: new Date(),
+    reportSentByUserId: actorAuth.userId || null,
+  });
+}
+
+/* ================= Service Report PDF (owner decision 21 Oct 2026) ================= */
+
+const REPORT_TOKEN_RE = /^[a-f0-9]{48}$/;
+
+function newReportToken() {
+  return crypto.randomBytes(24).toString('hex');
+}
+
+/**
+ * The client-facing link for a completed call's PDF report. Any member of
+ * the call's company may fetch it (same tenant-only gate as reading the
+ * call). Calls completed before this feature get a token on first request.
+ */
+async function getReportLink(id, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  const serviceCall = await deps.serviceCallRepo.findById(actorAuth.companyId, id);
+  if (!serviceCall) throw new ServiceError('Service Call not found.', 'NOT_FOUND', 404);
+  if (serviceCall.status !== 'Completed') {
+    throw new ServiceError('The service report is available once the call is completed.', 'NOT_COMPLETED', 400);
+  }
+  if (serviceCall.reportToken) return { reportToken: serviceCall.reportToken };
+  const updated = await deps.serviceCallRepo.setReportTokenIfMissing(actorAuth.companyId, id, newReportToken());
+  return { reportToken: updated.reportToken };
+}
+
+/**
+ * Public (no login) PDF for the client, addressed only by the unguessable
+ * token in the link they received. Returns { filename, pdf }.
+ */
+async function renderPublicServiceReport(token, deps) {
+  if (typeof token !== 'string' || !REPORT_TOKEN_RE.test(token)) {
+    throw new ServiceError('Service report not found.', 'NOT_FOUND', 404);
+  }
+  const serviceCall = await deps.serviceCallRepo.findByReportToken(token);
+  if (!serviceCall || serviceCall.status !== 'Completed') {
+    throw new ServiceError('Service report not found.', 'NOT_FOUND', 404);
+  }
+  const company = (await deps.companyRepo.findById(serviceCall.companyId)) || {};
+  let engineerName = '';
+  if (serviceCall.engineerId && deps.userRepoForEnquiry) {
+    const eng = await deps.userRepoForEnquiry.findById(serviceCall.engineerId);
+    if (eng && String(eng.companyId) === String(serviceCall.companyId)) engineerName = eng.name || '';
+  }
+  // Loaded on demand so the rest of the Service Call module never depends on
+  // the PDF library being installed.
+  const { buildServiceReportPdf } = require('./serviceReportPdf');
+  const pdf = await buildServiceReportPdf({ company, serviceCall, engineerName });
+  return { filename: `Service-Report-PSC-${serviceCall.complaintNumber}.pdf`, pdf };
 }
 
 /**
@@ -809,6 +1024,16 @@ module.exports = {
   MANAGE_ROLES,
   ENGINEER_CANDIDATE_ROLES,
   CHECKLIST_KEYS,
+  CHECKLIST_VALUES,
+  PART_ACTIONS,
+  GAS_TYPES,
+  coverageFor,
+  defaultServiceType,
+  listReportsToSend,
+  markReportSent,
+  missingReportFields,
+  getReportLink,
+  renderPublicServiceReport,
   SERVICE_TYPES,
   msgReg,
   msgPM,

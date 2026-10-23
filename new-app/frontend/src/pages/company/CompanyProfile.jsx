@@ -23,7 +23,7 @@ export default function CompanyProfile() {
   // Form state
   const [form, setForm] = useState({
     displayName: '', subtitle: '', tagline: '',
-    phone: '', email: '', website: '', gstNumber: '',
+    phone: '', email: '', website: '', gstNumber: '', whatsappNumber: '',
     logoBase64: '',
     bankDetails: { bankName: '', accountNumber: '', ifscCode: '', branch: '', accountType: 'Current' },
     authorizedPerson: { name: '', designation: '', signatureBase64: '', stampBase64: '', contactPhone: '', contactEmail: '' },
@@ -45,6 +45,7 @@ export default function CompanyProfile() {
         email: c.email || '',
         website: c.website || '',
         gstNumber: c.gstNumber || '',
+        whatsappNumber: c.whatsappNumber || '',
         logoBase64: c.logoBase64 || '',
         bankDetails: {
           bankName: c.bankDetails?.bankName || '',
@@ -132,6 +133,7 @@ export default function CompanyProfile() {
               <div><strong>Phone</strong><br/>{company?.phone || '—'}</div>
               <div><strong>Email</strong><br/>{company?.email || '—'}</div>
               <div><strong>Website</strong><br/>{company?.website || '—'}</div>
+              <div><strong>Company WhatsApp</strong><br/>{company?.whatsappNumber || '—'}</div>
               <div><strong>GST Number</strong><br/>{company?.gstNumber || '—'}</div>
               <div><strong>Quotation Prefix</strong><br/>{company?.quotationPrefix || 'QTN'}</div>
             </div>
@@ -194,6 +196,18 @@ export default function CompanyProfile() {
               <label className="filter-field">
                 Website
                 <input value={form.website} onChange={e => setField('website', e.target.value)} />
+              </label>
+              <label className="filter-field">
+                Company WhatsApp number
+                <input
+                  inputMode="tel"
+                  value={form.whatsappNumber}
+                  onChange={e => setField('whatsappNumber', e.target.value)}
+                  placeholder="e.g. 7447333377"
+                />
+                <span className="muted" style={{ fontSize: 12 }}>
+                  Every client message is sent from this number. Send buttons remind the sender to use the phone or laptop that has it.
+                </span>
               </label>
               <label className="filter-field">
                 GST Number

@@ -7,6 +7,13 @@ const service = require('../src/services/serviceCallService');
 const contractService = require('../src/services/contractService');
 const { createEnquiryFakeStore } = require('./enquiryFakes');
 
+// OWNER DECISION (21 Oct 2026): a call completes only with a filled report --
+// "Service done" written and every checklist item ticked (Done) or crossed (Not done).
+const FILLED_REPORT = {
+  serviceDescription: 'Serviced unit',
+  checklistResults: Object.fromEntries(service.CHECKLIST_KEYS.map((k) => [k, 'Done'])),
+};
+
 function auth(overrides) {
   return { userId: 'u1', companyId: 'co1', role: 'admin', name: 'Admin One', ...overrides };
 }
@@ -281,7 +288,7 @@ test('assignEngineer — role gate: only admin/service_mgr may assign', async ()
 test('assignEngineer — cannot reassign a Completed Service Call', async () => {
   const store = baseStore({ users: [engineerUser()] });
   const { serviceCall } = await service.registerComplaint({ customer: 'X' }, auth(), store);
-  await service.completeServiceCall(serviceCall.id, { signature: 'data:image/png;base64,AAA' }, auth(), store);
+  await service.completeServiceCall(serviceCall.id, { ...FILLED_REPORT, signature: 'data:image/png;base64,AAA' }, auth(), store);
   await assert.rejects(
     () => service.assignEngineer(serviceCall.id, { engineerId: 'eng1' }, auth(), store),
     (err) => err.code === 'INVALID_STATUS_TRANSITION'
@@ -359,7 +366,7 @@ test('saveReportDraft — gate: not the assigned engineer, not a manager -> forb
 test('saveReportDraft — cannot edit a Completed Service Call\'s report', async () => {
   const store = baseStore();
   const { serviceCall } = await service.registerComplaint({ customer: 'X' }, auth(), store);
-  await service.completeServiceCall(serviceCall.id, { signature: 'sig-data' }, auth(), store);
+  await service.completeServiceCall(serviceCall.id, { ...FILLED_REPORT, signature: 'sig-data' }, auth(), store);
   await assert.rejects(
     () => service.saveReportDraft(serviceCall.id, { make: 'X' }, auth(), store),
     (err) => err.code === 'INVALID_STATUS_TRANSITION'
@@ -376,17 +383,49 @@ test('completeServiceCall — missing/blank signature blocks completion (the SOL
     (err) => err.code === 'MISSING_SIGNATURE'
   );
   await assert.rejects(
-    () => service.completeServiceCall(serviceCall.id, { signature: '' }, auth(), store),
+    () => service.completeServiceCall(serviceCall.id, { ...FILLED_REPORT, signature: '' }, auth(), store),
     (err) => err.code === 'MISSING_SIGNATURE'
   );
 });
 
-test('completeServiceCall — no other completion guard exists: blank checklist/report, no engineer, no appointment date/time all still complete successfully', async () => {
+test('completeServiceCall — the service report must be filled (owner decision 21 Oct 2026); engineer and appointment are still not required', async () => {
   const store = baseStore();
   const { serviceCall } = await service.registerComplaint({ customer: 'X' }, auth(), store);
-  const { serviceCall: completed } = await service.completeServiceCall(serviceCall.id, { signature: 'sig' }, auth(), store);
+  // Blank report -> rejected, naming every missing part.
+  await assert.rejects(
+    () => service.completeServiceCall(serviceCall.id, { signature: 'sig' }, auth(), store),
+    (err) => err.code === 'REPORT_INCOMPLETE' && err.status === 400 && /Service description/.test(err.message) && /Body Cleaning/.test(err.message)
+  );
+  // One checklist item unanswered -> rejected, naming just that item.
+  const oneMissing = { ...FILLED_REPORT.checklistResults };
+  delete oneMissing['Gas Pressure'];
+  await assert.rejects(
+    () => service.completeServiceCall(serviceCall.id, { signature: 'sig', serviceDescription: 'Done', checklistResults: oneMissing }, auth(), store),
+    (err) => err.code === 'REPORT_INCOMPLETE' && /Missing: Gas Pressure\.$/.test(err.message)
+  );
+  // Free text is no longer a valid answer -- only Done / Not done.
+  await assert.rejects(
+    () => service.completeServiceCall(serviceCall.id, { signature: 'sig', serviceDescription: 'Done', checklistResults: { ...FILLED_REPORT.checklistResults, 'Gas Pressure': '120 PSI' } }, auth(), store),
+    (err) => err.code === 'REPORT_INCOMPLETE' && /Gas Pressure/.test(err.message)
+  );
+  assert.equal((await service.getServiceCall(serviceCall.id, auth(), store)).status, 'Registered');
+  // A cross (Not done) is a valid answer; no engineer / appointment needed.
+  const mixed = { ...FILLED_REPORT.checklistResults, 'Outdoor Coil': 'Not done' };
+  const { serviceCall: completed } = await service.completeServiceCall(
+    serviceCall.id, { signature: 'sig', serviceDescription: 'Serviced', checklistResults: mixed }, auth(), store
+  );
   assert.equal(completed.status, 'Completed');
   assert.equal(completed.engineerId, null);
+  assert.equal(completed.report.checklistResults['Outdoor Coil'], 'Not done');
+  assert.equal(completed.report.checklistResults['Cooling Testing'], 'Done');
+});
+
+test('saveReportDraft — a part-filled report can still be saved as a draft', async () => {
+  const store = baseStore();
+  const { serviceCall } = await service.registerComplaint({ customer: 'X' }, auth(), store);
+  const saved = await service.saveReportDraft(serviceCall.id, { checklistResults: { 'Filter Clean': 'Done' } }, auth(), store);
+  assert.equal(saved.report.checklistResults['Filter Clean'], 'Done');
+  assert.notEqual(saved.status, 'Completed');
 });
 
 /* ================= Completion workflow ================= */
@@ -396,7 +435,7 @@ test('completeServiceCall — normal Complaint completion: signature persisted, 
   const { serviceCall } = await service.registerComplaint({ customer: 'Priya' }, auth(), store);
   const result = await service.completeServiceCall(
     serviceCall.id,
-    { signature: 'data:image/png;base64,AAA', make: 'Daikin', amount: 0 },
+    { ...FILLED_REPORT, signature: 'data:image/png;base64,AAA', make: 'Daikin', amount: 0 },
     auth({ role: 'service_mgr', name: 'Manager Mary' }),
     store
   );
@@ -418,7 +457,7 @@ test('completeServiceCall — completed-by name prefers the assigned engineer\'s
   const store = baseStore({ users: [engineerUser()] });
   const { serviceCall } = await service.registerComplaint({ customer: 'X' }, auth(), store);
   await service.assignEngineer(serviceCall.id, { engineerId: 'eng1' }, auth(), store);
-  await service.completeServiceCall(serviceCall.id, { signature: 'sig' }, auth({ role: 'service_mgr', name: 'Manager Mary' }), store);
+  await service.completeServiceCall(serviceCall.id, { ...FILLED_REPORT, signature: 'sig' }, auth({ role: 'service_mgr', name: 'Manager Mary' }), store);
   const completionNotif = store.state.notifications.find((n) => n.text.includes('completed by'));
   assert.match(completionNotif.text, /completed by Suresh Engineer/);
 });
@@ -426,7 +465,7 @@ test('completeServiceCall — completed-by name prefers the assigned engineer\'s
 test('completeServiceCall — normal PM completion: Contract due[0] slot stamped, msgPMdone customer message', async () => {
   const store = baseStore({ contracts: [baseContract({ scheduledVisits: [{ month: '2020-01', completedDate: null }] })] });
   const { serviceCall } = await service.schedulePM('c1', { date: '2026-04-10', time: '10:00 AM' }, auth(), store);
-  const result = await service.completeServiceCall(serviceCall.id, { signature: 'sig' }, auth(), store);
+  const result = await service.completeServiceCall(serviceCall.id, { ...FILLED_REPORT, signature: 'sig' }, auth(), store);
   assert.equal(result.serviceCall.status, 'Completed');
 
   const contract = await store.contractRepo.findById('co1', 'c1');
@@ -441,12 +480,12 @@ test('completeServiceCall — assigned engineer (only) may complete their own ca
   const { serviceCall } = await service.registerComplaint({ customer: 'X' }, auth(), store);
   await service.assignEngineer(serviceCall.id, { engineerId: 'eng1' }, auth(), store);
   await assert.rejects(
-    () => service.completeServiceCall(serviceCall.id, { signature: 'sig' }, auth({ role: 'service_eng', userId: 'eng2' }), store),
+    () => service.completeServiceCall(serviceCall.id, { ...FILLED_REPORT, signature: 'sig' }, auth({ role: 'service_eng', userId: 'eng2' }), store),
     (err) => err.code === 'FORBIDDEN'
   );
   const completed = await service.completeServiceCall(
     serviceCall.id,
-    { signature: 'sig' },
+    { ...FILLED_REPORT, signature: 'sig' },
     auth({ role: 'service_eng', userId: 'eng1' }),
     store
   );
@@ -460,7 +499,7 @@ test('completeServiceCall — Chargeable + amount>0 creates a Payment with the e
   const { serviceCall } = await service.registerComplaint({ customer: 'Priya', phone: '999', site: 'Flat 4B' }, auth(), store);
   await service.completeServiceCall(
     serviceCall.id,
-    { signature: 'sig', serviceType: 'Chargeable', amount: 1500 },
+    { ...FILLED_REPORT, signature: 'sig', serviceType: 'Chargeable', amount: 1500 },
     auth(),
     store
   );
@@ -483,14 +522,14 @@ test('completeServiceCall — Chargeable + amount>0 creates a Payment with the e
 test('completeServiceCall — Chargeable + amount=0 does NOT create a Payment', async () => {
   const store = baseStore();
   const { serviceCall } = await service.registerComplaint({ customer: 'X' }, auth(), store);
-  await service.completeServiceCall(serviceCall.id, { signature: 'sig', serviceType: 'Chargeable', amount: 0 }, auth(), store);
+  await service.completeServiceCall(serviceCall.id, { ...FILLED_REPORT, signature: 'sig', serviceType: 'Chargeable', amount: 0 }, auth(), store);
   assert.equal(store.state.payments.length, 0);
 });
 
 test('completeServiceCall — non-Chargeable serviceType never creates a Payment, even with a positive amount', async () => {
   const store = baseStore();
   const { serviceCall } = await service.registerComplaint({ customer: 'X' }, auth(), store);
-  await service.completeServiceCall(serviceCall.id, { signature: 'sig', serviceType: 'AMC', amount: 999 }, auth(), store);
+  await service.completeServiceCall(serviceCall.id, { ...FILLED_REPORT, signature: 'sig', serviceType: 'AMC', amount: 999 }, auth(), store);
   assert.equal(store.state.payments.length, 0);
 });
 
@@ -499,7 +538,7 @@ test('completeServiceCall — negative Chargeable amount is not rejected but als
   const { serviceCall } = await service.registerComplaint({ customer: 'X' }, auth(), store);
   const result = await service.completeServiceCall(
     serviceCall.id,
-    { signature: 'sig', serviceType: 'Chargeable', amount: -100 },
+    { ...FILLED_REPORT, signature: 'sig', serviceType: 'Chargeable', amount: -100 },
     auth(),
     store
   );
@@ -517,7 +556,7 @@ test('completeServiceCall — atomic rollback: a failing Payment write rolls bac
   };
   try {
     await assert.rejects(() =>
-      service.completeServiceCall(serviceCall.id, { signature: 'sig', serviceType: 'Chargeable', amount: 500 }, auth(), store)
+      service.completeServiceCall(serviceCall.id, { ...FILLED_REPORT, signature: 'sig', serviceType: 'Chargeable', amount: 500 }, auth(), store)
     );
   } finally {
     store.paymentRepo.create = originalCreate;
@@ -536,7 +575,7 @@ test('completeServiceCall — a retried/duplicate completion request never creat
 
   const first = await service.completeServiceCall(
     serviceCall.id,
-    { signature: 'sig', serviceType: 'Chargeable', amount: 500 },
+    { ...FILLED_REPORT, signature: 'sig', serviceType: 'Chargeable', amount: 500 },
     auth(),
     store
   );
@@ -546,7 +585,7 @@ test('completeServiceCall — a retried/duplicate completion request never creat
   // Simulate a network retry of the exact same completion request.
   const second = await service.completeServiceCall(
     serviceCall.id,
-    { signature: 'sig', serviceType: 'Chargeable', amount: 500 },
+    { ...FILLED_REPORT, signature: 'sig', serviceType: 'Chargeable', amount: 500 },
     auth(),
     store
   );
@@ -565,8 +604,8 @@ test('completeServiceCall — concurrent simultaneous completion requests: only 
   const store = baseStore();
   const { serviceCall } = await service.registerComplaint({ customer: 'X' }, auth(), store);
   const [a, b] = await Promise.all([
-    service.completeServiceCall(serviceCall.id, { signature: 'sig', serviceType: 'Chargeable', amount: 100 }, auth(), store),
-    service.completeServiceCall(serviceCall.id, { signature: 'sig', serviceType: 'Chargeable', amount: 100 }, auth(), store),
+    service.completeServiceCall(serviceCall.id, { ...FILLED_REPORT, signature: 'sig', serviceType: 'Chargeable', amount: 100 }, auth(), store),
+    service.completeServiceCall(serviceCall.id, { ...FILLED_REPORT, signature: 'sig', serviceType: 'Chargeable', amount: 100 }, auth(), store),
   ]);
   const completedNowCount = [a, b].filter((r) => r.completedNow).length;
   assert.equal(completedNowCount, 1);
@@ -578,7 +617,7 @@ test('completeServiceCall — concurrent simultaneous completion requests: only 
 test('completeServiceCall — Contract PM linkage: a Complaint (no contractId) never touches any Contract', async () => {
   const store = baseStore({ contracts: [baseContract()] });
   const { serviceCall } = await service.registerComplaint({ customer: 'X' }, auth(), store);
-  await service.completeServiceCall(serviceCall.id, { signature: 'sig' }, auth(), store);
+  await service.completeServiceCall(serviceCall.id, { ...FILLED_REPORT, signature: 'sig' }, auth(), store);
   const contract = await store.contractRepo.findById('co1', 'c1');
   assert.ok(contract.scheduledVisits.every((v) => v.completedDate === null));
 });
@@ -600,7 +639,7 @@ test('completeServiceCall — due[0] quirk preserved: completion stamps the slot
     ],
   });
   const { serviceCall } = await service.schedulePM('c1', {}, auth(), store);
-  await service.completeServiceCall(serviceCall.id, { signature: 'sig' }, auth(), store);
+  await service.completeServiceCall(serviceCall.id, { ...FILLED_REPORT, signature: 'sig' }, auth(), store);
   const contract = await store.contractRepo.findById('co1', 'c1');
   assert.ok(contract.scheduledVisits[0].completedDate); // due[0] stamped
   assert.equal(contract.scheduledVisits[1].completedDate, null); // NOT the "originating" concept -- there is none
@@ -609,7 +648,7 @@ test('completeServiceCall — due[0] quirk preserved: completion stamps the slot
 test('completeServiceCall — Contract PM linkage: no-op when nothing is currently due (all slots already done or future)', async () => {
   const store = baseStore({ contracts: [baseContract({ scheduledVisits: [{ month: '2099-01', completedDate: null }] })] });
   const { serviceCall } = await service.schedulePM('c1', {}, auth(), store);
-  const result = await service.completeServiceCall(serviceCall.id, { signature: 'sig' }, auth(), store);
+  const result = await service.completeServiceCall(serviceCall.id, { ...FILLED_REPORT, signature: 'sig' }, auth(), store);
   assert.equal(result.serviceCall.status, 'Completed'); // ServiceCall still completes normally
   const contract = await store.contractRepo.findById('co1', 'c1');
   assert.equal(contract.scheduledVisits[0].completedDate, null);
@@ -634,8 +673,8 @@ test('completeServiceCall — two PM ServiceCalls against the same Contract: out
   });
   const pmA = await service.schedulePM('c1', {}, auth(), store);
   const pmB = await service.schedulePM('c1', {}, auth(), store);
-  await service.completeServiceCall(pmA.serviceCall.id, { signature: 'sig' }, auth(), store);
-  await service.completeServiceCall(pmB.serviceCall.id, { signature: 'sig' }, auth(), store);
+  await service.completeServiceCall(pmA.serviceCall.id, { ...FILLED_REPORT, signature: 'sig' }, auth(), store);
+  await service.completeServiceCall(pmB.serviceCall.id, { ...FILLED_REPORT, signature: 'sig' }, auth(), store);
   const contract = await store.contractRepo.findById('co1', 'c1');
   assert.ok(contract.scheduledVisits[0].completedDate);
   assert.ok(contract.scheduledVisits[1].completedDate); // both slots end up stamped, one per completion
@@ -646,7 +685,7 @@ test('completeServiceCall — two PM ServiceCalls against the same Contract: out
 test('Authorization — completed-report read path has NO additional role gate beyond tenant scoping (§19/§23 item 15)', async () => {
   const store = baseStore();
   const { serviceCall } = await service.registerComplaint({ customer: 'X' }, auth(), store);
-  await service.completeServiceCall(serviceCall.id, { signature: 'sig' }, auth(), store);
+  await service.completeServiceCall(serviceCall.id, { ...FILLED_REPORT, signature: 'sig' }, auth(), store);
   // 'finance' and 'sales' have no menu access to Service Calls at all in the
   // PWA, yet the completed-report VIEW itself has no role gate -- only
   // company-tenant scoping (mandatory infra fix, §20).
@@ -712,7 +751,7 @@ test('listServiceCalls — search by engineer name (resolved from engineerId) an
 test('listServiceCalls — includes ALL statuses, including Completed (Register shows everything, §17)', async () => {
   const store = baseStore();
   const { serviceCall } = await service.registerComplaint({ customer: 'X' }, auth(), store);
-  await service.completeServiceCall(serviceCall.id, { signature: 'sig' }, auth(), store);
+  await service.completeServiceCall(serviceCall.id, { ...FILLED_REPORT, signature: 'sig' }, auth(), store);
   const all = await service.listServiceCalls(auth(), {}, store);
   assert.equal(all.length, 1);
   assert.equal(all[0].status, 'Completed');
@@ -730,7 +769,7 @@ test('getOpenServiceCalls — excludes Completed calls only (§17)', async () =>
   const store = baseStore();
   const { serviceCall: open } = await service.registerComplaint({ customer: 'Open One' }, auth(), store);
   const { serviceCall: toComplete } = await service.registerComplaint({ customer: 'Will Complete' }, auth(), store);
-  await service.completeServiceCall(toComplete.id, { signature: 'sig' }, auth(), store);
+  await service.completeServiceCall(toComplete.id, { ...FILLED_REPORT, signature: 'sig' }, auth(), store);
 
   const rows = await service.getOpenServiceCalls(auth(), store);
   assert.equal(rows.length, 1);
@@ -740,9 +779,9 @@ test('getOpenServiceCalls — excludes Completed calls only (§17)', async () =>
 test('exportServiceCallsCsv — exact 22-column header, Client Signed Yes/No flag, TOTAL row sums every report amount regardless of serviceType (§17/Explicitly Forbidden Redesign #11)', async () => {
   const store = baseStore();
   const { serviceCall: chargeable } = await service.registerComplaint({ customer: 'A' }, auth(), store);
-  await service.completeServiceCall(chargeable.id, { signature: 'sig', serviceType: 'Chargeable', amount: 1000 }, auth(), store);
+  await service.completeServiceCall(chargeable.id, { ...FILLED_REPORT, signature: 'sig', serviceType: 'Chargeable', amount: 1000 }, auth(), store);
   const { serviceCall: amc } = await service.registerComplaint({ customer: 'B' }, auth(), store);
-  await service.completeServiceCall(amc.id, { signature: 'sig', serviceType: 'AMC', amount: 250 }, auth(), store);
+  await service.completeServiceCall(amc.id, { ...FILLED_REPORT, signature: 'sig', serviceType: 'AMC', amount: 250 }, auth(), store);
 
   const csv = await service.exportServiceCallsCsv(auth(), {}, store);
   const lines = csv.split('\n');

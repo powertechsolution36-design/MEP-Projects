@@ -538,6 +538,8 @@ async function issueMaterial(input, actorAuth, deps) {
         date: todayDate(),
         targetRoles: ['*'],
         readByUserIds: [],
+        // Phone push goes to the staff member who received it (owner decision 21 Oct 2026).
+        push: { userIds: [staff.id], path: '/my-material' },
       },
       session
     );
@@ -711,6 +713,8 @@ async function acceptReturn(issueId, input, actorAuth, deps) {
         date: todayDate(),
         targetRoles: ['*'],
         readByUserIds: [],
+        // Phone push goes to the store and admin (owner decision 21 Oct 2026).
+        push: { roles: ['inventory', 'admin'], path: '/inventory/returns' },
       },
       session
     );
@@ -737,6 +741,8 @@ async function rejectReturn(issueId, actorAuth, deps) {
     date: todayDate(),
     targetRoles: ['*'],
     readByUserIds: [],
+    // Phone push goes to the staff member whose return was refused (owner decision 21 Oct 2026).
+    push: { userIds: [issue.staffId], path: '/my-material' },
   });
 
   return updated;

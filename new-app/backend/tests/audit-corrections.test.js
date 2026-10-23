@@ -182,11 +182,24 @@ test('audit-correction scope guard: only authorized routes and services exist', 
   assert.deepEqual(routeFiles, [
     'amcDocumentRoutes.js', 'authRoutes.js', 'checklistTemplateRoutes.js', 'companyRoutes.js', 'contractRoutes.js', 'dailyTaskRoutes.js', 'dashboardRoutes.js',
     'enquiryRoutes.js', 'inventoryRoutes.js', 'itemNameRoutes.js', 'notificationRoutes.js', 'paymentRoutes.js',
-    'paymentTermTemplateRoutes.js', 'projectRoutes.js', 'quotationRoutes.js', 'salesOrderRoutes.js',
+    'paymentTermTemplateRoutes.js', 'projectRoutes.js',
+    // UPDATE (owner request, 21 Oct 2026): the client's Service Report PDF
+    // link -- the only no-login route, keyed by an unguessable token.
+    'publicRoutes.js',
+    // UPDATE (owner request, 21 Oct 2026): phone push registration.
+    'pushRoutes.js',
+    'quotationRoutes.js',
+    // UPDATE (owner request, 22 Oct 2026): ready-made starting points for a
+    // quotation — repository-backed, like paymentTermTemplateRoutes.
+    'quotationTemplateRoutes.js',
+    'salesOrderRoutes.js',
     'serviceCallRoutes.js', 'subscriptionRoutes.js', 'userRoutes.js',
   ]);
   assert.deepEqual(serviceFiles, [
     'amcDocumentService.js',
+    // UPDATE (owner request, 22 Oct 2026): renders the AMC letter sent to the
+    // client once the AMC is paid; a pure helper of amcDocumentService.
+    'amcLetterPdf.js',
     'checklistTemplateService.js',
     'companyService.js',
     'contractService.js',
@@ -198,6 +211,11 @@ test('audit-correction scope guard: only authorized routes and services exist', 
     'notificationService.js',
     'paymentService.js',
     'projectService.js',
+    // UPDATE (owner request, 21 Oct 2026): phone push notifications.
+    'pushService.js',
+    // UPDATE (owner request, 22 Oct 2026): renders the Quotation PDF the
+    // customer is sent; a pure helper of quotationService.
+    'quotationPdf.js',
     'quotationService.js',
     // UPDATE (Claude design + completion directive, Oct 2026): a shared
     // helper, not a business module — the PWA's `rptHead()` CSV report
@@ -207,6 +225,9 @@ test('audit-correction scope guard: only authorized routes and services exist', 
     'salesOrderCascade.js',
     'salesOrderService.js',
     'serviceCallService.js',
+    // UPDATE (owner request, 21 Oct 2026): renders the Service Report PDF
+    // sent to the client; a pure helper of serviceCallService.
+    'serviceReportPdf.js',
     'subscriptionService.js',
     'userService.js',
   ]);

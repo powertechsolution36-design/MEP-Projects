@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const { ServiceError } = require('../errors');
 
 /**
@@ -516,6 +517,55 @@ async function generateAmcDocument(companyId, contractId, templateType, deps) {
   };
 }
 
+/* ================= AMC letter for the client (owner request, 22 Oct 2026) ================= */
+
+const LETTER_TOKEN_RE = /^[a-f0-9]{48}$/;
+const SEND_ROLES = Object.freeze(['admin', 'service_mgr', 'finance']);
+
+function isPaid(contract) {
+  return !!(contract && contract.payment && contract.payment.status === 'Paid');
+}
+
+/**
+ * The client-facing link to the AMC letter. Only once the AMC is marked
+ * paid. The token is unguessable (crypto.randomBytes(24)) and is minted
+ * once per paid period — renewing clears it, so last year's link stops
+ * working until the new period is paid.
+ */
+async function getLetterLink(companyId, contractId, actorAuth, deps) {
+  if (!SEND_ROLES.includes(actorAuth.role) && actorAuth.role !== 'super') {
+    throw new ServiceError(`Role "${actorAuth.role}" is not permitted to send the AMC letter.`, 'FORBIDDEN', 403);
+  }
+  const contract = await deps.contractRepo.findById(companyId, contractId);
+  if (!contract) throw new ServiceError('Contract not found.', 'NOT_FOUND', 404);
+  if (!isPaid(contract)) {
+    throw new ServiceError('The AMC letter can be sent once the AMC is marked paid.', 'NOT_PAID', 400);
+  }
+  if (contract.letterToken) return { letterToken: contract.letterToken };
+  const updated = await deps.contractRepo.setLetterTokenIfMissing(companyId, contractId, crypto.randomBytes(24).toString('hex'));
+  return { letterToken: updated.letterToken };
+}
+
+/** Public (no login) AMC letter PDF, addressed only by its token. */
+async function renderPublicAmcLetter(token, deps) {
+  if (typeof token !== 'string' || !LETTER_TOKEN_RE.test(token)) {
+    throw new ServiceError('AMC letter not found.', 'NOT_FOUND', 404);
+  }
+  const contract = await deps.contractRepo.findByLetterToken(token);
+  if (!contract || !isPaid(contract)) throw new ServiceError('AMC letter not found.', 'NOT_FOUND', 404);
+  const doc = await generateAmcDocument(contract.companyId, contract.id, 'amc-letter', deps);
+  const company = (await deps.companyRepo.findById(contract.companyId)) || {};
+  // Loaded on demand so this module never depends on the PDF library.
+  const { buildAmcLetterPdf } = require('./amcLetterPdf');
+  const pdf = await buildAmcLetterPdf({
+    company: { ...doc.company, whatsappNumber: company.whatsappNumber || '' },
+    contract: doc.contract,
+    sections: doc.template.sections,
+  });
+  const safeName = String(contract.customer || contract.site || 'client').replace(/[^A-Za-z0-9 _-]+/g, '').trim().slice(0, 60) || 'client';
+  return { filename: `AMC-Letter-${safeName.replace(/\s+/g, '-')}.pdf`, pdf };
+}
+
 async function listTemplates(companyId, deps) {
   const templates = deps.amcTemplateRepo ? await deps.amcTemplateRepo.listByCompany(companyId) : [];
   // Always include defaults
@@ -539,4 +589,6 @@ module.exports = {
   listTemplates,
   contractPeriodText,
   formatRupees,
+  getLetterLink,
+  renderPublicAmcLetter,
 };

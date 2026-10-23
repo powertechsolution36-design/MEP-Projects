@@ -18,11 +18,15 @@ const { createChecklistTemplateRouter } = require('./routes/checklistTemplateRou
 const { createNotificationRouter } = require('./routes/notificationRoutes');
 const { createSubscriptionRouter } = require('./routes/subscriptionRoutes');
 const { createQuotationRouter } = require('./routes/quotationRoutes');
+const { createQuotationTemplateRouter } = require('./routes/quotationTemplateRoutes');
 const { createItemNameRouter } = require('./routes/itemNameRoutes');
 const { createAmcDocumentRouter } = require('./routes/amcDocumentRoutes');
 const { createPaymentTermTemplateRouter } = require('./routes/paymentTermTemplateRoutes');
 const { createDashboardRouter } = require('./routes/dashboardRoutes');
 const { createDailyTaskRouter } = require('./routes/dailyTaskRoutes');
+const { createPublicRouter } = require('./routes/publicRoutes');
+const { createPushRouter } = require('./routes/pushRoutes');
+const { withPushNotifications } = require('./services/pushService');
 const { startDelayCheckScheduler } = require('./jobs/delayCheckScheduler');
 const {
   enquiryRepo,
@@ -35,6 +39,7 @@ const {
   checklistTemplateRepo,
   userRepoForEnquiry,
   counterRepo,
+  pushDeviceRepo,
   withTransaction,
   inventoryCategoryRepo,
   inventoryLocationRepo,
@@ -47,6 +52,7 @@ const {
   quotationRepo,
   amcTemplateRepo,
   paymentTermTemplateRepo,
+  quotationTemplateRepo,
   dailyTaskRepo,
 } = require('./repositories/businessRepositories.mongoose');
 
@@ -117,8 +123,16 @@ function createApp(overrideConfig) {
     quotationRepo,
     amcTemplateRepo,
     paymentTermTemplateRepo,
+  quotationTemplateRepo,
     dailyTaskRepo,
+    pushDeviceRepo,
   };
+
+  // Owner decision (21 Oct 2026): every notification is also pushed to the
+  // phones of the people it concerns (src/services/pushService.js).
+  businessDeps.notificationRepo = withPushNotifications(businessDeps.notificationRepo, businessDeps, {
+    accessToken: process.env.EXPO_ACCESS_TOKEN || undefined,
+  });
 
   const app = express();
   // Company Profile carries base64 logo / signature / stamp images (the
@@ -148,11 +162,14 @@ function createApp(overrideConfig) {
   app.use('/api/subscriptions', createSubscriptionRouter(businessDeps));
   // Stage 7 commercial documents.
   app.use('/api/quotations', createQuotationRouter(businessDeps));
+  app.use('/api/quotation-templates', createQuotationTemplateRouter(businessDeps));
   app.use('/api/item-names', createItemNameRouter(businessDeps));
   app.use('/api/amc-documents', createAmcDocumentRouter(businessDeps));
   app.use('/api/payment-term-templates', createPaymentTermTemplateRouter(businessDeps));
   app.use('/api/dashboard', createDashboardRouter(businessDeps));
   app.use('/api/daily-tasks', createDailyTaskRouter(businessDeps));
+  app.use('/api/public', createPublicRouter(businessDeps));
+  app.use('/api/push-devices', createPushRouter(businessDeps));
 
   app.startDelayCheckScheduler = (options) => startDelayCheckScheduler(businessDeps, options);
 

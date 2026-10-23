@@ -622,6 +622,8 @@ async function assignEngineers(projectId, engineerIds, actorAuth, deps) {
           date: todayDate(),
           targetRoles: ['*'],
           readByUserIds: [],
+          // Phone push goes to the newly assigned engineers only (owner decision 21 Oct 2026).
+          push: { userIds: newlyAdded, path: `/projects/${projectId}` },
         },
         session
       );

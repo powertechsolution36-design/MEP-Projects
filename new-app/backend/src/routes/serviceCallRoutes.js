@@ -18,6 +18,7 @@ const { requireCompanyContext, rejectClientSuppliedCompanyId } = require('../mid
  *   PUT  /api/service-calls/:id/assign              assign/reassign/clear engineer + date/time (admin/service_mgr)
  *   PUT  /api/service-calls/:id/report              save report draft (assigned engineer or admin/service_mgr)
  *   POST /api/service-calls/:id/complete            complete the call (assigned engineer or admin/service_mgr)
+ *   GET  /api/service-calls/:id/report-link         token for the client's PDF report (any company member, completed calls)
  *
  * No edit/delete/cancel/reopen route exists for any role -- the PWA has
  * none (SERVICECALL_DECISION_LOCK.md §21 item 14 / §23 item 13).
@@ -72,6 +73,16 @@ function createServiceCallRouter(deps) {
     })
   );
 
+  // Owner decision (22 Oct 2026): completed calls waiting for the service
+  // manager to send the report from the company WhatsApp. Before '/:id'.
+  router.get(
+    '/reports-to-send',
+    handle(async (req, res) => {
+      const serviceCalls = await service.listReportsToSend(req.auth, deps);
+      return res.status(200).json({ serviceCalls });
+    })
+  );
+
   /* Engineer candidates for service-call assignment dropdown (infrastructure-only addition).
      Placed before /:id catch-all. Accessible to any authenticated company member. */
   router.get(
@@ -94,6 +105,14 @@ function createServiceCallRouter(deps) {
     '/:id',
     handle(async (req, res) => {
       const serviceCall = await service.getServiceCall(req.params.id, req.auth, deps);
+      return res.status(200).json({ serviceCall });
+    })
+  );
+
+  router.post(
+    '/:id/report-sent',
+    handle(async (req, res) => {
+      const serviceCall = await service.markReportSent(req.params.id, req.auth, deps);
       return res.status(200).json({ serviceCall });
     })
   );
@@ -127,6 +146,15 @@ function createServiceCallRouter(deps) {
     handle(async (req, res) => {
       const serviceCall = await service.saveReportDraft(req.params.id, req.body, req.auth, deps);
       return res.status(200).json({ serviceCall });
+    })
+  );
+
+  // Owner decision (21 Oct 2026): link to the client-facing PDF report.
+  router.get(
+    '/:id/report-link',
+    handle(async (req, res) => {
+      const result = await service.getReportLink(req.params.id, req.auth, deps);
+      return res.status(200).json(result);
     })
   );
 

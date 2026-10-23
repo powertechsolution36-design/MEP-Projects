@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { money, today } from '../../utils/format';
 import DivisionSelector from '../../components/DivisionSelector';
+import { quotationProblem } from './quotationValidation';
+import LineItemsEditor, { EMPTY_LINE } from './LineItemsEditor';
+import { quotationTotals } from './quotationTotals';
 
 /**
  * Create / Edit Quotation — Equipment + Accessories line items.
@@ -14,152 +17,10 @@ import DivisionSelector from '../../components/DivisionSelector';
  *      PATCH /api/quotations/:id (update — via QuotationDetail edit mode)
  */
 
-const EMPTY_LINE = { description: '', unit: 'Nos', qty: 1, supplyRate: 0, installationRate: 0, gstPercent: null };
-
-function LineItemTable({ items, setItems, label, onAutocomplete, isSolar }) {
-  function setItemField(idx, key, value) {
-    setItems(prev => {
-      const copy = [...prev];
-      copy[idx] = { ...copy[idx], [key]: value };
-      return copy;
-    });
-  }
-
-  function addRow() {
-    setItems(prev => [...prev, { ...EMPTY_LINE }]);
-  }
-
-  function removeRow(idx) {
-    setItems(prev => prev.filter((_, i) => i !== idx));
-  }
-
-  function calcLine(item) {
-    const supply = (item.qty || 0) * (item.supplyRate || 0);
-    const install = (item.qty || 0) * (item.installationRate || 0);
-    return { supply, install, total: supply + install };
-  }
-
-  const colCount = isSolar ? 8 : 8;
-
-  return (
-    <div className="panel" style={{ marginTop: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h3>{label} Items</h3>
-        <button type="button" className="btn sec sm" onClick={addRow}>+ Add Row</button>
-      </div>
-      <div style={{ overflowX: 'auto', marginTop: 8 }}>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th style={{ width: 40 }}>#</th>
-              <th style={{ minWidth: 200 }}>Description</th>
-              <th style={{ width: 70 }}>Unit</th>
-              <th style={{ width: 70 }}>Qty</th>
-              <th style={{ width: 100 }}>Supply Rate</th>
-              {!isSolar && <th style={{ width: 100 }}>Install Rate</th>}
-              {isSolar && <th style={{ width: 80 }}>GST %</th>}
-              <th style={{ width: 100, textAlign: 'right' }}>Basic Amt</th>
-              {isSolar && <th style={{ width: 100, textAlign: 'right' }}>Amt with GST</th>}
-              <th style={{ width: 40 }}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.length === 0 ? (
-              <tr><td colSpan={colCount + 1} style={{ textAlign: 'center', color: '#888' }}>No items. Click + Add Row.</td></tr>
-            ) : items.map((item, idx) => {
-              const calc = calcLine(item);
-              const basicAmt = isSolar ? calc.supply : calc.total;
-              const gstPct = item.gstPercent != null ? item.gstPercent : 18;
-              const amtWithGst = Math.round(basicAmt * (1 + gstPct / 100));
-              return (
-                <tr key={idx}>
-                  <td>{idx + 1}</td>
-                  <td>
-                    <ItemAutocomplete
-                      value={item.description}
-                      onChange={val => setItemField(idx, 'description', val)}
-                      onAutocomplete={onAutocomplete}
-                    />
-                  </td>
-                  <td><input value={item.unit} onChange={e => setItemField(idx, 'unit', e.target.value)} style={{ width: 60 }} /></td>
-                  <td><input type="number" min={0} value={item.qty} onChange={e => setItemField(idx, 'qty', Number(e.target.value))} style={{ width: 60 }} /></td>
-                  <td><input type="number" min={0} value={item.supplyRate} onChange={e => setItemField(idx, 'supplyRate', Number(e.target.value))} style={{ width: 90 }} /></td>
-                  {!isSolar && <td><input type="number" min={0} value={item.installationRate} onChange={e => setItemField(idx, 'installationRate', Number(e.target.value))} style={{ width: 90 }} /></td>}
-                  {isSolar && <td><input type="number" min={0} value={item.gstPercent != null ? item.gstPercent : ''} onChange={e => setItemField(idx, 'gstPercent', e.target.value === '' ? null : Number(e.target.value))} style={{ width: 70 }} placeholder="18" /></td>}
-                  <td style={{ textAlign: 'right' }}>{money(basicAmt)}</td>
-                  {isSolar && <td style={{ textAlign: 'right' }}>{money(amtWithGst)}</td>}
-                  <td><button type="button" className="btn danger sm" onClick={() => removeRow(idx)} title="Remove">&times;</button></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Item description input with autocomplete from the item-name library.
- */
-function ItemAutocomplete({ value, onChange, onAutocomplete }) {
-  const [suggestions, setSuggestions] = useState([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-
-  async function handleInput(val) {
-    onChange(val);
-    if (val.length >= 2 && onAutocomplete) {
-      try {
-        const data = await onAutocomplete(val);
-        setSuggestions(data || []);
-        setShowSuggestions(true);
-      } catch { setSuggestions([]); }
-    } else {
-      setSuggestions([]);
-      setShowSuggestions(false);
-    }
-  }
-
-  function pickSuggestion(name) {
-    onChange(name);
-    setShowSuggestions(false);
-    setSuggestions([]);
-  }
-
-  return (
-    <div style={{ position: 'relative' }}>
-      <input
-        value={value}
-        onChange={e => handleInput(e.target.value)}
-        onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-        onFocus={() => { if (suggestions.length) setShowSuggestions(true); }}
-        placeholder="Item description"
-        style={{ width: '100%' }}
-      />
-      {showSuggestions && suggestions.length > 0 && (
-        <ul style={{
-          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10,
-          background: '#fff', border: '1px solid #ccc', borderRadius: 4,
-          listStyle: 'none', margin: 0, padding: 0, maxHeight: 150, overflowY: 'auto',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-        }}>
-          {suggestions.map((s, i) => (
-            <li key={i}
-              onMouseDown={() => pickSuggestion(s.name)}
-              style={{ padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid #eee' }}
-            >
-              {s.name} {s.unit ? <span style={{ color: '#888', fontSize: 12 }}>({s.unit})</span> : null}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
 export default function QuotationCreate() {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   const [form, setForm] = useState({
     division: '', customerName: '', customerAddress: '', customerPhone: '',
@@ -177,11 +38,83 @@ export default function QuotationCreate() {
   const [templates, setTemplates] = useState([]);
   const [selectedTemplate, setSelectedTemplate] = useState('');
 
+  // Ready-made starting points (Split, Ductable, VRF, Solar …) — owner
+  // request, 22 Oct 2026. Applying one copies its wording into this form;
+  // nothing stays linked afterwards.
+  const [startingPoints, setStartingPoints] = useState([]);
+  const [appliedStart, setAppliedStart] = useState('');
+
   useEffect(() => {
     api.get('/api/payment-term-templates?documentType=quotation')
       .then(data => setTemplates(data.templates || []))
       .catch(() => {});
+    api.get('/api/quotation-templates')
+      .then((data) => {
+        const list = data.templates || [];
+        setStartingPoints(list);
+        // The list usually arrives before a division is picked; if it does
+        // not, apply the automatic one as soon as it lands.
+        setPendingAuto(list.filter(t => t.isDefault));
+      })
+      .catch(() => { /* optional: the form works without any */ });
   }, []);
+
+  const [pendingAuto, setPendingAuto] = useState([]);
+  useEffect(() => {
+    if (!pendingAuto.length || appliedStart || !form.division) return;
+    const auto = pendingAuto.find(t => t.division === form.division);
+    if (auto && formIsUntouched()) applyStartingPoint(auto.id, form.division);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingAuto, form.division]);
+
+  /**
+   * Choosing a division applies that division's automatic starting point —
+   * the one saved with "use this automatically" (owner request, 22 Oct 2026).
+   * It only does so while the form is still untouched, so switching division
+   * halfway through never wipes work already typed in.
+   */
+  function formIsUntouched() {
+    const typed = ['customerName', 'subject', 'system', 'capacity', 'summaryText', 'technicalDescription']
+      .some(k => String(form[k] || '').trim());
+    const items = [...equipmentItems, ...accessoriesItems].some(i => String(i.description || '').trim());
+    return !typed && !items;
+  }
+
+  function chooseDivision(division) {
+    setField('division', division);
+    if (!division) return;
+    const auto = startingPoints.find(t => t.division === division && t.isDefault);
+    if (auto && formIsUntouched()) applyStartingPoint(auto.id, division);
+  }
+
+  function applyStartingPoint(id, divisionOverride) {
+    setAppliedStart(id);
+    if (!id) return;
+    const t = startingPoints.find(x => x.id === id);
+    if (!t) return;
+    setForm(prev => ({
+      ...prev,
+      division: divisionOverride || t.division || prev.division,
+      subject: t.subject || '',
+      system: t.system || '',
+      capacity: t.capacity || '',
+      siteDescription: t.siteDescription || '',
+      summaryText: t.summaryText || '',
+      technicalDescription: t.technicalDescription || '',
+      designApproval: t.designApproval || '',
+      benefitsOfSystem: t.benefitsOfSystem || '',
+      designBy: t.designBy || '',
+      systemApprovedBy: t.systemApprovedBy || '',
+      gstPercent: t.gstPercent != null ? t.gstPercent : 18,
+      offerValidity: t.offerValidity || '',
+      delivery: t.delivery || '',
+      notes: t.notes || '',
+    }));
+    setEquipmentItems((t.equipmentItems || []).length ? t.equipmentItems.map(i => ({ ...i })) : [{ ...EMPTY_LINE }]);
+    setAccessoriesItems((t.accessoriesItems || []).map(i => ({ ...i })));
+    setPaymentTerms((t.paymentTerms || []).map((r, i) => ({ ...r, sequence: r.sequence || i + 1 })));
+    setExcludedWorks((t.excludedWorks || []).length ? [...t.excludedWorks] : ['']);
+  }
 
   function setField(key, value) {
     setForm(prev => ({ ...prev, [key]: value }));
@@ -196,18 +129,7 @@ export default function QuotationCreate() {
 
   // Calculate totals
   function calcTotals() {
-    const eqTotal = equipmentItems.reduce((s, i) => s + (i.qty || 0) * ((i.supplyRate || 0) + (i.installationRate || 0)), 0);
-    const accTotal = accessoriesItems.reduce((s, i) => s + (i.qty || 0) * ((i.supplyRate || 0) + (i.installationRate || 0)), 0);
-    const subtotal = eqTotal + accTotal;
-    const gst = form.gstPercent === '' || form.gstPercent == null ? 18 : Number(form.gstPercent);
-    // Solar: GST is the sum of each line's own GST % (same rule as the server).
-    const gstAmount = form.division === 'Solar'
-      ? [...equipmentItems, ...accessoriesItems].reduce((s, i) => {
-          const base = (i.qty || 0) * ((i.supplyRate || 0) + (i.installationRate || 0));
-          return s + Math.round(base * (i.gstPercent != null ? Number(i.gstPercent) : 18) / 100);
-        }, 0)
-      : Math.round(subtotal * gst / 100);
-    return { eqTotal, accTotal, subtotal, gstAmount, grandTotal: subtotal + gstAmount };
+    return quotationTotals(equipmentItems, accessoriesItems, form.gstPercent, form.division);
   }
 
   // Apply payment term template
@@ -255,8 +177,12 @@ export default function QuotationCreate() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!form.division) { alert('Division is required.'); return; }
-    if (!form.customerName) { alert('Customer name is required.'); return; }
+    // Checked here rather than by the browser: a browser-blocked submit is
+    // silent (nothing happens, no message), which is indistinguishable from
+    // the app being broken.
+    const problem = quotationProblem(form);
+    if (problem) { setSaveError(problem); return; }
+    setSaveError('');
     setBusy(true);
     try {
       const payload = {
@@ -271,7 +197,7 @@ export default function QuotationCreate() {
       const data = await api.post('/api/quotations', payload);
       navigate(`/quotations/${data.quotation.id}`);
     } catch (err) {
-      alert(err.message);
+      setSaveError(err.message || 'Could not create the quotation.');
     } finally {
       setBusy(false);
     }
@@ -282,7 +208,27 @@ export default function QuotationCreate() {
   return (
     <div className="enq-page">
       <h2>New Quotation</h2>
-      <form onSubmit={handleSubmit}>
+      {startingPoints.length > 0 && (
+        <div className="panel" style={{ marginBottom: 12 }}>
+          <label className="filter-field" style={{ margin: 0 }}>
+            Start from
+            <select value={appliedStart} onChange={e => applyStartingPoint(e.target.value)}>
+              <option value="">Blank quotation</option>
+              {startingPoints.map(t => (
+                <option key={t.id} value={t.id}>
+                  {t.name}{t.division ? ` — ${t.division}` : ''}{t.isDefault ? ' (used automatically)' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div style={{ color: '#5b6b7c', fontSize: 13, marginTop: 6 }}>
+            {appliedStart && startingPoints.find(t => t.id === appliedStart && t.isDefault)
+              ? 'Filled in automatically for this division. Change anything you like, or switch to a blank quotation.'
+              : 'Fills in the usual wording for that kind of offer. You can change anything afterwards.'}
+          </div>
+        </div>
+      )}
+      <form onSubmit={handleSubmit} noValidate>
 
         {/* ── Customer & General Details ── */}
         <div className="panel">
@@ -290,7 +236,7 @@ export default function QuotationCreate() {
           <div className="form-grid">
             <label className="filter-field">
               Division *
-              <DivisionSelector value={form.division} onChange={v => setField('division', v)} required />
+              <DivisionSelector value={form.division} onChange={chooseDivision} required />
             </label>
             <label className="filter-field">
               Date
@@ -367,11 +313,11 @@ export default function QuotationCreate() {
         </div>
 
         {/* ── Equipment Items (Solar: single flat section, no Accessories) ── */}
-        <LineItemTable items={equipmentItems} setItems={setEquipmentItems} label={form.division === 'Solar' ? 'Solar Equipment' : 'Equipment'} onAutocomplete={handleAutocomplete} isSolar={form.division === 'Solar'} />
+        <LineItemsEditor items={equipmentItems} setItems={setEquipmentItems} label={form.division === 'Solar' ? 'Solar Equipment' : 'Equipment'} onAutocomplete={handleAutocomplete} isSolar={form.division === 'Solar'} />
 
         {/* ── Accessories Items (hidden for Solar — Solar uses flat table) ── */}
         {form.division !== 'Solar' && (
-          <LineItemTable items={accessoriesItems} setItems={setAccessoriesItems} label="Accessories" onAutocomplete={handleAutocomplete} isSolar={false} />
+          <LineItemsEditor items={accessoriesItems} setItems={setAccessoriesItems} label="Accessories" onAutocomplete={handleAutocomplete} isSolar={false} />
         )}
 
         {/* ── Totals ── */}
@@ -461,6 +407,13 @@ export default function QuotationCreate() {
             ))}
           </div>
         </div>
+
+        {saveError && (
+          <div className="panel" style={{ marginTop: 16, borderLeft: '4px solid #d92b2b' }}>
+            <strong style={{ color: '#d92b2b' }}>Not saved</strong>
+            <div style={{ marginTop: 4 }}>{saveError}</div>
+          </div>
+        )}
 
         {/* ── Submit ── */}
         <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>

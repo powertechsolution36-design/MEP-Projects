@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const { ServiceError } = require('../errors');
 const { bulkUpsertFromLineItems } = require('./itemNameService');
 const { getEffectiveDivisions } = require('./subscriptionService');
@@ -11,8 +12,43 @@ const { getEffectiveDivisions } = require('./subscriptionService');
  * It does NOT disturb existing Enquiry → SalesOrder flow.
  */
 
+const ROW_TYPES = ['item', 'sub', 'heading', 'spec'];
+
+/**
+ * The content a quotation starting point carries (owner request, 22 Oct 2026):
+ * the wording that is the same on every offer of that kind. Customer details,
+ * dates, status and the quotation number are never part of it.
+ */
+const TEMPLATE_FIELDS = [
+  'subject', 'system', 'capacity', 'siteDescription', 'summaryText',
+  'technicalDescription', 'designApproval', 'benefitsOfSystem', 'designBy',
+  'systemApprovedBy', 'gstPercent', 'offerValidity', 'delivery', 'notes',
+  'excludedWorks', 'paymentTerms', 'equipmentItems', 'accessoriesItems',
+];
+
+/** A heading or specification row carries text only — never a price. */
+function blankRow(item, idx, rowType) {
+  return {
+    ...item,
+    rowType,
+    sNo: null,
+    qty: 0,
+    supplyRate: 0,
+    installationRate: 0,
+    supplyAmount: 0,
+    installationAmount: 0,
+    totalAmount: 0,
+    gstPercent: null,
+    gstAmount: 0,
+    amountWithGst: 0,
+  };
+}
+
 function calculateLineTotals(items, division) {
+  let number = 0; // only 'item' rows are numbered
   return items.map((item, idx) => {
+    const rowType = ROW_TYPES.includes(item.rowType) ? item.rowType : 'item';
+    if (rowType === 'heading' || rowType === 'spec') return blankRow(item, idx, rowType);
     const supplyAmount = (item.qty || 0) * (item.supplyRate || 0);
     const installationAmount = (item.qty || 0) * (item.installationRate || 0);
     const totalAmount = supplyAmount + installationAmount;
@@ -23,9 +59,11 @@ function calculateLineTotals(items, division) {
     const itemGst = rawGst != null ? Number(rawGst) : (division === 'Solar' ? 18 : null);
     const gstAmount = itemGst != null ? Math.round(totalAmount * itemGst / 100) : 0;
     const amountWithGst = itemGst != null ? totalAmount + gstAmount : totalAmount;
+    if (rowType === 'item') number += 1;
     return {
       ...item,
-      sNo: item.sNo || idx + 1,
+      rowType,
+      sNo: rowType === 'item' ? number : null,
       supplyAmount,
       installationAmount,
       totalAmount,
@@ -36,6 +74,27 @@ function calculateLineTotals(items, division) {
   });
 }
 
+/** Rows that carry money; headings and specifications never do. */
+function pricedRows(items) {
+  return (items || []).filter((i) => {
+    const t = i.rowType || 'item';
+    return t !== 'heading' && t !== 'spec';
+  });
+}
+
+/** True when at least one priced row sets its own GST %. */
+function usesPerItemGst(items) {
+  return pricedRows(items).some((i) => i.gstPercent !== null && i.gstPercent !== undefined);
+}
+
+/** GST of one section, each row at its own % (falling back to the document's). */
+function sectionGstFromItems(items, fallbackPercent) {
+  return pricedRows(items).reduce((sum, i) => {
+    const pct = i.gstPercent !== null && i.gstPercent !== undefined ? Number(i.gstPercent) : fallbackPercent;
+    return sum + Math.round((i.totalAmount || 0) * pct / 100);
+  }, 0);
+}
+
 function calculateTotals(equipmentItems, accessoriesItems, gstPercent, division) {
   const eqSupply = equipmentItems.reduce((s, i) => s + (i.supplyAmount || 0), 0);
   const eqInstall = equipmentItems.reduce((s, i) => s + (i.installationAmount || 0), 0);
@@ -44,23 +103,45 @@ function calculateTotals(equipmentItems, accessoriesItems, gstPercent, division)
   const eqTotal = eqSupply + eqInstall;
   const accTotal = accSupply + accInstall;
   const subtotal = eqTotal + accTotal;
-  let gst = gstPercent != null ? gstPercent : 18;
-  let gstAmount = Math.round(subtotal * gst / 100);
+  const docGst = gstPercent != null ? gstPercent : 18;
+
+  let gst = docGst;
+  let equipmentGstAmount;
+  let accessoriesGstAmount;
+  let gstAmount;
+
   if (division === 'Solar') {
     // DECISION (owner-approved, Completion order): a Solar quotation's GST is
     // the sum of its per-item GST, so the grand total equals the sum of the
     // lines' "Amount with GST" printed on the document.
-    gstAmount = [...equipmentItems, ...accessoriesItems].reduce((a, i) => a + (i.gstAmount || 0), 0);
+    equipmentGstAmount = pricedRows(equipmentItems).reduce((a, i) => a + (i.gstAmount || 0), 0);
+    accessoriesGstAmount = pricedRows(accessoriesItems).reduce((a, i) => a + (i.gstAmount || 0), 0);
+    gstAmount = equipmentGstAmount + accessoriesGstAmount;
     gst = null;
+  } else if (usesPerItemGst(equipmentItems) || usesPerItemGst(accessoriesItems)) {
+    // OWNER REQUEST (22 Oct 2026): GST can be set per item on the Equipment
+    // (high side) section of any division, not just Solar. Rows left blank
+    // fall back to the quotation's own GST %, which is why that stays set.
+    equipmentGstAmount = sectionGstFromItems(equipmentItems, docGst);
+    accessoriesGstAmount = sectionGstFromItems(accessoriesItems, docGst);
+    gstAmount = equipmentGstAmount + accessoriesGstAmount;
+  } else {
+    // Unchanged: one GST % on the subtotal.
+    gstAmount = Math.round(subtotal * docGst / 100);
+    equipmentGstAmount = Math.round(eqTotal * docGst / 100);
+    accessoriesGstAmount = Math.round(accTotal * docGst / 100);
   }
+
   const grandTotal = subtotal + gstAmount;
   return {
     equipmentSupplyTotal: eqSupply,
     equipmentInstallTotal: eqInstall,
     equipmentTotal: eqTotal,
+    equipmentGstAmount,
     accessoriesSupplyTotal: accSupply,
     accessoriesInstallTotal: accInstall,
     accessoriesTotal: accTotal,
+    accessoriesGstAmount,
     subtotal,
     gstPercent: gst,
     gstAmount,
@@ -242,6 +323,43 @@ async function deleteQuotation(companyId, quotationId, deps) {
   return { deleted: true };
 }
 
+const PDF_TOKEN_RE = /^[a-f0-9]{48}$/;
+
+function newPdfToken() {
+  return crypto.randomBytes(24).toString('hex');
+}
+
+/**
+ * The client-facing link for this quotation's PDF. Any member of the
+ * quotation's company may fetch it (same tenant gate as reading it).
+ * Quotations created before this feature get a token on first request.
+ */
+async function getPdfLink(companyId, quotationId, deps) {
+  const q = await deps.quotationRepo.findById(companyId, quotationId);
+  if (!q) throw new ServiceError('Quotation not found.', 'NOT_FOUND', 404);
+  if (q.pdfToken) return { pdfToken: q.pdfToken };
+  const updated = await deps.quotationRepo.setPdfTokenIfMissing(companyId, quotationId, newPdfToken());
+  return { pdfToken: updated.pdfToken };
+}
+
+/**
+ * Public (no login) PDF for the customer, addressed only by the
+ * unguessable token in the link they were sent. Returns { filename, pdf }.
+ */
+async function renderPublicQuotation(token, deps) {
+  if (typeof token !== 'string' || !PDF_TOKEN_RE.test(token)) {
+    throw new ServiceError('Quotation not found.', 'NOT_FOUND', 404);
+  }
+  const q = await deps.quotationRepo.findByPdfToken(token);
+  if (!q) throw new ServiceError('Quotation not found.', 'NOT_FOUND', 404);
+  const company = (await deps.companyRepo.findById(q.companyId)) || {};
+  // Loaded on demand so the rest of the Quotation module never depends on
+  // the PDF library being installed.
+  const { buildQuotationPdf } = require('./quotationPdf');
+  const pdf = await buildQuotationPdf({ company, quotation: q });
+  return { filename: `Quotation-${q.quotationNumber || 'quotation'}.pdf`, pdf };
+}
+
 async function exportQuotationsCsv(companyId, deps) {
   const quotations = await deps.quotationRepo.listByCompany(companyId, {});
   const header = 'Quotation No,Date,Division,Customer,Subject,System,Status,Equipment Total,Accessories Total,Subtotal,GST,Grand Total';
@@ -263,6 +381,8 @@ async function exportQuotationsCsv(companyId, deps) {
 }
 
 module.exports = {
+  TEMPLATE_FIELDS,
+  usesPerItemGst,
   calculateLineTotals,
   calculateTotals,
   generateQuotationNumber,
@@ -273,4 +393,6 @@ module.exports = {
   duplicateQuotation,
   deleteQuotation,
   exportQuotationsCsv,
+  getPdfLink,
+  renderPublicQuotation,
 };

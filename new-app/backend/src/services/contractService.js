@@ -397,6 +397,249 @@ async function listContracts(actorAuth, { filters = {} } = {}, deps) {
  * a contract with 2 simultaneously-due visits appears twice. Expired
  * contracts are NOT excluded (Decision 11, DO NOT FIX).
  */
+/* ================= AMC client record (owner request, 22 Oct 2026) ================= */
+
+const PAYMENT_ROLES = Object.freeze(['admin', 'service_mgr', 'finance']);
+const PAYMENT_MODES = Object.freeze(['Bank Transfer/NEFT', 'Cheque', 'UPI', 'Cash', 'RTGS']);
+
+function paymentOf(contract) {
+  const p = contract && contract.payment;
+  return p && p.status ? p : { status: 'Pending', amountPaid: 0, paidOn: null, mode: '', reference: '' };
+}
+
+function isoDay(d) {
+  return d ? dayKeyUTC(d) : null;
+}
+
+/**
+ * Everything about one AMC / Warranty client on one page: the contract, its
+ * cover today, every service call ever raised for it (before and after the
+ * cover ran out), and the totals the owner asked for — services given,
+ * AMC visits done, parts repaired and replaced, gas filled.
+ */
+async function getClientHistory(contractId, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  const contract = await deps.contractRepo.findById(actorAuth.companyId, contractId);
+  if (!contract) throw new ServiceError('Contract not found.', 'NOT_FOUND', 404);
+
+  const calls = deps.serviceCallRepo.listByContract
+    ? await deps.serviceCallRepo.listByContract(actorAuth.companyId, contractId)
+    : [];
+
+  const names = new Map();
+  if (deps.userRepoForEnquiry && deps.userRepoForEnquiry.listByCompany) {
+    const users = await deps.userRepoForEnquiry.listByCompany(actorAuth.companyId);
+    users.forEach((u) => names.set(String(u.id), u.name || ''));
+  }
+
+  // Scheduled visits of every period: the current one and each renewal's.
+  const periods = [
+    ...(contract.renewals || []).map((r) => r.visits || []),
+    contract.scheduledVisits || [],
+  ];
+  const visitsScheduled = periods.reduce((n, v) => n + v.length, 0);
+  const visitsDone = periods.reduce((n, v) => n + v.filter((x) => x.completedDate).length, 0);
+
+  const stats = {
+    totalCalls: calls.length,
+    completedCalls: 0,
+    openCalls: 0,
+    complaints: 0,
+    pmVisits: 0,
+    amcVisitsScheduled: visitsScheduled,
+    amcVisitsDone: visitsDone,
+    afterExpiry: 0,
+    partsRepaired: 0,
+    partsReplaced: 0,
+    gasFills: 0,
+    gasKg: 0,
+    chargedAmount: 0,
+  };
+
+  const rows = calls.map((c) => {
+    const r = c.report || {};
+    const parts = Array.isArray(r.partsWork) ? r.partsWork : [];
+    const completed = c.status === 'Completed';
+    if (completed) stats.completedCalls += 1; else stats.openCalls += 1;
+    if (c.type === 'PM') stats.pmVisits += 1; else stats.complaints += 1;
+    if (String(c.coverage || '').endsWith('expired')) stats.afterExpiry += 1;
+    if (completed) {
+      parts.forEach((p) => {
+        if (p.action === 'Repaired') stats.partsRepaired += 1;
+        if (p.action === 'Replaced') stats.partsReplaced += 1;
+      });
+      if (r.gasFilled) {
+        stats.gasFills += 1;
+        stats.gasKg += Number(r.gasQtyKg) || 0;
+      }
+      if (r.serviceType === 'Chargeable') stats.chargedAmount += Number(r.amount) || 0;
+    }
+    return {
+      id: c.id,
+      complaintNumber: c.complaintNumber,
+      type: c.type,
+      coverage: c.coverage || (c.type === 'PM' ? 'AMC' : 'Chargeable'),
+      status: c.status,
+      registeredDate: isoDay(c.registeredDate),
+      appointmentDate: isoDay(c.appointmentDate),
+      completedAt: c.completedAt || null,
+      engineer: c.engineerId ? names.get(String(c.engineerId)) || '' : '',
+      complaintDescription: c.complaintDescription || '',
+      serviceDescription: r.serviceDescription || '',
+      serviceType: r.serviceType || '',
+      amount: Number(r.amount) || 0,
+      parts: parts.map((p) => ({ part: p.part, action: p.action })),
+      gasFilled: !!r.gasFilled,
+      gasType: r.gasType || '',
+      gasQtyKg: Number(r.gasQtyKg) || 0,
+      reportSendStatus: c.reportSendStatus || null,
+    };
+  });
+  stats.gasKg = Math.round(stats.gasKg * 100) / 100;
+
+  return {
+    contract: { ...contract, status: computeContractStatus(contract), payment: paymentOf(contract) },
+    stats,
+    calls: rows,
+  };
+}
+
+/** Owner request (22 Oct 2026): mark the AMC paid — this unlocks the AMC letter. */
+async function markAmcPaid(contractId, input, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  if (!PAYMENT_ROLES.includes(actorAuth.role)) {
+    throw new ServiceError(
+      `Role "${actorAuth.role}" is not permitted to record an AMC payment (must be admin, service_mgr or finance).`,
+      'FORBIDDEN',
+      403
+    );
+  }
+  const contract = await deps.contractRepo.findById(actorAuth.companyId, contractId);
+  if (!contract) throw new ServiceError('Contract not found.', 'NOT_FOUND', 404);
+
+  const src = input || {};
+  const amountPaid = src.amountPaid === undefined || src.amountPaid === '' ? Number(contract.amount) || 0 : Number(src.amountPaid);
+  if (!Number.isFinite(amountPaid) || amountPaid < 0) {
+    throw new ServiceError('Enter the amount paid.', 'VALIDATION_ERROR', 400);
+  }
+  const mode = src.mode || '';
+  if (mode && !PAYMENT_MODES.includes(mode)) {
+    throw new ServiceError(`Invalid payment mode "${mode}". Must be one of: ${PAYMENT_MODES.join(', ')}.`, 'VALIDATION_ERROR', 400);
+  }
+  const paidOn = src.paidOn ? new Date(src.paidOn) : todayDate();
+  if (Number.isNaN(paidOn.getTime())) throw new ServiceError('Invalid payment date.', 'VALIDATION_ERROR', 400);
+
+  const payment = {
+    status: 'Paid',
+    amountPaid,
+    paidOn,
+    mode,
+    reference: String(src.reference || '').trim().slice(0, 120),
+    recordedByUserId: actorAuth.userId || null,
+    recordedAt: new Date(),
+  };
+  const updated = await deps.contractRepo.update(actorAuth.companyId, contractId, { payment });
+  if (deps.notificationRepo) {
+    await deps.notificationRepo.create({
+      companyId: actorAuth.companyId,
+      text: `AMC paid: ${contract.customer || contract.site} — the AMC letter can now be sent`,
+      date: todayDate(),
+      targetRoles: ['service_mgr', 'admin'],
+      readByUserIds: [],
+    });
+  }
+  return { ...updated, status: computeContractStatus(updated), payment: paymentOf(updated) };
+}
+
+/**
+ * Owner request (22 Oct 2026): renewing extends the SAME client record, so
+ * the whole history stays on one page. The finished period — its dates,
+ * visits and payment — is kept in `renewals`; the new period gets fresh
+ * visits and starts unpaid.
+ */
+async function renewContract(contractId, input, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  assertCanManageContracts(actorAuth, 'renew an AMC');
+  const contract = await deps.contractRepo.findById(actorAuth.companyId, contractId);
+  if (!contract) throw new ServiceError('Contract not found.', 'NOT_FOUND', 404);
+
+  const src = input || {};
+  const oldEnd = contract.endDate ? new Date(contract.endDate) : todayDate();
+  const startDate = src.startDate
+    ? new Date(src.startDate)
+    : new Date(dateOnlyUTC(oldEnd).getTime() + MS_PER_DAY);
+  if (Number.isNaN(startDate.getTime())) throw new ServiceError('Invalid start date.', 'VALIDATION_ERROR', 400);
+  const endDate = src.endDate
+    ? new Date(src.endDate)
+    : new Date(Date.UTC(startDate.getUTCFullYear() + 1, startDate.getUTCMonth(), startDate.getUTCDate()) - MS_PER_DAY);
+  if (Number.isNaN(endDate.getTime()) || endDate.getTime() <= startDate.getTime()) {
+    throw new ServiceError('The new AMC must end after it starts.', 'VALIDATION_ERROR', 400);
+  }
+  const amcType = src.amcType || contract.amcType;
+  if (!['Monthly', 'Quarterly', 'Half-Yearly'].includes(amcType)) {
+    throw new ServiceError('Invalid AMC type.', 'VALIDATION_ERROR', 400);
+  }
+  const amount = src.amount === undefined || src.amount === '' ? Number(contract.amount) || 0 : Number(src.amount);
+  if (!Number.isFinite(amount) || amount < 0) throw new ServiceError('Invalid AMC amount.', 'VALIDATION_ERROR', 400);
+
+  const archived = {
+    startDate: contract.startDate || null,
+    endDate: contract.endDate || null,
+    amcType: contract.amcType,
+    amount: Number(contract.amount) || 0,
+    visits: contract.scheduledVisits || [],
+    payment: paymentOf(contract),
+    renewedAt: new Date(),
+    renewedByUserId: actorAuth.userId || null,
+  };
+  const patch = {
+    startDate,
+    endDate,
+    amcType,
+    amount,
+    scheduledVisits: generateScheduledVisits(startDate, amcType),
+    payment: { status: 'Pending', amountPaid: 0, paidOn: null, mode: '', reference: '', recordedByUserId: null, recordedAt: null },
+    // Last period's AMC letter link stops working; a new one is made once
+    // this period is paid.
+    letterToken: null,
+  };
+  const updated = await deps.contractRepo.renew(actorAuth.companyId, contractId, { archived, patch });
+  return { ...updated, status: computeContractStatus(updated), payment: paymentOf(updated) };
+}
+
+/**
+ * Owner request (22 Oct 2026): the AMC / Warranty client picker on Register
+ * Complaint. Searches name, phone and site; every client is listed whether
+ * their cover is running or has expired, because a service after expiry is
+ * still kept on that client's history. Active first, then expiring, then
+ * expired.
+ */
+const STATUS_ORDER = { Active: 0, 'Expiring Soon': 1, Expired: 2 };
+
+async function searchClients(actorAuth, { q = '', limit = 25 } = {}, deps) {
+  assertCompanyContext(actorAuth);
+  const all = await deps.contractRepo.listByCompany(actorAuth.companyId);
+  const needle = String(q || '').trim().toLowerCase();
+  const rows = all
+    .filter((c) => !needle || [c.customer, c.phone, c.site].some((v) => String(v || '').toLowerCase().includes(needle)))
+    .map((c) => ({
+      id: c.id,
+      customer: c.customer || '',
+      phone: c.phone || '',
+      site: c.site || '',
+      capacity: c.capacity || '',
+      category: c.category,
+      amcType: c.amcType,
+      startDate: c.startDate || null,
+      endDate: c.endDate || null,
+      status: computeContractStatus(c),
+    }))
+    .sort((a, b) => (STATUS_ORDER[a.status] - STATUS_ORDER[b.status])
+      || String(a.customer).localeCompare(String(b.customer)));
+  const max = Math.min(Math.max(Number(limit) || 25, 1), 100);
+  return rows.slice(0, max);
+}
+
 async function getPmDuePanel(actorAuth, deps) {
   assertCompanyContext(actorAuth);
   const all = await deps.contractRepo.listByCompany(actorAuth.companyId);
@@ -536,6 +779,12 @@ module.exports = {
   convertProjectToContract,
   getContract,
   listContracts,
+  searchClients,
+  getClientHistory,
+  markAmcPaid,
+  renewContract,
+  paymentOf,
+  PAYMENT_MODES,
   getPmDuePanel,
   getRenewalOpportunities,
   exportContractsCsv,

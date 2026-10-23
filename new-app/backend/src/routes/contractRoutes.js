@@ -2,6 +2,7 @@
 
 const express = require('express');
 const service = require('../services/contractService');
+const amcDocuments = require('../services/amcDocumentService');
 const { ServiceError, mapPersistenceError } = require('../errors');
 const { createAuthMiddleware } = require('../middleware/authMiddleware');
 const { requireCompanyContext, rejectClientSuppliedCompanyId } = require('../middleware/tenantGuard');
@@ -56,6 +57,16 @@ function createContractRouter(deps) {
     })
   );
 
+  // AMC / Warranty client picker (owner request, 22 Oct 2026). Declared
+  // before '/:id' so "clients" is not read as a contract id.
+  router.get(
+    '/clients',
+    handle(async (req, res) => {
+      const clients = await service.searchClients(req.auth, { q: req.query.q, limit: req.query.limit }, deps);
+      return res.status(200).json({ clients });
+    })
+  );
+
   router.get(
     '/pm-due',
     handle(async (req, res) => {
@@ -77,6 +88,39 @@ function createContractRouter(deps) {
     handle(async (req, res) => {
       const contracts = await service.listContracts(req.auth, { filters: parseFilters(req.query) }, deps);
       return res.status(200).json({ contracts });
+    })
+  );
+
+  // Owner request (22 Oct 2026): the AMC client page.
+  router.get(
+    '/:id/history',
+    handle(async (req, res) => {
+      const history = await service.getClientHistory(req.params.id, req.auth, deps);
+      return res.status(200).json(history);
+    })
+  );
+
+  router.get(
+    '/:id/letter-link',
+    handle(async (req, res) => {
+      const link = await amcDocuments.getLetterLink(req.auth.companyId, req.params.id, req.auth, deps);
+      return res.status(200).json(link);
+    })
+  );
+
+  router.post(
+    '/:id/payment',
+    handle(async (req, res) => {
+      const contract = await service.markAmcPaid(req.params.id, req.body, req.auth, deps);
+      return res.status(200).json({ contract });
+    })
+  );
+
+  router.post(
+    '/:id/renew',
+    handle(async (req, res) => {
+      const contract = await service.renewContract(req.params.id, req.body, req.auth, deps);
+      return res.status(200).json({ contract });
     })
   );
 

@@ -35,5 +35,8 @@ module.exports = {
   ItemName: require('./ItemName'),
   AmcTemplate: require('./AmcTemplate'),
   PaymentTermTemplate: require('./PaymentTermTemplate'),
+  QuotationTemplate: require('./QuotationTemplate'),
   DailyTask: require('./DailyTask'),
+  // Owner decision (21 Oct 2026): phones registered for push notifications.
+  PushDevice: require('./PushDevice'),
 };

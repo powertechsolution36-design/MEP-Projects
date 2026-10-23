@@ -914,6 +914,8 @@ async function group5g(browser) {
     const s = await session(browser, 'service');
     await open(s, '/service-calls/new');
     rec('service call create: complaint form', (await bodyText(s.page)).includes('Register Complaint'));
+    // A walk-in complaint: say it is not an AMC / Warranty client (Chargeable).
+    await s.page.locator('button:has-text("Not an AMC / Warranty client")').click();
     await fieldInput(s.page, 'Customer *').fill(cust);
     await fieldInput(s.page, 'Phone').fill('9822000003');
     await fieldInput(s.page, 'Site').fill('E2E plant, Pune');
@@ -970,16 +972,19 @@ async function group5g(browser) {
     await open(s, `/service-calls/${cid}`);
     await s.page.locator('button:has-text("Edit Report")').click();
     rec('complaint report: Service Type defaults to Chargeable', (await fieldInput(s.page, 'Service Type').inputValue()) === 'Chargeable');
-    const checks = s.page.locator('span + input[type=text]');
-    const nChecks = await checks.count();
-    if (nChecks) await checks.first().fill('120 PSI');
+    // Checklist: tick (Done) / cross (Not done) per point; mark Gas Pressure not done, the rest done.
+    const ticks = s.page.locator('.check-toggle-btn.is-done[aria-label]');
+    const nChecks = await ticks.count();
+    for (let i = 0; i < nChecks; i++) await ticks.nth(i).click();
+    await s.page.locator('button[aria-label="Gas Pressure: Not done"]').click();
     await fieldInput(s.page, 'Amount (₹)').fill('1500');
-    await s.page.locator('.filter-field:has(> label:text-is("Service Description")) textarea').fill('Cleaned HP switch, reset');
+    await s.page.locator('.filter-field:has(> label:text-is("Service Description *")) textarea').fill('Cleaned HP switch, reset');
     await s.page.locator('button:has-text("Save Report Draft")').click();
     await s.page.waitForLoadState('networkidle'); await s.page.waitForTimeout(300);
     let c = await getCall(cid);
-    rec('complaint report: checklist takes free text ("120 PSI") and the draft is saved',
-      nChecks > 0 && Object.values(c?.report?.checklistResults || {}).includes('120 PSI') && c?.report?.serviceType === 'Chargeable', JSON.stringify(c?.report?.checklistResults || {}).slice(0, 120));
+    const cr = c?.report?.checklistResults || {};
+    rec('complaint report: checklist saved as tick/cross (Gas Pressure "Not done", the rest "Done") and the draft is saved',
+      nChecks === 6 && cr['Gas Pressure'] === 'Not done' && cr['Cooling Testing'] === 'Done' && c?.report?.serviceType === 'Chargeable', JSON.stringify(c?.report?.checklistResults || {}).slice(0, 120));
 
     await s.page.locator('button:text-is("Complete")').click();
     const done = s.page.locator('button:has-text("Complete & Generate Report")');

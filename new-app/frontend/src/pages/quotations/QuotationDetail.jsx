@@ -4,6 +4,10 @@ import { useAuth } from '../../auth/AuthContext';
 import { api } from '../../api/client';
 import { money, fmtDate } from '../../utils/format';
 import DivisionSelector from '../../components/DivisionSelector';
+import { quotationProblem } from './quotationValidation';
+import LineItemsEditor from './LineItemsEditor';
+import { quotationTotals } from './quotationTotals';
+import { whatsappUrl, displayNumber } from '../../utils/whatsapp';
 
 /**
  * Quotation Detail — view, edit, duplicate, delete, print/PDF.
@@ -18,7 +22,22 @@ import DivisionSelector from '../../components/DivisionSelector';
  */
 
 const STATUS_OPTIONS = ['Draft', 'Sent', 'Accepted', 'Rejected', 'Revised', 'Cancelled'];
-const EMPTY_LINE = { description: '', unit: 'Nos', qty: 1, supplyRate: 0, installationRate: 0 };
+
+/**
+ * A heading or specification line carries no price, so it is shown as one
+ * wide row rather than a line of zeros (see LineItemsEditor for the kinds).
+ */
+function textRow(item, i, span, style) {
+  const t = item.rowType || 'item';
+  if (t !== 'heading' && t !== 'spec') return null;
+  return (
+    <tr key={i} style={t === 'heading' ? { background: '#f4f6fa' } : undefined}>
+      <td colSpan={span} style={{ ...(style || {}), fontWeight: t === 'heading' ? 700 : 400, whiteSpace: 'pre-wrap' }}>
+        {item.description}
+      </td>
+    </tr>
+  );
+}
 
 export default function QuotationDetail() {
   const { id } = useParams();
@@ -35,6 +54,24 @@ export default function QuotationDetail() {
   const [busy, setBusy] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [companyProfile, setCompanyProfile] = useState(null);
+  // The customer-facing PDF link (owner decision, 22 Oct 2026). The old
+  // "Print / Save as PDF" button opened a pop-up window, which the Android
+  // app's web view blocks, so nothing happened at all; the PDF is now built
+  // on the server and simply opened.
+  const [pdfToken, setPdfToken] = useState('');
+  // Owner decision (22 Oct 2026): client messages go from the company WhatsApp.
+  const [companyWa, setCompanyWa] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  useEffect(() => {
+    api.get('/api/companies/my-profile')
+      .then((d) => {
+        const co = d.company || {};
+        setCompanyWa(co.whatsappNumber || '');
+        setCompanyName(co.displayName || co.name || '');
+      })
+      .catch(() => {});
+  }, []);
+  const [saveError, setSaveError] = useState('');
   const printRef = useRef(null);
 
   // Edit form state
@@ -53,6 +90,9 @@ export default function QuotationDetail() {
       const q = data.quotation;
       setQuotation(q);
       populateForm(q);
+      api.get(`/api/quotations/${id}/pdf-link`)
+        .then((d) => { if (d && d.pdfToken) setPdfToken(d.pdfToken); })
+        .catch(() => { /* the PDF link is optional; the page still works */ });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -101,23 +141,18 @@ export default function QuotationDetail() {
   }
 
   function calcTotals(eqList, accList, gst, division) {
-    const eqTotal = eqList.reduce((s, i) => s + (i.qty || 0) * ((i.supplyRate || 0) + (i.installationRate || 0)), 0);
-    const accTotal = accList.reduce((s, i) => s + (i.qty || 0) * ((i.supplyRate || 0) + (i.installationRate || 0)), 0);
-    const subtotal = eqTotal + accTotal;
-    const g = gst === '' || gst == null ? 18 : Number(gst);
-    // Solar: GST is the sum of each line's own GST % (same rule as the server).
-    const gstAmount = division === 'Solar'
-      ? [...eqList, ...accList].reduce((s, i) => {
-          const base = (i.qty || 0) * ((i.supplyRate || 0) + (i.installationRate || 0));
-          return s + Math.round(base * (i.gstPercent != null ? Number(i.gstPercent) : 18) / 100);
-        }, 0)
-      : Math.round(subtotal * g / 100);
-    return { eqTotal, accTotal, subtotal, gstPercent: g, gstAmount, grandTotal: subtotal + gstAmount };
+    return quotationTotals(eqList, accList, gst, division);
   }
 
   // Save
   async function handleSave(e) {
     e.preventDefault();
+    // Checked here rather than by the browser: a browser-blocked submit is
+    // silent (nothing happens, no message), which is indistinguishable from
+    // the app being broken.
+    const problem = quotationProblem(form);
+    if (problem) { setSaveError(problem); return; }
+    setSaveError('');
     setBusy(true);
     try {
       const payload = {
@@ -132,8 +167,63 @@ export default function QuotationDetail() {
       setQuotation(data.quotation);
       populateForm(data.quotation);
       setEditing(false);
-    } catch (err) { alert(err.message); }
+    } catch (err) { setSaveError(err.message || 'Could not save the quotation.'); }
     finally { setBusy(false); }
+  }
+
+  // Save this quotation's wording as a ready-made starting point, so the
+  // next offer of the same kind does not have to be retyped.
+  function templateLine(i) {
+    return {
+      rowType: i.rowType || 'item',
+      description: i.description,
+      unit: i.unit,
+      qty: i.qty,
+      supplyRate: 0,
+      installationRate: 0,
+      gstPercent: i.gstPercent,
+    };
+  }
+
+  async function handleSaveAsStartingPoint() {
+    const name = window.prompt('Name this starting point (e.g. "Ductable AC offer")', q.system || q.subject || '');
+    if (!name || !name.trim()) return;
+    const isDefault = window.confirm(
+      `Use this automatically for every new ${q.division} quotation?\n\n`
+      + 'OK — it fills in on its own when you choose that division.\n'
+      + 'Cancel — it stays in the "Start from" list and you pick it when you want it.'
+    );
+    try {
+      await api.post('/api/quotation-templates', {
+        name: name.trim(),
+        division: q.division,
+        isDefault,
+        subject: q.subject, system: q.system, capacity: q.capacity,
+        siteDescription: q.siteDescription, summaryText: q.summaryText,
+        technicalDescription: q.technicalDescription, designApproval: q.designApproval,
+        benefitsOfSystem: q.benefitsOfSystem, designBy: q.designBy,
+        systemApprovedBy: q.systemApprovedBy, gstPercent: q.gstPercent,
+        offerValidity: q.offerValidity, delivery: q.delivery, notes: q.notes,
+        excludedWorks: q.excludedWorks || [],
+        paymentTerms: q.paymentTerms || [],
+        // Descriptions, units, quantities and the GST % carry over; the
+        // rates are left blank on purpose, so a new offer is always priced
+        // at today's rates rather than quietly repeating an old quotation's.
+        equipmentItems: (q.equipmentItems || []).map(templateLine),
+        accessoriesItems: (q.accessoriesItems || []).map(templateLine),
+      });
+      window.alert(
+        isDefault
+          ? `Saved. Every new ${q.division} quotation will now start from "${name.trim()}".\n\n`
+            + 'Descriptions, units, quantities and GST % are kept. Rates are left blank, '
+            + 'so every new offer is priced at the day\'s rates.'
+          : `Saved. "${name.trim()}" will now appear under "Start from" on a new quotation.\n\n`
+            + 'Descriptions, units, quantities and GST % are kept. Rates are left blank, '
+            + 'so every new offer is priced at the day\'s rates.'
+      );
+    } catch (err) {
+      window.alert(err.message || 'Could not save the starting point.');
+    }
   }
 
   // Duplicate
@@ -163,10 +253,16 @@ export default function QuotationDetail() {
     setShowPreview(true);
   }
 
+  // Kept for desktop browsers that want the on-screen preview printed; the
+  // PDF button below is the one that works everywhere, including the app.
   function handlePrint() {
     const content = printRef.current;
     if (!content) return;
     const win = window.open('', '_blank');
+    if (!win) { // pop-up blocked (always, inside the Android app)
+      if (pdfUrl) window.location.assign(pdfUrl);
+      return;
+    }
     win.document.write(`<!DOCTYPE html><html><head><title>Quotation ${quotation.quotationNumber}</title>
       <style>
         body { font-family: Arial, sans-serif; padding: 20px; color: #333; font-size: 13px; }
@@ -207,6 +303,9 @@ export default function QuotationDetail() {
   if (!quotation) return <div className="enq-page"><p>Quotation not found.</p></div>;
 
   const q = quotation;
+  const pdfUrl = pdfToken && typeof window !== 'undefined'
+    ? `${window.location.origin}/api/public/quotations/${pdfToken}`
+    : '';
   const totals = calcTotals(q.equipmentItems || [], q.accessoriesItems || [], q.gstPercent, q.division);
 
   /* ── PRINT PREVIEW MODAL ── */
@@ -266,8 +365,11 @@ export default function QuotationDetail() {
 
     return (
       <div className="enq-page">
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <button className="btn pri" onClick={handlePrint}>Print / Save as PDF</button>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+          {pdfUrl
+            ? <a className="btn pri" href={pdfUrl} target="_blank" rel="noopener noreferrer">Open PDF</a>
+            : <button className="btn pri" disabled>Preparing PDF…</button>}
+          <button className="btn sec" onClick={handlePrint}>Print this page</button>
           <button className="btn sec" onClick={() => setShowPreview(false)}>Back to Detail</button>
         </div>
         <div ref={printRef} style={{ background: '#fff', padding: 24, border: '1px solid #ddd', maxWidth: 800, margin: '0 auto', fontSize: 13, lineHeight: 1.6 }}>
@@ -324,7 +426,7 @@ export default function QuotationDetail() {
                     </tr>
                   </thead>
                   <tbody>
-                    {allItems.map((item, i) => {
+                    {allItems.map((item, i) => textRow(item, i, 8, tds) || (() => {
                       const basic = item.supplyAmount || 0;
                       const itemGst = item.gstPercent != null ? item.gstPercent : (q.gstPercent ?? 18);
                       const withGst = item.amountWithGst || Math.round(basic * (1 + itemGst / 100));
@@ -340,7 +442,7 @@ export default function QuotationDetail() {
                           <td style={tdsR}>{money(withGst)}</td>
                         </tr>
                       );
-                    })}
+                    })())}
                     <tr style={{ background: '#e8e800' }}>
                       <td colSpan={5} style={{ ...tds, textAlign: 'right', fontWeight: 'bold' }}>TOTAL (Basic)</td>
                       <td style={{ ...tdsR, fontWeight: 'bold' }}>{money(q.subtotal)}</td>
@@ -381,9 +483,9 @@ export default function QuotationDetail() {
                     {eqItems.length > 0 && (
                       <>
                         <tr><td colSpan={8} style={{ ...tds, fontWeight: 'bold', background: '#f9f9f9' }}>Section A : Equipment</td></tr>
-                        {eqItems.map((item, i) => (
+                        {eqItems.map((item, i) => textRow(item, i, 8, tds) || (
                           <tr key={`eq-${i}`}>
-                            <td style={tds}>{item.sNo || i + 1}</td>
+                            <td style={tds}>{item.sNo || ''}</td>
                             <td style={tds}>{item.description}</td>
                             <td style={tds}>{item.unit}</td>
                             <td style={tds}>{item.qty}</td>
@@ -412,9 +514,9 @@ export default function QuotationDetail() {
                     {accItems.length > 0 && (
                       <>
                         <tr><td colSpan={8} style={{ ...tds, fontWeight: 'bold', background: '#f9f9f9' }}>Section B : Accessories</td></tr>
-                        {accItems.map((item, i) => (
+                        {accItems.map((item, i) => textRow(item, i, 8, tds) || (
                           <tr key={`acc-${i}`}>
-                            <td style={tds}>{item.sNo || i + 1}</td>
+                            <td style={tds}>{item.sNo || ''}</td>
                             <td style={tds}>{item.description}</td>
                             <td style={tds}>{item.unit}</td>
                             <td style={tds}>{item.qty}</td>
@@ -518,7 +620,7 @@ export default function QuotationDetail() {
     return (
       <div className="enq-page">
         <h2>Edit Quotation — {q.quotationNumber}</h2>
-        <form onSubmit={handleSave}>
+        <form onSubmit={handleSave} noValidate>
           <div className="panel">
             <h3>Details</h3>
             <div className="form-grid">
@@ -547,10 +649,10 @@ export default function QuotationDetail() {
           </div>
 
           {/* Equipment (Solar: single flat section) */}
-          <EditLineItems items={equipItems} setItems={setEquipItems} label={form.division === 'Solar' ? 'Solar Equipment' : 'Equipment'} onAutocomplete={handleAutocomplete} isSolar={form.division === 'Solar'} />
+          <LineItemsEditor items={equipItems} setItems={setEquipItems} label={form.division === 'Solar' ? 'Solar Equipment' : 'Equipment'} onAutocomplete={handleAutocomplete} isSolar={form.division === 'Solar'} />
           {/* Accessories (hidden for Solar — Solar uses flat table) */}
           {form.division !== 'Solar' && (
-            <EditLineItems items={accItems} setItems={setAccItems} label="Accessories" onAutocomplete={handleAutocomplete} isSolar={false} />
+            <LineItemsEditor items={accItems} setItems={setAccItems} label="Accessories" onAutocomplete={handleAutocomplete} isSolar={false} />
           )}
 
           {/* Totals */}
@@ -618,6 +720,13 @@ export default function QuotationDetail() {
             </div>
           </div>
 
+          {saveError && (
+            <div className="panel" style={{ marginTop: 16, borderLeft: '4px solid #d92b2b' }}>
+              <strong style={{ color: '#d92b2b' }}>Not saved</strong>
+              <div style={{ marginTop: 4 }}>{saveError}</div>
+            </div>
+          )}
+
           <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
             <button type="submit" className="btn pri" disabled={busy}>{busy ? 'Saving…' : 'Save Changes'}</button>
             <button type="button" className="btn sec" onClick={() => { setEditing(false); populateForm(q); }}>Cancel</button>
@@ -637,9 +746,27 @@ export default function QuotationDetail() {
           {q.revision > 0 && <span style={{ marginLeft: 8, color: '#888' }}>Rev {q.revision}</span>}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn sec sm" onClick={openPreview}>Preview / Print</button>
+          {pdfUrl && <a className="btn pri sm" href={pdfUrl} target="_blank" rel="noopener noreferrer">PDF</a>}
+          {pdfUrl && whatsappUrl(q.customerPhone, 'x') && (
+            <a
+              className="btn sec sm"
+              href={whatsappUrl(
+                q.customerPhone,
+                `Dear ${q.customerName || 'Sir/Madam'},\n\nPlease find our quotation ${q.quotationNumber}`
+                + `${q.subject ? ` for ${q.subject}` : ''}:\n${pdfUrl}`
+                + `${companyName ? `\n\nRegards,\n${companyName}` : ''}`
+              )}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={companyWa ? `Use the phone or laptop that has ${displayNumber(companyWa)} on WhatsApp` : undefined}
+            >
+              WhatsApp{companyWa ? ` (from ${displayNumber(companyWa)})` : ''}
+            </a>
+          )}
+          <button className="btn sec sm" onClick={openPreview}>Preview</button>
           {canEdit && <button className="btn pri sm" onClick={() => { setEditing(true); api.get('/api/payment-term-templates?documentType=quotation').then(d => setPayTermTemplates(d.templates || [])).catch(() => {}); }}>Edit</button>}
           {canEdit && <button className="btn sec sm" onClick={handleDuplicate}>Duplicate</button>}
+          {canEdit && <button className="btn sec sm" onClick={handleSaveAsStartingPoint}>Save as starting point</button>}
           {canDelete && (q.status === 'Draft' || q.status === 'Cancelled') && (
             <button className="btn danger sm" onClick={handleDelete}>Delete</button>
           )}
@@ -698,9 +825,9 @@ export default function QuotationDetail() {
               </tr>
             </thead>
             <tbody>
-              {q.equipmentItems.map((item, i) => (
+              {q.equipmentItems.map((item, i) => textRow(item, i, q.division === 'Solar' ? 8 : 7) || (
                 <tr key={i}>
-                  <td>{item.sNo || i + 1}</td><td>{item.description}</td><td>{item.unit}</td><td>{item.qty}</td>
+                  <td>{item.sNo || ''}</td><td>{item.description}</td><td>{item.unit}</td><td>{item.qty}</td>
                   <td style={{ textAlign: 'right' }}>{money(item.supplyAmount)}</td>
                   {q.division !== 'Solar' && <td style={{ textAlign: 'right' }}>{money(item.installationAmount)}</td>}
                   {q.division === 'Solar' && <td style={{ textAlign: 'right' }}>{item.gstPercent != null ? `${item.gstPercent}%` : '—'}</td>}
@@ -720,8 +847,8 @@ export default function QuotationDetail() {
           <table className="data-table">
             <thead><tr><th>#</th><th>Description</th><th>Unit</th><th>Qty</th><th style={{ textAlign: 'right' }}>Supply</th><th style={{ textAlign: 'right' }}>Installation</th><th style={{ textAlign: 'right' }}>Total</th></tr></thead>
             <tbody>
-              {q.accessoriesItems.map((item, i) => (
-                <tr key={i}><td>{item.sNo || i + 1}</td><td>{item.description}</td><td>{item.unit}</td><td>{item.qty}</td>
+              {q.accessoriesItems.map((item, i) => textRow(item, i, 7) || (
+                <tr key={i}><td>{item.sNo || ''}</td><td>{item.description}</td><td>{item.unit}</td><td>{item.qty}</td>
                   <td style={{ textAlign: 'right' }}>{money(item.supplyAmount)}</td><td style={{ textAlign: 'right' }}>{money(item.installationAmount)}</td><td style={{ textAlign: 'right' }}>{money(item.totalAmount)}</td></tr>
               ))}
             </tbody>
@@ -770,65 +897,6 @@ export default function QuotationDetail() {
           </div>
         )}
         {q.notes && <div style={{ marginTop: 8 }}><strong>Notes:</strong><br/><p style={{ whiteSpace: 'pre-wrap' }}>{q.notes}</p></div>}
-      </div>
-    </div>
-  );
-}
-
-/* ── Inline line item editor (reused in edit mode) ── */
-function EditLineItems({ items, setItems, label, onAutocomplete, isSolar }) {
-  function setItemField(idx, key, value) {
-    setItems(prev => { const c = [...prev]; c[idx] = { ...c[idx], [key]: value }; return c; });
-  }
-
-  return (
-    <div className="panel" style={{ marginTop: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h3>{label} Items</h3>
-        <button type="button" className="btn sec sm" onClick={() => setItems(prev => [...prev, { ...EMPTY_LINE, gstPercent: isSolar ? 18 : null }])}>+ Add Row</button>
-      </div>
-      <div style={{ overflowX: 'auto', marginTop: 8 }}>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th style={{ minWidth: 180 }}>Description</th>
-              <th>Unit</th>
-              <th>Qty</th>
-              <th>Supply Rate</th>
-              {!isSolar && <th>Install Rate</th>}
-              {isSolar && <th>GST %</th>}
-              <th style={{ textAlign: 'right' }}>Basic Amt</th>
-              {isSolar && <th style={{ textAlign: 'right' }}>Amt with GST</th>}
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.length === 0 ? (
-              <tr><td colSpan={isSolar ? 10 : 8} style={{ textAlign: 'center', color: '#888' }}>No items.</td></tr>
-            ) : items.map((item, idx) => {
-              const supplyAmt = (item.qty || 0) * (item.supplyRate || 0);
-              const installAmt = (item.qty || 0) * (item.installationRate || 0);
-              const basicAmt = isSolar ? supplyAmt : supplyAmt + installAmt;
-              const gstPct = item.gstPercent != null ? item.gstPercent : 18;
-              const amtWithGst = Math.round(basicAmt * (1 + gstPct / 100));
-              return (
-                <tr key={idx}>
-                  <td>{idx + 1}</td>
-                  <td><input value={item.description || ''} onChange={e => setItemField(idx, 'description', e.target.value)} style={{ width: '100%' }} /></td>
-                  <td><input value={item.unit || ''} onChange={e => setItemField(idx, 'unit', e.target.value)} style={{ width: 60 }} /></td>
-                  <td><input type="number" value={item.qty || 0} onChange={e => setItemField(idx, 'qty', Number(e.target.value))} style={{ width: 60 }} /></td>
-                  <td><input type="number" value={item.supplyRate || 0} onChange={e => setItemField(idx, 'supplyRate', Number(e.target.value))} style={{ width: 90 }} /></td>
-                  {!isSolar && <td><input type="number" value={item.installationRate || 0} onChange={e => setItemField(idx, 'installationRate', Number(e.target.value))} style={{ width: 90 }} /></td>}
-                  {isSolar && <td><input type="number" value={item.gstPercent != null ? item.gstPercent : ''} onChange={e => setItemField(idx, 'gstPercent', e.target.value === '' ? null : Number(e.target.value))} style={{ width: 70 }} placeholder="18" /></td>}
-                  <td style={{ textAlign: 'right' }}>{money(basicAmt)}</td>
-                  {isSolar && <td style={{ textAlign: 'right' }}>{money(amtWithGst)}</td>}
-                  <td><button type="button" className="btn danger sm" onClick={() => setItems(prev => prev.filter((_, i) => i !== idx))}>&times;</button></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
       </div>
     </div>
   );

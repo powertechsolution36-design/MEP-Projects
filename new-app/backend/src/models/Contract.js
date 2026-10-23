@@ -19,6 +19,39 @@ const scheduledVisitSchema = new Schema(
   { _id: false }
 );
 
+// Owner request (22 Oct 2026): the AMC is marked paid on the client, which
+// unlocks the AMC letter.
+const PAYMENT_MODES = ['Bank Transfer/NEFT', 'Cheque', 'UPI', 'Cash', 'RTGS'];
+const amcPaymentSchema = new Schema(
+  {
+    status: { type: String, enum: ['Pending', 'Paid'], default: 'Pending' },
+    amountPaid: { type: Number, default: 0, min: 0 },
+    paidOn: { type: Date, default: null },
+    mode: { type: String, enum: [...PAYMENT_MODES, ''], default: '' },
+    reference: { type: String, default: '' },
+    recordedByUserId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    recordedAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
+// Owner request (22 Oct 2026): a renewal extends the SAME client record, so
+// its whole service history stays on one page. Each earlier period is kept
+// here with its visits and payment.
+const renewalSchema = new Schema(
+  {
+    startDate: { type: Date },
+    endDate: { type: Date },
+    amcType: { type: String },
+    amount: { type: Number, default: 0 },
+    visits: { type: [scheduledVisitSchema], default: [] },
+    payment: { type: amcPaymentSchema, default: undefined },
+    renewedAt: { type: Date, required: true },
+    renewedByUserId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+  },
+  { _id: false }
+);
+
 const contractSchema = new Schema(
   {
     companyId: { type: Schema.Types.ObjectId, ref: 'Company', required: true }, // PWA FACT
@@ -44,11 +77,20 @@ const contractSchema = new Schema(
     amount: { type: Number, default: 0 }, // PWA FACT
     scheduledVisits: { type: [scheduledVisitSchema], default: [] }, // PWA FACT — generated at creation
     originatingProjectId: { type: Schema.Types.ObjectId, ref: 'Project', default: null }, // PWA FACT
+    payment: { type: amcPaymentSchema, default: () => ({ status: 'Pending' }) },
+    renewals: { type: [renewalSchema], default: [] },
+    // Unguessable key for the client-facing AMC letter link.
+    letterToken: { type: String },
   },
   { timestamps: true, collection: 'contracts' }
 );
 
 contractSchema.index({ companyId: 1, endDate: 1 });
 contractSchema.index({ companyId: 1, 'scheduledVisits.month': 1 });
+contractSchema.index(
+  { letterToken: 1 },
+  { unique: true, partialFilterExpression: { letterToken: { $type: 'string' } } }
+);
 
 module.exports = model('Contract', contractSchema);
+module.exports.PAYMENT_MODES = PAYMENT_MODES;

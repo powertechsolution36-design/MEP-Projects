@@ -39,6 +39,15 @@ export default function ServiceCallList() {
 
   /* Engineer name map for display (backend list returns engineerId only) */
   const [engineerMap, setEngineerMap] = useState({});
+  // Owner decision (22 Oct 2026): completed calls whose report the service
+  // manager still has to send from the company WhatsApp.
+  const [toSend, setToSend] = useState([]);
+  useEffect(() => {
+    if (!MANAGE_ROLES.includes(user?.role)) return;
+    api.get('/api/service-calls/reports-to-send')
+      .then((d) => setToSend(d.serviceCalls || []))
+      .catch(() => {});
+  }, [user?.role]);
   useEffect(() => {
     api.get('/api/service-calls/engineer-candidates')
       .then(data => {
@@ -112,6 +121,28 @@ export default function ServiceCallList() {
           </button>
         </div>
       </div>
+
+      {toSend.length > 0 && (
+        <div className="panel" style={{ borderLeft: '4px solid #d92b2b' }}>
+          <h3 style={{ marginTop: 0 }}>Reports to send ({toSend.length})</h3>
+          <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+            Completed by the engineer — open each one and send the report to the client on WhatsApp.
+          </p>
+          <ul className="to-send-list">
+            {toSend.map((c) => (
+              <li key={c.id}>
+                <span>
+                  <strong>PSC-{c.complaintNumber}</strong> · {c.customer}{c.site ? ` · ${c.site}` : ''}
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    {c.engineer ? ` · by ${c.engineer}` : ''}{c.completedAt ? ` · ${fmtDate(c.completedAt)}` : ''}
+                  </span>
+                </span>
+                <button className="btn pri sm" onClick={() => navigate(`/service-calls/${c.id}`)}>Send report</button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="search-bar">
         <input

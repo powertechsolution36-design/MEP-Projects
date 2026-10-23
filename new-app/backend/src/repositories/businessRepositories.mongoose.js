@@ -23,7 +23,9 @@ const {
   ItemName,
   AmcTemplate,
   PaymentTermTemplate,
+  QuotationTemplate,
   DailyTask,
+  PushDevice,
 } = require('../models');
 const { Counter } = require('../models/Counter');
 
@@ -377,6 +379,36 @@ const contractRepo = {
     ).lean();
     return toPlainLean(doc);
   },
+  /** Owner request (22 Oct 2026): payment and renewal on the AMC client. */
+  async update(companyId, id, patch, session) {
+    const doc = await Contract.findOneAndUpdate(
+      { _id: id, companyId },
+      { $set: patch },
+      { new: true, runValidators: true, session }
+    ).lean();
+    return toPlainLean(doc);
+  },
+  /** Renewal: archive the old period and switch to the new one in one write. */
+  async renew(companyId, id, { archived, patch }, session) {
+    const doc = await Contract.findOneAndUpdate(
+      { _id: id, companyId },
+      { $push: { renewals: archived }, $set: patch },
+      { new: true, runValidators: true, session }
+    ).lean();
+    return toPlainLean(doc);
+  },
+  async findByLetterToken(token) {
+    const doc = await Contract.findOne({ letterToken: token }).lean();
+    return toPlainLean(doc);
+  },
+  async setLetterTokenIfMissing(companyId, id, token) {
+    await Contract.updateOne(
+      { _id: id, companyId, $or: [{ letterToken: { $exists: false } }, { letterToken: null }] },
+      { $set: { letterToken: token } }
+    );
+    const doc = await Contract.findOne({ _id: id, companyId }).lean();
+    return toPlainLean(doc);
+  },
 };
 
 /**
@@ -418,6 +450,14 @@ const serviceCallRepo = {
     const docs = await ServiceCall.find({ companyId }).sort({ _id: 1 }).lean();
     return docs.map((d) => ({ ...d, id: String(d._id) }));
   },
+  /** Owner request (22 Oct 2026): every call of one AMC / Warranty client, newest first. */
+  async listByContract(companyId, contractId) {
+    const docs = await ServiceCall.find({ companyId, contractId })
+      .sort({ registeredDate: -1, _id: -1 })
+      .select('-clientSignatureImage')
+      .lean();
+    return docs.map((d) => ({ ...d, id: String(d._id) }));
+  },
   async update(companyId, id, patch, session) {
     const doc = await ServiceCall.findOneAndUpdate({ _id: id, companyId }, { $set: patch }, { new: true, session }).lean();
     return toPlainLean(doc);
@@ -428,6 +468,21 @@ const serviceCallRepo = {
       { $set: patch },
       { new: true, session }
     ).lean();
+    return toPlainLean(doc);
+  },
+  // Service Report PDF link (owner decision 21 Oct 2026). The token is the
+  // only key: it is unguessable and unique, so this lookup is not
+  // company-scoped by design (the client has no login).
+  async findByReportToken(token) {
+    const doc = await ServiceCall.findOne({ reportToken: token }).lean();
+    return toPlainLean(doc);
+  },
+  async setReportTokenIfMissing(companyId, id, token) {
+    await ServiceCall.updateOne(
+      { _id: id, companyId, $or: [{ reportToken: { $exists: false } }, { reportToken: null }] },
+      { $set: { reportToken: token } }
+    );
+    const doc = await ServiceCall.findOne({ _id: id, companyId }).lean();
     return toPlainLean(doc);
   },
 };
@@ -601,6 +656,12 @@ const notificationRepo = {
     const [doc] = await Notification.create([data], { session });
     return toPlain(doc);
   },
+  // Push notifications (owner decision 21 Oct 2026): confirms a notification
+  // really exists (its transaction committed) before it is pushed to phones.
+  async findById(companyId, id) {
+    const doc = await Notification.findOne({ _id: id, companyId }).lean();
+    return toPlainLean(doc);
+  },
   /**
    * FIX-B1: list notifications targeted at a role (or the "*" all-roles
    * marker) within a company, newest first. Recipients are role-based only
@@ -718,6 +779,30 @@ const userRepoForEnquiry = {
   async listByCompany(companyId) {
     const docs = await User.find({ companyId }).lean();
     return docs.map((d) => ({ id: String(d._id), name: d.name, role: d.role, companyId: String(d.companyId) }));
+  },
+};
+
+/**
+ * Push devices (owner decision 21 Oct 2026) -- see src/models/PushDevice.js.
+ */
+const pushDeviceRepo = {
+  async upsert({ token, userId, companyId, platform }) {
+    const doc = await PushDevice.findOneAndUpdate(
+      { token },
+      { $set: { userId, companyId, platform: platform || 'android' } },
+      { upsert: true, returnDocument: 'after' }
+    ).lean();
+    return toPlainLean(doc);
+  },
+  async removeByToken(token, filter) {
+    const q = { token, ...(filter && filter.userId ? { userId: filter.userId } : {}) };
+    const res = await PushDevice.deleteOne(q);
+    return res.deletedCount > 0;
+  },
+  async listByUserIds(companyId, userIds) {
+    if (!userIds.length) return [];
+    const docs = await PushDevice.find({ companyId, userId: { $in: userIds } }).lean();
+    return docs.map((d) => ({ token: d.token, userId: String(d.userId), companyId: String(d.companyId), platform: d.platform }));
   },
 };
 
@@ -908,6 +993,18 @@ const quotationRepo = {
   async delete(companyId, id) {
     await Quotation.deleteOne({ _id: id, companyId });
   },
+  async findByPdfToken(token) {
+    const doc = await Quotation.findOne({ pdfToken: token }).lean();
+    return toPlainLean(doc);
+  },
+  async setPdfTokenIfMissing(companyId, id, token) {
+    await Quotation.updateOne(
+      { _id: id, companyId, $or: [{ pdfToken: { $exists: false } }, { pdfToken: null }] },
+      { $set: { pdfToken: token } }
+    );
+    const doc = await Quotation.findOne({ _id: id, companyId }).lean();
+    return toPlainLean(doc);
+  },
 };
 
 // ── Stage 7: AMC document templates (company overrides only) ──
@@ -945,6 +1042,48 @@ const amcTemplateRepo = {
 // ── Stage 7: Payment term templates ──
 //
 // Interface consumed by routes/paymentTermTemplateRoutes.js.
+
+const quotationTemplateRepo = {
+  async listByCompany(companyId, filters = {}) {
+    const query = { companyId };
+    if (filters.division) query.division = filters.division;
+    const docs = await QuotationTemplate.find(query).sort({ name: 1 }).lean();
+    return docs.map(toPlainLean);
+  },
+  async findById(companyId, id) {
+    const doc = await QuotationTemplate.findOne({ _id: id, companyId }).lean();
+    return toPlainLean(doc);
+  },
+  async create(data) {
+    try {
+      const doc = await QuotationTemplate.create(data);
+      return toPlain(doc);
+    } catch (err) {
+      wrapDuplicateKeyError(err, 'A quotation starting point with that name already exists.', 'QUOTATION_TEMPLATE_DUPLICATE');
+    }
+  },
+  async updateFields(companyId, id, patch) {
+    try {
+      const doc = await QuotationTemplate.findOneAndUpdate(
+        { _id: id, companyId },
+        { $set: patch },
+        { new: true, runValidators: true }
+      ).lean();
+      return toPlainLean(doc);
+    } catch (err) {
+      wrapDuplicateKeyError(err, 'A quotation starting point with that name already exists.', 'QUOTATION_TEMPLATE_DUPLICATE');
+    }
+  },
+  async delete(companyId, id) {
+    await QuotationTemplate.deleteOne({ _id: id, companyId });
+  },
+  /** Only one starting point per division may be the automatic one. */
+  async clearDefaults(companyId, division, exceptId) {
+    const filter = { companyId, division, isDefault: true };
+    if (exceptId) filter._id = { $ne: exceptId };
+    await QuotationTemplate.updateMany(filter, { $set: { isDefault: false } });
+  },
+};
 
 const paymentTermTemplateRepo = {
   async listByCompany(companyId, filters = {}) {
@@ -1019,6 +1158,7 @@ module.exports = {
   checklistTemplateRepo,
   userRepoForEnquiry,
   counterRepo,
+  pushDeviceRepo,
   withTransaction,
   inventoryCategoryRepo,
   inventoryLocationRepo,
@@ -1031,4 +1171,5 @@ module.exports = {
   quotationRepo,
   amcTemplateRepo,
   paymentTermTemplateRepo,
+  quotationTemplateRepo,
 };

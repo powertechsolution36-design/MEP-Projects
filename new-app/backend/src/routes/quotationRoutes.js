@@ -8,6 +8,7 @@ const { requireRole } = require('../middleware/roleMiddleware');
 const {
   createQuotation, updateQuotation, getQuotation,
   listQuotations, duplicateQuotation, deleteQuotation, exportQuotationsCsv,
+  getPdfLink,
 } = require('../services/quotationService');
 
 function createQuotationRouter(deps) {
@@ -40,6 +41,16 @@ function createQuotationRouter(deps) {
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', 'attachment; filename=quotations.csv');
       return res.send(csv);
+    } catch (err) {
+      return sendError(res, err, 'quotationRoutes');
+    }
+  });
+
+  // Client-facing PDF link for this quotation
+  router.get('/:quotationId/pdf-link', async (req, res) => {
+    try {
+      const link = await getPdfLink(req.auth.companyId, req.params.quotationId, deps);
+      return res.json(link);
     } catch (err) {
       return sendError(res, err, 'quotationRoutes');
     }

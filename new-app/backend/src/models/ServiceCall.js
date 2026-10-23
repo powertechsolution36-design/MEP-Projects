@@ -13,6 +13,17 @@ const { Schema, model } = require('mongoose');
  * behavior without inventing a closed key set.
  */
 
+// Owner request (22 Oct 2026): each part the engineer touched, and whether
+// it was repaired or replaced, so the AMC client page can count them.
+const partWorkSchema = new Schema(
+  {
+    part: { type: String, required: true },
+    action: { type: String, enum: ['Repaired', 'Replaced'], required: true },
+    remark: { type: String, default: '' },
+  },
+  { _id: false }
+);
+
 const reportSchema = new Schema(
   {
     make: { type: String },
@@ -29,6 +40,12 @@ const reportSchema = new Schema(
     amount: { type: Number },
     engineerRemark: { type: String },
     customerRemark: { type: String },
+    // Owner request (22 Oct 2026): parts work and gas filling, recorded per
+    // visit and totalled on the AMC client page.
+    partsWork: { type: [partWorkSchema], default: undefined },
+    gasFilled: { type: Boolean, default: false },
+    gasType: { type: String, default: '' },
+    gasQtyKg: { type: Number, default: 0, min: 0 },
   },
   { _id: false }
 );
@@ -57,6 +74,25 @@ const serviceCallSchema = new Schema(
     report: { type: reportSchema, default: null }, // PWA FACT — nullable until filed
     clientSignatureImage: { type: String, default: null }, // PWA FACT
     contractId: { type: Schema.Types.ObjectId, ref: 'Contract', default: null }, // PWA FACT
+    // Owner request (22 Oct 2026): what the client was covered by on the day
+    // the call was registered — kept as a snapshot, so a service given after
+    // the AMC ran out still shows as such on the client's history.
+    coverage: {
+      type: String,
+      enum: ['AMC', 'Warranty', 'AMC expired', 'Warranty expired', 'Chargeable'],
+      default: 'Chargeable',
+    },
+    // Owner decision (21 Oct 2026): the completed report is sent to the client
+    // as a PDF through an unguessable link. Set at completion.
+    completedAt: { type: Date },
+    reportToken: { type: String },
+    // Owner decision (22 Oct 2026): the engineer does not send the report to
+    // the client. Completing the call asks the service manager to send it
+    // from the company WhatsApp number; it is marked sent when they do.
+    reportSendStatus: { type: String, enum: ['Pending', 'Sent', null], default: null },
+    reportSendRequestedAt: { type: Date, default: null },
+    reportSentAt: { type: Date, default: null },
+    reportSentByUserId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
   },
   { timestamps: true, collection: 'serviceCalls' }
 );
@@ -64,5 +100,11 @@ const serviceCallSchema = new Schema(
 serviceCallSchema.index({ companyId: 1, status: 1 });
 serviceCallSchema.index({ companyId: 1, engineerId: 1, status: 1 });
 serviceCallSchema.index({ companyId: 1, contractId: 1 });
+serviceCallSchema.index({ companyId: 1, contractId: 1, registeredDate: -1 });
+serviceCallSchema.index({ companyId: 1, reportSendStatus: 1 });
+serviceCallSchema.index(
+  { reportToken: 1 },
+  { unique: true, partialFilterExpression: { reportToken: { $type: 'string' } } }
+);
 
 module.exports = model('ServiceCall', serviceCallSchema);

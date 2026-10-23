@@ -47,6 +47,7 @@ function createEnquiryFakeStore(seed = {}) {
     quotations: seed.quotations || [],
     amcTemplates: seed.amcTemplates || [],
     paymentTermTemplates: seed.paymentTermTemplates || [],
+    quotationTemplates: seed.quotationTemplates || [],
   };
 
   function snapshot() {
@@ -75,6 +76,7 @@ function createEnquiryFakeStore(seed = {}) {
     state.quotations = snap.quotations;
     state.amcTemplates = snap.amcTemplates;
     state.paymentTermTemplates = snap.paymentTermTemplates;
+    state.quotationTemplates = snap.quotationTemplates;
   }
 
   const enquiryRepo = {
@@ -309,6 +311,29 @@ function createEnquiryFakeStore(seed = {}) {
       if (doc.scheduledVisits[visitIndex]) doc.scheduledVisits[visitIndex].completedDate = completedDate;
       return cloneDeep(doc);
     },
+    async update(companyId, id, patch) {
+      const doc = state.contracts.find((c) => matchesId(c, id) && String(c.companyId) === String(companyId));
+      if (!doc) return null;
+      Object.assign(doc, cloneDeep(patch));
+      return cloneDeep(doc);
+    },
+    async renew(companyId, id, { archived, patch }) {
+      const doc = state.contracts.find((c) => matchesId(c, id) && String(c.companyId) === String(companyId));
+      if (!doc) return null;
+      doc.renewals = [...(doc.renewals || []), cloneDeep(archived)];
+      Object.assign(doc, cloneDeep(patch));
+      return cloneDeep(doc);
+    },
+    async findByLetterToken(token) {
+      const doc = state.contracts.find((c) => c.letterToken === token);
+      return doc ? cloneDeep(doc) : null;
+    },
+    async setLetterTokenIfMissing(companyId, id, token) {
+      const doc = state.contracts.find((c) => matchesId(c, id) && String(c.companyId) === String(companyId));
+      if (!doc) return null;
+      if (!doc.letterToken) doc.letterToken = token;
+      return cloneDeep(doc);
+    },
     // FIX-6-03 (B2 -- Company deletion/cascade).
     async deleteManyByCompany(companyId) {
       state.contracts = state.contracts.filter((c) => String(c.companyId) !== String(companyId));
@@ -328,6 +353,13 @@ function createEnquiryFakeStore(seed = {}) {
     async listByCompany(companyId) {
       return state.serviceCalls.filter((s) => String(s.companyId) === String(companyId)).map((s) => cloneDeep(s));
     },
+    async listByContract(companyId, contractId) {
+      return state.serviceCalls
+        .filter((s) => String(s.companyId) === String(companyId) && s.contractId && String(s.contractId) === String(contractId))
+        .slice()
+        .reverse()
+        .map((s) => { const c = cloneDeep(s); delete c.clientSignatureImage; return c; });
+    },
     async update(companyId, id, patch) {
       const doc = state.serviceCalls.find((s) => matchesId(s, id) && String(s.companyId) === String(companyId));
       if (!doc) return null;
@@ -338,6 +370,16 @@ function createEnquiryFakeStore(seed = {}) {
       const doc = state.serviceCalls.find((s) => matchesId(s, id) && String(s.companyId) === String(companyId));
       if (!doc || doc.status === 'Completed') return null;
       Object.assign(doc, patch);
+      return cloneDeep(doc);
+    },
+    async findByReportToken(token) {
+      const doc = state.serviceCalls.find((s) => s.reportToken && s.reportToken === token);
+      return doc ? cloneDeep(doc) : null;
+    },
+    async setReportTokenIfMissing(companyId, id, token) {
+      const doc = state.serviceCalls.find((s) => matchesId(s, id) && String(s.companyId) === String(companyId));
+      if (!doc) return null;
+      if (!doc.reportToken) doc.reportToken = token;
       return cloneDeep(doc);
     },
     // FIX-6-03 (B2 -- Company deletion/cascade).
@@ -517,11 +559,35 @@ function createEnquiryFakeStore(seed = {}) {
     },
   };
 
+  // Push devices (owner decision 21 Oct 2026).
+  state.pushDevices = state.pushDevices || [];
+  const pushDeviceRepo = {
+    async upsert({ token, userId, companyId, platform }) {
+      let doc = state.pushDevices.find((d) => d.token === token);
+      if (!doc) { doc = { id: nextId('push'), token }; state.pushDevices.push(doc); }
+      Object.assign(doc, { userId: String(userId), companyId: String(companyId), platform: platform || 'android' });
+      return { ...doc };
+    },
+    async removeByToken(token, filter) {
+      const before = state.pushDevices.length;
+      state.pushDevices = state.pushDevices.filter((d) => !(d.token === token && (!filter || !filter.userId || String(d.userId) === String(filter.userId))));
+      return state.pushDevices.length < before;
+    },
+    async listByUserIds(companyId, userIds) {
+      const set = new Set(userIds.map(String));
+      return state.pushDevices.filter((d) => String(d.companyId) === String(companyId) && set.has(String(d.userId))).map((d) => ({ ...d }));
+    },
+  };
+
   const notificationRepo = {
     async create(data) {
       const doc = { id: nextId('notif'), ...data };
       state.notifications.push(doc);
       return { ...doc };
+    },
+    async findById(companyId, id) {
+      const doc = state.notifications.find((n) => matchesId(n, id) && String(n.companyId) === String(companyId));
+      return doc ? { ...doc } : null;
     },
     async listForRole(companyId, role, options) {
       const limit = (options && options.limit) || 200;
@@ -802,6 +868,16 @@ function createEnquiryFakeStore(seed = {}) {
     async delete(companyId, id) {
       state.quotations = state.quotations.filter((q) => !(matchesId(q, id) && sameCompany(q, companyId)));
     },
+    async findByPdfToken(token) {
+      const doc = state.quotations.find((q) => q.pdfToken === token);
+      return doc ? cloneDeep(doc) : null;
+    },
+    async setPdfTokenIfMissing(companyId, id, token) {
+      const doc = state.quotations.find((q) => matchesId(q, id) && sameCompany(q, companyId));
+      if (!doc) return null;
+      if (!doc.pdfToken) doc.pdfToken = token;
+      return cloneDeep(doc);
+    },
   };
 
   const amcTemplateRepo = {
@@ -831,6 +907,49 @@ function createEnquiryFakeStore(seed = {}) {
     },
     async listByCompany(companyId) {
       return state.amcTemplates.filter((t) => sameCompany(t, companyId)).map((t) => cloneDeep(t));
+    },
+  };
+
+  const quotationTemplateRepo = {
+    async listByCompany(companyId, filters = {}) {
+      return state.quotationTemplates
+        .filter((t) => sameCompany(t, companyId))
+        .filter((t) => !filters.division || t.division === filters.division)
+        .map((t) => cloneDeep(t));
+    },
+    async findById(companyId, id) {
+      const doc = state.quotationTemplates.find((t) => matchesId(t, id) && sameCompany(t, companyId));
+      return doc ? cloneDeep(doc) : null;
+    },
+    async create(data) {
+      if (state.quotationTemplates.some((t) => sameCompany(t, data.companyId) && t.name === data.name)) {
+        const err = new Error('A quotation starting point with that name already exists.');
+        err.code = 'QUOTATION_TEMPLATE_DUPLICATE';
+        err.status = 409;
+        throw err;
+      }
+      const doc = { id: nextId('qtemplate'), ...cloneDeep(data) };
+      state.quotationTemplates.push(doc);
+      return cloneDeep(doc);
+    },
+    async updateFields(companyId, id, patch) {
+      const doc = state.quotationTemplates.find((t) => matchesId(t, id) && sameCompany(t, companyId));
+      if (!doc) return null;
+      Object.assign(doc, cloneDeep(patch));
+      return cloneDeep(doc);
+    },
+    async delete(companyId, id) {
+      state.quotationTemplates = state.quotationTemplates.filter(
+        (t) => !(matchesId(t, id) && sameCompany(t, companyId))
+      );
+    },
+    async clearDefaults(companyId, division, exceptId) {
+      state.quotationTemplates.forEach((t) => {
+        if (sameCompany(t, companyId) && t.division === division && t.isDefault
+          && !(exceptId && matchesId(t, exceptId))) {
+          t.isDefault = false;
+        }
+      });
     },
   };
 
@@ -897,6 +1016,7 @@ function createEnquiryFakeStore(seed = {}) {
 
   return {
     state,
+    pushDeviceRepo,
     enquiryRepo,
     salesOrderRepo,
     projectRepo,
@@ -914,6 +1034,7 @@ function createEnquiryFakeStore(seed = {}) {
     subscriptionRepo,
     itemNameRepo,
     quotationRepo,
+    quotationTemplateRepo,
     amcTemplateRepo,
     paymentTermTemplateRepo,
     inventoryCategoryRepo,

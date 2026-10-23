@@ -13,10 +13,19 @@ const { DIVISIONS } = require('./shared/enums');
 
 const lineItemSchema = new Schema(
   {
-    sNo: { type: Number, required: true },
+    // 'item'    a priced line, numbered 1,2,3… within its section
+    // 'sub'     a priced line with no number, sitting under a group heading
+    //           (Ducted/VRF "24 G", "22 G", "Canvas Connection" …)
+    // 'heading' a bold sub-heading inside a section (OUTDOOR UNITS, INDOOR
+    //           UNITS, "Supply & Installation of Ducting & Accessories" …)
+    // 'spec'    a specification paragraph that carries no price
+    // Ducted and VRF offers need all four; a Split offer uses only 'item'.
+    rowType: { type: String, enum: ['item', 'sub', 'heading', 'spec'], default: 'item' },
+    // Set by the server: the running number of 'item' rows; null on the rest.
+    sNo: { type: Number, default: null },
     description: { type: String, required: true },
     unit: { type: String, default: 'Nos' },
-    qty: { type: Number, required: true, min: 0 },
+    qty: { type: Number, default: 0, min: 0 },
     supplyRate: { type: Number, default: 0 },
     installationRate: { type: Number, default: 0 },
     supplyAmount: { type: Number, default: 0 },
@@ -89,9 +98,11 @@ const quotationSchema = new Schema(
     equipmentSupplyTotal: { type: Number, default: 0 },
     equipmentInstallTotal: { type: Number, default: 0 },
     equipmentTotal: { type: Number, default: 0 },
+    equipmentGstAmount: { type: Number, default: 0 },
     accessoriesSupplyTotal: { type: Number, default: 0 },
     accessoriesInstallTotal: { type: Number, default: 0 },
     accessoriesTotal: { type: Number, default: 0 },
+    accessoriesGstAmount: { type: Number, default: 0 },
     subtotal: { type: Number, default: 0 },
     gstPercent: { type: Number, default: 18 },
     gstAmount: { type: Number, default: 0 },
@@ -113,6 +124,9 @@ const quotationSchema = new Schema(
     date: { type: Date, default: () => new Date() },
     createdBy: { type: String },
     lastEditedBy: { type: String },
+
+    // Unguessable key for the client-facing PDF link (see services/quotationPdf.js).
+    pdfToken: { type: String },
   },
   { timestamps: true, collection: 'quotations' }
 );
@@ -121,5 +135,9 @@ quotationSchema.index({ companyId: 1, quotationNumber: 1 }, { unique: true });
 quotationSchema.index({ companyId: 1, status: 1 });
 quotationSchema.index({ companyId: 1, division: 1 });
 quotationSchema.index({ companyId: 1, customerName: 1 });
+quotationSchema.index(
+  { pdfToken: 1 },
+  { unique: true, partialFilterExpression: { pdfToken: { $type: 'string' } } }
+);
 
 module.exports = model('Quotation', quotationSchema);

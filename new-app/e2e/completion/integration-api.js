@@ -65,7 +65,9 @@ function backendRoutes() {
     const base = mounts[fn];
     if (!base) continue;
     for (const m of s.matchAll(/router\.(get|post|put|patch|delete)\(\s*['"`]([^'"`]+)['"`]/g)) {
-      out.push({ method: m[1].toUpperCase(), path: m[2] === '/' ? base : base + m[2] });
+      // /api/public/* are the login-free client PDF links, keyed by an
+      // unguessable token: a made-up token must get 404, never the document.
+      out.push({ method: m[1].toUpperCase(), path: m[2] === '/' ? base : base + m[2], publicToken: base === '/api/public' });
     }
   }
   return out;
@@ -95,7 +97,7 @@ function concrete(p, ids = FIXTURE) {
     const missing = [];
     for (const r of routes) {
       const res = await call(r.method, concrete(r.path), r.method === 'GET' || r.method === 'DELETE' ? {} : { body: {} });
-      const ok = r.open ? res.status === 200 : r.path === '/api/auth/login' ? res.status === 400 || res.status === 401 : res.status === 401;
+      const ok = r.open ? res.status === 200 : r.publicToken ? res.status === 404 : r.path === '/api/auth/login' ? res.status === 400 || res.status === 401 : res.status === 401;
       if (!ok) missing.push(`${r.method} ${r.path} -> ${res.status}`);
     }
     rec('A', `all ${routes.length} backend routes are mounted and refuse anonymous callers (401)`, missing.length === 0, missing.join('; '));
@@ -416,18 +418,21 @@ function concrete(p, ids = FIXTURE) {
 
     // G8 Service calls: Chargeable completion creates one payment; re-completion creates none; AMC creates none.
     const sm = tok.service_mgr;
+    // A call completes only with a filled report (description + every checklist point).
+    const G8_REPORT = { serviceType: 'Chargeable', amount: 2500, serviceDescription: 'G8 service',
+      checklistResults: Object.fromEntries(['Cooling Testing', 'Gas Pressure', 'Filter Clean', 'Indoor Coil', 'Outdoor Coil', 'Body Cleaning'].map((k) => [k, 'Done'])) };
     const mkCall = async () => (await call('POST', '/api/service-calls/complaints', { token: sm, body: { customer: 'G8 ' + Math.random(), phone: '9800000000', site: 'G8 site' } })).json?.serviceCall;
     const c1 = await mkCall();
-    const done1 = await call('POST', `/api/service-calls/${c1?.id}/complete`, { token: sm, body: { report: { serviceType: 'Chargeable', amount: 2500 }, signature: 'data:image/png;base64,iVBORw0KGgo=' } });
-    const again = await call('POST', `/api/service-calls/${c1?.id}/complete`, { token: sm, body: { report: { serviceType: 'Chargeable', amount: 2500 }, signature: 'data:image/png;base64,iVBORw0KGgo=' } });
+    const done1 = await call('POST', `/api/service-calls/${c1?.id}/complete`, { token: sm, body: { report: G8_REPORT, signature: 'data:image/png;base64,iVBORw0KGgo=' } });
+    const again = await call('POST', `/api/service-calls/${c1?.id}/complete`, { token: sm, body: { report: G8_REPORT, signature: 'data:image/png;base64,iVBORw0KGgo=' } });
     const pays = ((await call('GET', '/api/payments', { token: f })).json?.payments || []).filter((x) => String(x.projectOrReference || '').includes(`(PSC-${c1?.complaintNumber})`));
     rec('G', 'service call: Chargeable 2,500 completion -> exactly one Pending payment of 2,500, even if completed twice', done1.status === 200 && again.status === 200 && pays.length === 1 && eq(pays[0].amount, 2500) && pays[0].status === 'Pending', `${done1.status}/${again.status} payments=${pays.length}`);
     const c2 = await mkCall();
-    await call('POST', `/api/service-calls/${c2?.id}/complete`, { token: sm, body: { report: { serviceType: 'AMC', amount: 0 }, signature: 'data:image/png;base64,iVBORw0KGgo=' } });
+    const amcDone = await call('POST', `/api/service-calls/${c2?.id}/complete`, { token: sm, body: { report: { ...G8_REPORT, serviceType: 'AMC', amount: 0 }, signature: 'data:image/png;base64,iVBORw0KGgo=' } });
     const pays2 = ((await call('GET', '/api/payments', { token: f })).json?.payments || []).filter((x) => String(x.projectOrReference || '').includes(`(PSC-${c2?.complaintNumber})`));
     const c3 = await mkCall();
     const nosig = await call('POST', `/api/service-calls/${c3?.id}/complete`, { token: sm, body: { report: { serviceType: 'AMC' } } });
-    rec('G', 'service call: AMC completion creates no payment; completion without a signature is refused (400)', pays2.length === 0 && nosig.status === 400, `${pays2.length} ${nosig.status}`);
+    rec('G', 'service call: AMC completion creates no payment; completion without a signature is refused (400)', amcDone.status === 200 && pays2.length === 0 && nosig.status === 400, `${amcDone.status} ${pays2.length} ${nosig.status}`);
 
     // G9 Trial dates
     const tr = await call('POST', '/api/companies', { token: tok.super, body: { company: { name: 'G9 Trial ' + Date.now(), divs: ['HVAC'], status: 'Trial' }, admin: { username: 'g9_' + Date.now().toString(36), password: PASSWORD } } });
