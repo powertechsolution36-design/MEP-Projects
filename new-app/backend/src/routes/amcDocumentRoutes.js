@@ -5,7 +5,7 @@ const { sendError } = require('../errors');
 const { createAuthMiddleware } = require('../middleware/authMiddleware');
 const { requireCompanyContext, requireOwnCompany } = require('../middleware/tenantGuard');
 const {
-  getTemplate, saveTemplate, generateAmcDocument, listTemplates,
+  getTemplate, saveTemplate, generateAmcDocument, listTemplates, renderAmcDocumentPdf,
 } = require('../services/amcDocumentService');
 
 function createAmcDocumentRouter(deps) {
@@ -51,6 +51,26 @@ function createAmcDocumentRouter(deps) {
   });
 
   // ── Document generation ──
+
+  // The AMC document as the PDF the company reads, prints and sends
+  // (owner request, 24 Oct 2026). Must be declared before the data route
+  // below, or ":templateType" would swallow the "/pdf" suffix.
+  router.get('/generate/:contractId/:templateType/pdf', async (req, res) => {
+    try {
+      const { filename, pdf } = await renderAmcDocumentPdf(
+        req.auth.companyId,
+        req.params.contractId,
+        req.params.templateType,
+        deps
+      );
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+      res.setHeader('Cache-Control', 'private, no-store');
+      return res.send(pdf);
+    } catch (err) {
+      return sendError(res, err, 'amcDocumentRoutes');
+    }
+  });
 
   // Generate AMC document data from contract + profile + template
   router.get('/generate/:contractId/:templateType', async (req, res) => {

@@ -253,8 +253,12 @@ async function group6c(browser) {
   await s.page.locator('button:has-text("Save")').first().click();
   await settle(s);
   const tpl = (await api(adminT, 'GET', '/api/amc-documents/templates/amc-letter')).json?.template;
-  const doc = await s.page.locator('body').innerText();
-  rec('AMC template: Edit Template -> Save stores the wording (GET/PUT /api/amc-documents/templates) and the letter shows it', JSON.stringify(tpl || {}).includes(words) && doc.includes(words), noAlerts(s));
+  // The page no longer draws the document (owner decision, 24 Oct 2026) — the
+  // edited wording has to reach the generated document, which is what the PDF
+  // is rendered from.
+  const generated = (await api(adminT, 'GET', '/api/amc-documents/generate/amc_demo/amc-letter')).json?.document;
+  rec('AMC template: Edit Template -> Save stores the wording (GET/PUT /api/amc-documents/templates) and it reaches the letter',
+    JSON.stringify(tpl || {}).includes(words) && JSON.stringify(generated || {}).includes(words), noAlerts(s));
   rec('AMC template: no errors', s.errors.length === 0, s.errors.join('|'));
   await s.ctx.close();
 }

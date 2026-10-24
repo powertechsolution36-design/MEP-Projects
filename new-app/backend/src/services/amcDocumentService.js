@@ -566,6 +566,48 @@ async function renderPublicAmcLetter(token, deps) {
   return { filename: `AMC-Letter-${safeName.replace(/\s+/g, '-')}.pdf`, pdf };
 }
 
+/**
+ * The AMC document as a PDF, for the staff who generate it (owner request,
+ * 24 Oct 2026). Until now the page printed by writing its own HTML into a
+ * pop-up, so preview, printer and client each saw a different layout; this
+ * is the one document, rendered on the server.
+ *
+ * All three types are served here, the letter included, so the page always
+ * shows the real thing. The letter's *client* link stays separate and still
+ * requires the AMC to be paid — this route is login-only and is what the
+ * company uses to read and print its own document.
+ */
+async function renderAmcDocumentPdf(companyId, contractId, templateType, deps) {
+  const type = ['comprehensive', 'non-comprehensive', 'amc-letter'].includes(templateType)
+    ? templateType
+    : 'comprehensive';
+  const doc = await generateAmcDocument(companyId, contractId, type, deps);
+  const company = (await deps.companyRepo.findById(companyId)) || {};
+  const co = { ...doc.company, whatsappNumber: company.whatsappNumber || '' };
+
+  // Loaded on demand so this module never depends on the PDF library.
+  let pdf;
+  let label;
+  if (type === 'amc-letter') {
+    const { buildAmcLetterPdf } = require('./amcLetterPdf');
+    pdf = await buildAmcLetterPdf({ company: co, contract: doc.contract, sections: doc.template.sections });
+    label = 'AMC-Letter';
+  } else {
+    const { buildAmcOfferPdf } = require('./amcOfferPdf');
+    pdf = await buildAmcOfferPdf({
+      company: co,
+      contract: doc.contract,
+      sections: doc.template.sections,
+      documentType: type,
+    });
+    label = type === 'comprehensive' ? 'AMC-Comprehensive' : 'AMC-Non-Comprehensive';
+  }
+
+  const safeName = String(doc.contract.customer || doc.contract.site || 'client')
+    .replace(/[^A-Za-z0-9 _-]+/g, '').trim().slice(0, 60) || 'client';
+  return { filename: `${label}-${safeName.replace(/\s+/g, '-')}.pdf`, pdf };
+}
+
 async function listTemplates(companyId, deps) {
   const templates = deps.amcTemplateRepo ? await deps.amcTemplateRepo.listByCompany(companyId) : [];
   // Always include defaults
@@ -591,4 +633,5 @@ module.exports = {
   formatRupees,
   getLetterLink,
   renderPublicAmcLetter,
+  renderAmcDocumentPdf,
 };

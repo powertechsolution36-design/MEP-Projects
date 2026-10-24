@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { api, apiRequest } from '../../api/client';
+import { api, apiRequest, getStoredToken, assertDownloadOk } from '../../api/client';
 import { money, fmtDate } from '../../utils/format';
 
 /**
@@ -12,7 +12,13 @@ import { money, fmtDate } from '../../utils/format';
  *   - non-comprehensive
  *   - amc-letter
  *
- * API: GET /api/amc-documents/generate/:contractId/:templateType
+ * The document itself is built on the server and opened as a PDF — the same
+ * one the client receives. The page shows what it will be made from and the
+ * template that supplies its wording; it does not draw the document itself
+ * (owner decision, 24 Oct 2026).
+ *
+ * API: GET /api/amc-documents/generate/:contractId/:templateType/pdf
+ *      GET /api/amc-documents/generate/:contractId/:templateType
  *      GET /api/amc-documents/templates
  *      GET /api/amc-documents/templates/:type
  *      PUT /api/amc-documents/templates (admin save)
@@ -30,7 +36,7 @@ export default function AmcDocument() {
   const { contractId } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const printRef = useRef(null);
+  const [opening, setOpening] = useState(false);
 
   const initialType = searchParams.get('type') || 'comprehensive';
   const [templateType, setTemplateType] = useState(initialType);
@@ -90,44 +96,41 @@ export default function AmcDocument() {
     }
   }
 
-  function handlePrint() {
-    const content = printRef.current;
-    if (!content) return;
-    const win = window.open('', '_blank');
-    if (!win) {
-      // Pop-ups are refused inside the Android app (and by some browsers), so
-      // printing from here cannot work there. Say so instead of doing nothing.
-      if (templateType === 'amc-letter') {
-        api.get(`/api/contracts/${contractId}/letter-link`)
-          .then((d) => {
-            if (d && d.letterToken) window.location.assign(`${window.location.origin}/api/public/amc-letters/${d.letterToken}`);
-          })
-          .catch((err) => alert(err.message || 'The AMC letter can be opened once the AMC is marked paid.'));
-        return;
+  /**
+   * Open the AMC document (owner decision, 24 Oct 2026).
+   *
+   * This page used to print by writing its own HTML and stylesheet into a
+   * pop-up, so the preview on screen, the printed page and the copy the
+   * client received were three different layouts — and none matched the
+   * company's own sheets. There is now one document, built on the server;
+   * viewing, printing and saving all come from it.
+   */
+  async function openDocument() {
+    setOpening(true);
+    setError(null);
+    try {
+      const resp = await fetch(`/api/amc-documents/generate/${contractId}/${templateType}/pdf`, {
+        headers: { Authorization: `Bearer ${getStoredToken()}` },
+      });
+      await assertDownloadOk(resp); // a refused document must not be saved as a "PDF"
+      const url = URL.createObjectURL(await resp.blob());
+      const win = window.open(url, '_blank');
+      if (!win) {
+        // Pop-ups are refused inside the Android app and by some browsers:
+        // hand the file over as a download instead of doing nothing.
+        const a = window.document.createElement('a');
+        a.href = url;
+        a.download = `${templateType}-amc.pdf`;
+        window.document.body.appendChild(a);
+        a.click();
+        a.remove();
       }
-      alert('Printing is not available inside the app. Open this page in a browser on a computer to print it.');
-      return;
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+      setError(err.message || 'Could not open the AMC document.');
+    } finally {
+      setOpening(false);
     }
-    win.document.write(`<!DOCTYPE html><html><head><title>AMC Document</title>
-      <style>
-        body { font-family: Arial, sans-serif; padding: 20px; color: #333; font-size: 13px; line-height: 1.6; }
-        table { width: 100%; border-collapse: collapse; margin: 10px 0; }
-        th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; }
-        th { background: #f5f5f5; font-weight: 600; }
-        h1 { font-size: 18px; text-align: center; border-bottom: 2px solid #1a4a7a; padding-bottom: 8px; }
-        h2 { font-size: 14px; color: #1a4a7a; margin: 16px 0 6px; }
-        .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
-        .company-name { font-size: 20px; font-weight: bold; color: #1a4a7a; }
-        .section-content { white-space: pre-wrap; margin: 4px 0 12px; }
-        .footer { margin-top: 40px; display: flex; justify-content: space-between; }
-        .stamp-block { text-align: center; }
-        .stamp-block img { max-width: 120px; max-height: 60px; }
-        .page-break { page-break-before: always; break-before: page; }
-        @media print { body { padding: 0; } @page { margin: 15mm; } }
-      </style>
-    </head><body>${content.innerHTML}</body></html>`);
-    win.document.close();
-    setTimeout(() => win.print(), 300);
   }
 
   if (loading) return <div className="enq-page"><p>Generating AMC document…</p></div>;
@@ -140,244 +143,7 @@ export default function AmcDocument() {
   if (!document) return <div className="enq-page"><p>No document generated.</p></div>;
 
   const doc = document;
-  const cp = doc.company || {};
   const contract = doc.contract || {};
-  const sections = (doc.template?.sections || []);
-  const secByKey = {};
-  sections.forEach(s => { secByKey[s.key] = s; });
-
-  function renderHeader() {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-        <div>
-          {cp.logoBase64 && <img src={cp.logoBase64} alt="Logo" style={{ maxHeight: 50, marginBottom: 4 }} />}
-          <div style={{ fontSize: 12, color: '#666' }}>{cp.tagline || ''}</div>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 20, fontWeight: 'bold', color: '#1a4a7a' }}>{cp.name || 'Company Name'}</div>
-          {cp.subtitle && <div style={{ fontSize: 14, fontWeight: 600, color: '#c0392b' }}>{cp.subtitle}</div>}
-          <div style={{ fontSize: 11, marginTop: 4 }}>
-            {cp.address && <div>{cp.address}</div>}
-            {cp.email && <div>{cp.email}</div>}
-            {cp.website && <div>{cp.website}</div>}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  function renderFooter() {
-    return (
-      <div style={{ marginTop: 40 }}>
-        <div>Yours truly,</div>
-        <div style={{ fontWeight: 'bold' }}>For {cp.name || 'Company'}</div>
-        <div style={{ marginTop: 8 }}>
-          {cp.authorizedPerson?.signatureBase64 && <div><img src={cp.authorizedPerson.signatureBase64} alt="Signature" style={{ maxWidth: 120, maxHeight: 60 }} /></div>}
-          {cp.authorizedPerson?.stampBase64 && <div><img src={cp.authorizedPerson.stampBase64} alt="Stamp" style={{ maxWidth: 120, maxHeight: 60 }} /></div>}
-          <div style={{ fontWeight: 600 }}>{cp.authorizedPerson?.name || ''}</div>
-          {cp.phone && <div style={{ fontSize: 12 }}>Mob: {cp.phone}</div>}
-        </div>
-      </div>
-    );
-  }
-
-  function renderAmcContract(doc, cp, contract, type) {
-    const label = type === 'comprehensive' ? 'Comprehensive' : 'Non-Comprehensive';
-    return (
-      <>
-        {/* ── PAGE 1: SUMMARY ── */}
-        {renderHeader()}
-        <div style={{ textAlign: 'center', background: '#e8e800', fontWeight: 'bold', padding: 4, marginBottom: 12 }}>SUMMARY</div>
-        <div style={{ marginBottom: 8 }}><strong>Quote To -</strong> {contract.customer || '—'}</div>
-        <div style={{ marginBottom: 12 }}><strong>{secByKey['subject']?.content || `SUB:- ${label} Maintenance Contract for your Air Conditioning System.`}</strong></div>
-
-        {/* Intro */}
-        <div style={{ whiteSpace: 'pre-wrap', marginBottom: 12 }}>{secByKey['introduction']?.content || ''}</div>
-
-        {/* Contract description */}
-        <div style={{ whiteSpace: 'pre-wrap', marginBottom: 12 }}>{secByKey['contract_description']?.content || ''}</div>
-
-        {renderFooter()}
-
-        {/* ── PAGE 2: PRICING + SERVICE TERMS ── */}
-        <div style={{ borderTop: '3px solid #1a4a7a', marginTop: 30, paddingTop: 16 }}>
-          {renderHeader()}
-          <div style={{ textAlign: 'center', background: '#e8e800', fontWeight: 'bold', padding: 4, marginBottom: 12 }}>SUPPLY &amp; INSTALLATION OF HVAC SYSTEM</div>
-
-          {/* Pricing table */}
-          <table style={{ width: '100%', borderCollapse: 'collapse', margin: '10px 0' }}>
-            <thead>
-              <tr>
-                <th style={{ border: '1px solid #ccc', padding: '6px 8px', background: '#f5f5f5' }}>S No</th>
-                <th style={{ border: '1px solid #ccc', padding: '6px 8px', background: '#f5f5f5' }}>Description</th>
-                <th style={{ border: '1px solid #ccc', padding: '6px 8px', background: '#f5f5f5' }}>Unit</th>
-                <th style={{ border: '1px solid #ccc', padding: '6px 8px', background: '#f5f5f5' }}>Qty</th>
-                <th colSpan={2} style={{ border: '1px solid #ccc', padding: '6px 8px', background: '#f5f5f5', textAlign: 'center' }}>Unit Rate</th>
-                <th colSpan={2} style={{ border: '1px solid #ccc', padding: '6px 8px', background: '#f5f5f5', textAlign: 'center' }}>Amount</th>
-              </tr>
-              <tr>
-                <th colSpan={4} style={{ border: '1px solid #ccc', padding: '4px' }}></th>
-                <th style={{ border: '1px solid #ccc', padding: '4px', fontSize: 11 }}>Supply</th>
-                <th style={{ border: '1px solid #ccc', padding: '4px', fontSize: 11 }}>Installation</th>
-                <th style={{ border: '1px solid #ccc', padding: '4px', fontSize: 11 }}>Supply</th>
-                <th style={{ border: '1px solid #ccc', padding: '4px', fontSize: 11 }}>Installation</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td style={{ border: '1px solid #ccc', padding: '6px 8px' }}>1</td>
-                <td style={{ border: '1px solid #ccc', padding: '6px 8px' }}>{label} Maintenance Contract{contract.capacity ? ` for ${contract.capacity}` : ''}{contract.site ? ` - ${contract.site}` : ''}</td>
-                <td style={{ border: '1px solid #ccc', padding: '6px 8px' }}>Lot</td>
-                <td style={{ border: '1px solid #ccc', padding: '6px 8px' }}>1</td>
-                <td style={{ border: '1px solid #ccc', padding: '6px 8px', textAlign: 'right' }}></td>
-                <td style={{ border: '1px solid #ccc', padding: '6px 8px', textAlign: 'right' }}>{money(contract.amount)}</td>
-                <td style={{ border: '1px solid #ccc', padding: '6px 8px', textAlign: 'right' }}></td>
-                <td style={{ border: '1px solid #ccc', padding: '6px 8px', textAlign: 'right' }}>{money(contract.amount)}</td>
-              </tr>
-              <tr><td colSpan={4} style={{ border: '1px solid #ccc', padding: '6px 8px', textAlign: 'right', fontWeight: 'bold' }}>Sub Total</td><td colSpan={2}></td><td style={{ border: '1px solid #ccc', padding: '6px 8px', textAlign: 'right' }}></td><td style={{ border: '1px solid #ccc', padding: '6px 8px', textAlign: 'right' }}>{money(contract.amount)}</td></tr>
-              <tr style={{ background: '#e8e800' }}><td colSpan={6} style={{ border: '1px solid #ccc', padding: '6px 8px', textAlign: 'right', fontWeight: 'bold' }}>TOTAL (Basic)</td><td colSpan={2} style={{ border: '1px solid #ccc', padding: '6px 8px', textAlign: 'right', fontWeight: 'bold' }}>{money(contract.amount)}</td></tr>
-              <tr style={{ background: '#e8e800' }}><td colSpan={6} style={{ border: '1px solid #ccc', padding: '6px 8px', textAlign: 'right', fontWeight: 'bold' }}>TOTAL (With 18% GST)</td><td colSpan={2} style={{ border: '1px solid #ccc', padding: '6px 8px', textAlign: 'right', fontWeight: 'bold' }}>{money(Math.round(contract.amount * 1.18))}</td></tr>
-            </tbody>
-          </table>
-
-          {/* SPMS terms */}
-          <div style={{ marginTop: 16, whiteSpace: 'pre-wrap' }}>{secByKey['spms_heading']?.content || ''}</div>
-          <div style={{ marginTop: 8 }}>
-            <div style={{ marginBottom: 4 }}><strong>1)</strong> {secByKey['service_coverage']?.content || ''}</div>
-            <div style={{ marginBottom: 4 }}><strong>2)</strong> {secByKey['spare_policy']?.content || ''}</div>
-            {secByKey['electrical_fluctuation'] && <div style={{ marginBottom: 4 }}><strong>3)</strong> {secByKey['electrical_fluctuation'].content}</div>}
-            <div style={{ marginBottom: 4 }}><strong>{secByKey['electrical_fluctuation'] ? '4' : '3'})</strong> {secByKey['complaint_response']?.content || ''}</div>
-            <div style={{ marginBottom: 4 }}><strong>{secByKey['electrical_fluctuation'] ? '5' : '4'})</strong> The routine servicing will cover the following:</div>
-            <div style={{ paddingLeft: 20, whiteSpace: 'pre-wrap' }}>{secByKey['routine_servicing']?.content || ''}</div>
-          </div>
-
-          {renderFooter()}
-        </div>
-
-        {/* ── PAGE 3: COMMERCIAL TERMS ── */}
-        <div style={{ borderTop: '3px solid #1a4a7a', marginTop: 30, paddingTop: 16 }}>
-          {renderHeader()}
-          <div style={{ background: '#00b050', color: '#fff', fontWeight: 'bold', padding: '4px 8px', marginBottom: 12 }}>COMMERCIAL TERMS AND CONDITIONS.</div>
-
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <tbody>
-              <tr><td style={{ border: '1px solid #ccc', padding: '8px', width: '30%', verticalAlign: 'top' }}>TAXES</td><td style={{ border: '1px solid #ccc', padding: '8px', fontWeight: 'bold' }}>{secByKey['taxes']?.content || 'GST as shown'}</td></tr>
-              <tr><td style={{ border: '1px solid #ccc', padding: '8px', verticalAlign: 'top' }}>Payment</td><td style={{ border: '1px solid #ccc', padding: '8px', whiteSpace: 'pre-wrap' }}>{secByKey['payment']?.content || ''}{contract.amount ? `\n\n${money(Math.round(contract.amount * 1.18))}` : ''}</td></tr>
-              <tr><td style={{ border: '1px solid #ccc', padding: '8px', verticalAlign: 'top' }}>Offer Validity :</td><td style={{ border: '1px solid #ccc', padding: '8px' }}>{secByKey['offer_validity']?.content || '30 days'}</td></tr>
-              <tr><td style={{ border: '1px solid #ccc', padding: '8px', verticalAlign: 'top' }}>Delivery</td><td style={{ border: '1px solid #ccc', padding: '8px', whiteSpace: 'pre-wrap' }}>{secByKey['delivery']?.content || ''}</td></tr>
-              <tr><td style={{ border: '1px solid #ccc', padding: '8px', verticalAlign: 'top' }}>Final Billing</td><td style={{ border: '1px solid #ccc', padding: '8px', whiteSpace: 'pre-wrap' }}>{secByKey['final_billing']?.content || ''}</td></tr>
-            </tbody>
-          </table>
-
-          {/* Bank Details */}
-          <div style={{ background: '#00b050', color: '#fff', fontWeight: 'bold', padding: '4px 8px', marginTop: 16, marginBottom: 8 }}>BANK DETAILS.</div>
-          <div style={{ fontSize: 13 }}>
-            <div>Bank : {cp.bankDetails?.bankName || ''}</div>
-            <div>Account Holder Name : {cp.bankDetails?.accountHolderName || cp.name || ''}</div>
-            <div>Account Number: {cp.bankDetails?.accountNumber || ''}</div>
-            <div>IFSC Code : {cp.bankDetails?.ifscCode || ''}</div>
-          </div>
-
-          {/* Excluded Works */}
-          <div style={{ background: '#00b050', color: '#fff', fontWeight: 'bold', padding: '4px 8px', marginTop: 16, marginBottom: 8 }}>EXCLUDED WORKS.</div>
-          <div style={{ whiteSpace: 'pre-wrap', fontSize: 13 }}>
-            {secByKey['excluded_works']?.content || ''}
-          </div>
-        </div>
-      </>
-    );
-  }
-
-  function renderAmcLetter(doc, cp, contract) {
-    return (
-      <>
-        {/* AMC Letter — single page letter format per reference */}
-        <div style={{ textAlign: 'center', fontSize: 18, fontWeight: 'bold', marginBottom: 16 }}>AMC LETTER</div>
-
-        <div style={{ marginBottom: 8 }}>{secByKey['salutation']?.content || 'Dear Sir/ Madam,'}</div>
-        <div style={{ marginBottom: 4, fontWeight: 'bold' }}>{contract.customer || '—'},</div>
-        <div style={{ marginBottom: 12 }}>{contract.site || ''}</div>
-
-        <div style={{ marginBottom: 12 }}>{secByKey['acknowledgement']?.content || ''}</div>
-
-        {/* Contract reference paragraph with dynamic values */}
-        <div style={{ marginBottom: 12 }}>
-          {/* placeholders are substituted server-side (amcDocumentService.generateAmcDocument) */}
-          {secByKey['proposal']?.content || ''}
-        </div>
-
-        <div style={{ marginBottom: 12 }}>{secByKey['terms_intro']?.content || 'Please keep in mind following T&C during AMC.'}</div>
-
-        {/* T&C as numbered list */}
-        <ul style={{ listStyleType: 'disc', paddingLeft: 24, lineHeight: 1.8 }}>
-          <li>{secByKey['routine_service_frequency']?.content || ''}</li>
-          <li>{secByKey['spare_inclusion']?.content || ''}</li>
-          <li>{secByKey['n_service']?.content || ''}</li>
-          <li>{secByKey['routine_servicing_intro']?.content || 'The routine servicing will cover the following:'}</li>
-          <li>{secByKey['service_quality']?.content || ''}</li>
-          <li>{secByKey['n_service_vrf']?.content || ''}</li>
-        </ul>
-
-        {/* Servicing detail items */}
-        <ul style={{ listStyleType: 'disc', paddingLeft: 40, lineHeight: 1.8 }}>
-          {(secByKey['routine_service_points']?.content || '').split('\n').map((line, i) => (
-            <li key={i}>{line}</li>
-          ))}
-        </ul>
-
-        {/* Exclusions and conditions */}
-        <ul style={{ listStyleType: 'disc', paddingLeft: 24, lineHeight: 1.8 }}>
-          <li>{secByKey['system_shutdown']?.content || ''}</li>
-          <li>{secByKey['outdoor_access']?.content || ''}</li>
-          <li>{secByKey['electrical_notification']?.content || ''}</li>
-          <li>{secByKey['electrical_exclusion']?.content || ''}</li>
-          <li>{secByKey['storage_requirement']?.content || ''}</li>
-          <li>{secByKey['structural_exclusion']?.content || ''}</li>
-          <li>{secByKey['natural_disaster_exclusion']?.content || ''}</li>
-          <li>{secByKey['civil_work_exclusion']?.content || ''}</li>
-          <li>{secByKey['ladder_requirement']?.content || ''}</li>
-        </ul>
-
-        {/* Payment Terms */}
-        <div style={{ marginTop: 16 }}>
-          <strong>Payment Terms – </strong>
-          <div>{secByKey['payment_terms']?.content || '100% Advance along with work order .'}</div>
-        </div>
-
-        {/* Please Note */}
-        <div style={{ marginTop: 12 }}>
-          <strong>Please Note – </strong>
-          <div>{secByKey['please_note']?.content || ''}</div>
-        </div>
-
-        {/* Contact details */}
-        <div style={{ marginTop: 20 }}>
-          <div>Our contact details for your reference –</div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-            <div>
-              <div style={{ fontWeight: 'bold' }}>{cp.authorizedPerson?.name || ''}</div>
-              <div style={{ fontSize: 12 }}>{cp.authorizedPerson?.designation || ''}</div>
-              <div style={{ fontSize: 12 }}>{cp.phone || ''}{cp.email ? ` / ${cp.email}` : ''}</div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontWeight: 'bold' }}>{cp.name || ''}</div>
-              <div style={{ fontSize: 12 }}>(Complaint Registration at)</div>
-              <div style={{ fontSize: 12 }}>Office - {cp.phone || ''}</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Sign & Stamp */}
-        <div style={{ marginTop: 30 }}>
-          <div style={{ fontWeight: 'bold' }}>Sign & Stamp –</div>
-          <div style={{ marginTop: 8 }}>
-            {cp.authorizedPerson?.signatureBase64 && <div><img src={cp.authorizedPerson.signatureBase64} alt="Signature" style={{ maxWidth: 120, maxHeight: 60 }} /></div>}
-            {cp.authorizedPerson?.stampBase64 && <div><img src={cp.authorizedPerson.stampBase64} alt="Stamp" style={{ maxWidth: 120, maxHeight: 60 }} /></div>}
-          </div>
-        </div>
-      </>
-    );
-  }
 
   /* ── TEMPLATE EDITOR ── */
   if (showTemplateEditor) {
@@ -428,15 +194,33 @@ export default function AmcDocument() {
           </select>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn pri" onClick={handlePrint}>Print / Save as PDF</button>
+          <button className="btn pri" onClick={openDocument} disabled={opening}>{opening ? 'Preparing…' : 'Preview / Print'}</button>
           <button className="btn sec sm" onClick={loadTemplate}>Edit Template</button>
           <button className="btn sec sm" onClick={() => navigate(`/contracts/${contractId}`)}>Back to Contract</button>
         </div>
       </div>
 
-      {/* Preview — structured to match reference document layout */}
-      <div ref={printRef} style={{ background: '#fff', padding: 24, border: '1px solid #ddd', maxWidth: 800, margin: '0 auto' }}>
-        {templateType === 'amc-letter' ? renderAmcLetter(doc, cp, contract) : renderAmcContract(doc, cp, contract, templateType)}
+      {/* One document: the server-built PDF, which is also what the client
+          gets. The summary below is just what it will be made from. */}
+      <div className="panel" style={{ maxWidth: 800, margin: '0 auto' }}>
+        <h3 style={{ marginTop: 0 }}>{TEMPLATE_TYPES.find(t => t.value === templateType)?.label}</h3>
+        <div className="detail-grid">
+          <div><strong>Client</strong><br />{contract.customer || '—'}</div>
+          <div><strong>Site</strong><br />{contract.site || '—'}</div>
+          <div><strong>Capacity</strong><br />{contract.capacity || '—'}</div>
+          <div><strong>Cover</strong><br />{contract.category || '—'} · {contract.amcType || '—'}</div>
+          <div><strong>Period</strong><br />{fmtDate(contract.startDate)} – {fmtDate(contract.endDate)}</div>
+          <div><strong>Amount</strong><br />{money(contract.amount)}</div>
+        </div>
+        <p className="muted" style={{ fontSize: 13, marginTop: 12 }}>
+          Open the document to read, print or save it. The wording comes from this
+          company&apos;s AMC template — use <strong>Edit Template</strong> to change it.
+        </p>
+        <div className="detail-actions">
+          <button className="btn pri" onClick={openDocument} disabled={opening}>
+            {opening ? 'Preparing…' : 'Preview / Print'}
+          </button>
+        </div>
       </div>
     </div>
   );

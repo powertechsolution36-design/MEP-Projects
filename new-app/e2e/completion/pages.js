@@ -724,24 +724,40 @@ async function group5e(browser) {
     await s.page.waitForLoadState('networkidle'); await s.page.waitForTimeout(300);
     rec('contract detail (admin): AMC Document opens the comprehensive document', /\/contracts\/amc_demo\/amc-document\?type=comprehensive$/.test(s.page.url()), s.page.url());
 
-    // AMC document: company details come from Company Profile only; amounts are formatted once.
-    let t = await bodyText(s.page);
-    rec('AMC document: payment shows ₹ 1,77,000 (amount + 18% GST) with a single ₹ sign', t.includes('₹ 1,77,000') && !/₹\s*₹/.test(t));
-    rec('AMC document: no hard-coded tagline or signatory designation when Company Profile has none', !t.includes('Trusted-Econimical') && !t.includes('(Project & Service head)'));
-    await s.page.locator('select').first().selectOption('amc-letter');
-    await s.page.waitForLoadState('networkidle'); await s.page.waitForTimeout(400);
-    t = await bodyText(s.page);
-    rec('AMC letter: the proposal carries the contract amount and period, with no {{placeholders}}', t.includes('1,50,000') && !t.includes('{{'), (t.match(/our proposal.{0,160}/i) || [''])[0]);
+    // The AMC document is now built on the server and opened as a PDF
+    // (owner decision, 24 Oct 2026) — the page no longer draws it, so these
+    // check the data the document is made from, and the PDF itself.
+    const amcDoc = async (type) => (await api(adminT, 'GET', `/api/amc-documents/generate/amc_demo/${type}`)).json?.document || {};
+    const comp = await amcDoc('comprehensive');
+    const compText = JSON.stringify(comp);
+    rec('AMC document: amounts are formatted once, with a single ₹ sign', !/₹\s*₹/.test(compText));
+    rec('AMC document: no hard-coded tagline or signatory designation when Company Profile has none',
+      !compText.includes('Trusted-Econimical') && !compText.includes('(Project & Service head)'));
+    const letterDoc = await amcDoc('amc-letter');
+    const letterText = JSON.stringify(letterDoc);
+    rec('AMC letter: the proposal carries the contract amount and period, with no {{placeholders}}',
+      letterText.includes('1,50,000') && !letterText.includes('{{'),
+      (letterText.match(/our proposal.{0,160}/i) || [''])[0]);
+
     const tag = 'E2E Tagline ' + uniq();
     const p = await api(adminT, 'PATCH', '/api/companies/my-profile', { tagline: tag });
+    const tagged = await amcDoc('comprehensive');
+    rec('AMC document: the Company Profile tagline reaches the document',
+      p.status === 200 && (tagged.company || {}).tagline === tag, `${p.status} ${(tagged.company || {}).tagline}`);
+
+    // The one rendering: the server-built PDF, for all three types.
+    for (const type of ['comprehensive', 'non-comprehensive', 'amc-letter']) {
+      const r = await fetch(`${BASE}/api/amc-documents/generate/amc_demo/${type}/pdf`, { headers: { authorization: `Bearer ${adminT}` } });
+      const buf = Buffer.from(await r.arrayBuffer());
+      rec(`AMC ${type}: opens as a real PDF`, r.status === 200 && buf.slice(0, 4).toString() === '%PDF' && buf.length > 2000, `${r.status} ${buf.length}`);
+    }
+    const noAuth = await fetch(`${BASE}/api/amc-documents/generate/amc_demo/comprehensive/pdf`);
+    rec('AMC document PDF: refused without a login', noAuth.status === 401, `${noAuth.status}`);
+
     await open(s, '/contracts/amc_demo/amc-document?type=comprehensive');
-    rec('AMC document: the Company Profile tagline is shown when set', p.status === 200 && (await bodyText(s.page)).includes(tag), `${p.status}`);
-    const popupP = s.page.waitForEvent('popup', { timeout: 8000 }).catch(() => null);
-    await s.page.locator('button:has-text("Print / Save as PDF")').click();
-    const popup = await popupP;
-    const pt = popup ? await popup.locator('body').innerText().catch(() => '') : '';
-    rec('AMC document: Print / Save as PDF opens the printable document', !!popup && pt.includes('Intervalve Poonawalla'));
-    if (popup) await popup.close().catch(() => {});
+    const amcBtns = (await s.page.locator('button.btn, a.btn').allInnerTexts()).map((x) => x.trim());
+    rec('AMC document page: one rendering, no separate HTML print path',
+      amcBtns.includes('Preview / Print') && !amcBtns.includes('Print / Save as PDF'), amcBtns.join(' | '));
     await api(adminT, 'PATCH', '/api/companies/my-profile', { tagline: '' });
     rec('AMC document: no errors', s.errors.length === 0, s.errors.join('|'));
     await s.ctx.close();
@@ -755,8 +771,8 @@ async function group5e(browser) {
     const s = await session(browser, 'admin', { width: 390, height: 844 });
     await open(s, '/contracts/amc_demo/amc-document?type=comprehensive');
     const boxes = [];
-    for (const label of ['Print / Save as PDF', 'Edit Template', 'Back to Contract']) boxes.push(await s.page.locator(`button:has-text("${label}")`).boundingBox());
-    rec('AMC document [mobile]: Print / Edit Template / Back buttons are fully on screen', boxes.every((b) => b && b.x >= 0 && b.x + b.width <= 390), boxes.map((b) => b && Math.round(b.x + b.width)).join(','));
+    for (const label of ['Preview / Print', 'Edit Template', 'Back to Contract']) boxes.push(await s.page.locator(`button:has-text("${label}")`).first().boundingBox());
+    rec('AMC document [mobile]: Preview / Edit Template / Back buttons are fully on screen', boxes.every((b) => b && b.x >= 0 && b.x + b.width <= 390), boxes.map((b) => b && Math.round(b.x + b.width)).join(','));
     await s.ctx.close();
   }
 }

@@ -200,6 +200,10 @@ test('audit-correction scope guard: only authorized routes and services exist', 
     // UPDATE (owner request, 22 Oct 2026): renders the AMC letter sent to the
     // client once the AMC is paid; a pure helper of amcDocumentService.
     'amcLetterPdf.js',
+    // UPDATE (owner request, 24 Oct 2026): renders the comprehensive and
+    // non-comprehensive AMC offers, replacing the page's hand-written HTML
+    // print layout; a pure helper of amcDocumentService.
+    'amcOfferPdf.js',
     'checklistTemplateService.js',
     'companyService.js',
     'contractService.js',

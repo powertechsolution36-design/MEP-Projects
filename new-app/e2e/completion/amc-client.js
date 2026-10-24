@@ -174,6 +174,20 @@ const field = (scope, label) => scope.locator(`.filter-field:has(> label:text-is
     const eTok = await apiLogin('vinod');
     rec('engineer cannot mark AMC paid (403)', (await api(eTok, 'POST', '/api/contracts/amc_demo/payment', {})).status === 403);
 
+    /* 7. AMC document page: one rendering, the server PDF (24 Oct 2026) */
+    await m.page.goto(BASE + '/contracts/amc_demo/amc-document?type=comprehensive', { waitUntil: 'networkidle' });
+    await m.page.waitForTimeout(600);
+    const docBtns = (await m.page.locator('button.btn, a.btn').allInnerTexts()).map((t) => t.trim());
+    rec('AMC document page offers one rendering, not a separate HTML print',
+      docBtns.includes('Preview / Print') && !docBtns.includes('Print / Save as PDF'), docBtns.join(' | '));
+    const amcTok = await apiLogin('service');
+    for (const t of ['comprehensive', 'non-comprehensive', 'amc-letter']) {
+      const r = await fetch(`${BASE}/api/amc-documents/generate/amc_demo/${t}/pdf`, { headers: { authorization: 'Bearer ' + amcTok } });
+      const buf = Buffer.from(await r.arrayBuffer());
+      rec(`AMC ${t} opens as a real PDF`, r.status === 200 && buf.slice(0, 4).toString() === '%PDF', `${r.status} ${buf.length}`);
+    }
+    await m.page.screenshot({ path: SHOTS + '/9-amc-document.png', fullPage: true });
+
     const errs = [...a.errors, ...m.errors, ...e.errors];
     rec('no page JavaScript errors', errs.length === 0, errs.join(' | '));
   } catch (err) {
