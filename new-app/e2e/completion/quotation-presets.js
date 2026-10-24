@@ -61,7 +61,7 @@ const rec = (name, ok, detail = '') => {
     rec('ducted fills in its own rows, headings included',
       ducted.includes('OUTDOOR UNITS') && ducted.includes('INDOOR UNITS') && ducted.includes('24 G') && ducted.includes('Jet Nozzle'));
     rec('picking a type sets its division',
-      (await page.locator('label:has-text("Division") select').first().inputValue()) === 'HVAC');
+      (await page.locator('label.filter-field:has-text("Division") select').first().inputValue()) === 'HVAC');
     rec('no price is ever prefilled', !/\b42600\b|\b271980\b|\b844800\b/.test(ducted));
     await page.screenshot({ path: path.join(SHOTS, '2-ducted.png'), fullPage: true });
 
@@ -79,7 +79,7 @@ const rec = (name, ok, detail = '') => {
     rec('solar fills in its own equipment table',
       solar.includes('Deye 5kW ongrid Inverter') && solar.includes('Mono Crystalline - 550 Wp') && !solar.includes('Copper Refnet'));
     rec('solar switches the division too',
-      (await page.locator('label:has-text("Division") select').first().inputValue()) === 'Solar');
+      (await page.locator('label.filter-field:has-text("Division") select').first().inputValue()) === 'Solar');
     await page.screenshot({ path: path.join(SHOTS, '3-solar.png'), fullPage: true });
 
     // Blank must clear what a preset filled in.
@@ -88,6 +88,30 @@ const rec = (name, ok, detail = '') => {
     const blank = await shown();
     rec('"start from blank" clears a preset that was applied',
       !blank.includes('Deye 5kW ongrid Inverter') && !blank.includes('OUTDOOR UNITS'));
+
+    // One rendering only (owner decision, 24 Oct 2026). The quotation page
+    // used to offer an on-screen preview and a "Print this page" button whose
+    // layouts disagreed with each other and with the PDF the customer gets.
+    // Create one from a preset so there is a real quotation to open.
+    await page.locator('.offer-type:has-text("Split AC offer")').click();
+    await page.waitForTimeout(300);
+    await page.locator('label.filter-field:has-text("Customer Name") input').fill('Preset E2E Customer');
+    await page.locator('button[type=submit]:has-text("Create Quotation")').click();
+    await page.waitForURL(/\/quotations\/(?!new$)[^/]+$/, { timeout: 10000 });
+    await page.waitForTimeout(1200);
+
+    const buttons = (await page.locator('a.btn, button.btn').allInnerTexts()).map((t) => t.trim());
+    rec('the quotation page offers one rendering, not three',
+      buttons.includes('Preview / Print') && !buttons.includes('Preview') && !buttons.includes('Print this page'),
+      buttons.join(' | '));
+    const href = await page.locator('a:has-text("Preview / Print")').getAttribute('href').catch(() => '');
+    rec('preview and print both go to the server-built PDF',
+      /\/api\/public\/quotations\/[0-9a-f]{48}$/.test(href || ''), String(href));
+    const pdf = await page.request.get(href);
+    const body = await pdf.body();
+    rec('that PDF opens and is a real document',
+      pdf.status() === 200 && body.slice(0, 4).toString() === '%PDF', `${pdf.status()} ${body.length} bytes`);
+    await page.screenshot({ path: path.join(SHOTS, '4-detail.png'), fullPage: true });
 
     rec('no page errors', errors.length === 0, errors.join(' | '));
     await ctx.close();

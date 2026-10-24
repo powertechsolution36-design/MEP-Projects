@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext';
 import { api } from '../../api/client';
@@ -52,12 +52,18 @@ export default function QuotationDetail() {
   const [error, setError] = useState(null);
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
-  const [companyProfile, setCompanyProfile] = useState(null);
   // The customer-facing PDF link (owner decision, 22 Oct 2026). The old
   // "Print / Save as PDF" button opened a pop-up window, which the Android
   // app's web view blocks, so nothing happened at all; the PDF is now built
   // on the server and simply opened.
+  //
+  // Owner decision (24 Oct 2026): this PDF is now the ONLY rendering of a
+  // quotation. The page used to carry two more — an on-screen preview built
+  // in React, and a "Print this page" button that restyled that preview's
+  // markup with its own stylesheet before printing. The three disagreed with
+  // each other, so what was previewed, what came out of the printer and what
+  // the customer received all looked different. Both have been removed:
+  // preview, print and download now come from this one document.
   const [pdfToken, setPdfToken] = useState('');
   // Owner decision (22 Oct 2026): client messages go from the company WhatsApp.
   const [companyWa, setCompanyWa] = useState('');
@@ -72,7 +78,6 @@ export default function QuotationDetail() {
       .catch(() => {});
   }, []);
   const [saveError, setSaveError] = useState('');
-  const printRef = useRef(null);
 
   // Edit form state
   const [form, setForm] = useState({});
@@ -244,50 +249,6 @@ export default function QuotationDetail() {
     } catch (err) { alert(err.message); }
   }
 
-  // Print / PDF
-  async function openPreview() {
-    try {
-      const data = await api.get('/api/companies/my-profile');
-      setCompanyProfile(data.company);
-    } catch { /* profile optional */ }
-    setShowPreview(true);
-  }
-
-  // Kept for desktop browsers that want the on-screen preview printed; the
-  // PDF button below is the one that works everywhere, including the app.
-  function handlePrint() {
-    const content = printRef.current;
-    if (!content) return;
-    const win = window.open('', '_blank');
-    if (!win) { // pop-up blocked (always, inside the Android app)
-      if (pdfUrl) window.location.assign(pdfUrl);
-      return;
-    }
-    win.document.write(`<!DOCTYPE html><html><head><title>Quotation ${quotation.quotationNumber}</title>
-      <style>
-        body { font-family: Arial, sans-serif; padding: 20px; color: #333; font-size: 13px; }
-        table { width: 100%; border-collapse: collapse; margin: 10px 0; }
-        th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; }
-        th { background: #f5f5f5; font-weight: 600; }
-        .text-right { text-align: right; }
-        .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
-        .company-name { font-size: 20px; font-weight: bold; color: #1a4a7a; }
-        .subtitle { font-size: 12px; color: #666; }
-        h2 { margin: 16px 0 8px; font-size: 15px; border-bottom: 2px solid #1a4a7a; padding-bottom: 4px; }
-        .totals-table td { border: none; padding: 3px 8px; }
-        .totals-table .label { font-weight: 600; text-align: right; }
-        .grand-total { font-size: 16px; font-weight: bold; }
-        .footer { margin-top: 30px; display: flex; justify-content: space-between; }
-        .stamp-block { text-align: center; }
-        .stamp-block img { max-width: 120px; max-height: 60px; }
-        .page-break { page-break-before: always; break-before: page; }
-        @media print { body { padding: 0; } @page { margin: 15mm; } }
-      </style>
-    </head><body>${content.innerHTML}</body></html>`);
-    win.document.close();
-    setTimeout(() => win.print(), 300);
-  }
-
   function statusClass(status) {
     switch (status) {
       case 'Draft': return 'status-pending';
@@ -308,311 +269,6 @@ export default function QuotationDetail() {
     : '';
   const totals = calcTotals(q.equipmentItems || [], q.accessoriesItems || [], q.gstPercent, q.division);
 
-  /* ── PRINT PREVIEW MODAL ── */
-  if (showPreview) {
-    const cp = companyProfile || {};
-    const isSolar = q.division === 'Solar';
-    const allItems = [...(q.equipmentItems || []), ...(q.accessoriesItems || [])];
-    const eqItems = q.equipmentItems || [];
-    const accItems = q.accessoriesItems || [];
-
-    // Shared header renderer
-    function renderHeader() {
-      return (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-          <div>
-            {cp.logoBase64 && <img src={cp.logoBase64} alt="Logo" style={{ maxHeight: 50, marginBottom: 4 }} />}
-            <div style={{ fontSize: 12, color: '#666' }}>{cp.tagline || ''}</div>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 20, fontWeight: 'bold', color: '#1a4a7a' }}>{cp.displayName || cp.name || 'Company Name'}</div>
-            {cp.subtitle && <div style={{ fontSize: 14, fontWeight: 600, color: '#c0392b' }}>{cp.subtitle}</div>}
-            <div style={{ fontSize: 11, marginTop: 4 }}>
-              {cp.address && <div>{cp.address}</div>}
-              {cp.email && <div>{cp.email}</div>}
-              {cp.website && <div>{cp.website}</div>}
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    // Shared footer renderer
-    function renderFooter() {
-      return (
-        <div style={{ marginTop: 40 }}>
-          <div>Yours truly,</div>
-          <div style={{ fontWeight: 'bold' }}>For {cp.displayName || cp.name || 'Company'}</div>
-          <div style={{ marginTop: 8 }}>
-            {cp.authorizedPerson?.signatureBase64 && <div><img src={cp.authorizedPerson.signatureBase64} alt="Signature" style={{ maxWidth: 120, maxHeight: 60 }} /></div>}
-            {cp.authorizedPerson?.stampBase64 && <div><img src={cp.authorizedPerson.stampBase64} alt="Stamp" style={{ maxWidth: 120, maxHeight: 60 }} /></div>}
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12 }}>
-            <div>
-              <div style={{ fontWeight: 600 }}>Design By - {q.designBy || ''}</div>
-            </div>
-            <div>
-              <div style={{ fontWeight: 600 }}>System Approved By - {q.systemApprovedBy || ''}</div>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    const tds = { border: '1px solid #ccc', padding: '6px 8px' };
-    const tdsR = { ...tds, textAlign: 'right' };
-    const thS = { ...tds, background: '#f5f5f5', fontWeight: 600 };
-
-    return (
-      <div className="enq-page">
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-          {pdfUrl
-            ? <a className="btn pri" href={pdfUrl} target="_blank" rel="noopener noreferrer">Open PDF</a>
-            : <button className="btn pri" disabled>Preparing PDF…</button>}
-          <button className="btn sec" onClick={handlePrint}>Print this page</button>
-          <button className="btn sec" onClick={() => setShowPreview(false)}>Back to Detail</button>
-        </div>
-        <div ref={printRef} style={{ background: '#fff', padding: 24, border: '1px solid #ddd', maxWidth: 800, margin: '0 auto', fontSize: 13, lineHeight: 1.6 }}>
-
-          {/* ── PAGE 1: SUMMARY ── */}
-          {renderHeader()}
-          <div style={{ textAlign: 'center', background: '#e8e800', fontWeight: 'bold', padding: 4, marginBottom: 12 }}>SUMMARY</div>
-
-          <div style={{ marginBottom: 8 }}><strong>Date:</strong> {fmtDate(q.date)}{q.quotationNumber ? ` | Ref: ${q.quotationNumber}` : ''}{q.revision > 0 ? ` | Rev ${q.revision}` : ''}</div>
-          <div style={{ marginBottom: 8 }}><strong>Quote To -</strong> {q.customerName || '—'}</div>
-          {q.customerAddress && <div style={{ marginBottom: 4 }}>{q.customerAddress}</div>}
-          {q.customerPhone && <div style={{ marginBottom: 2 }}>Phone: {q.customerPhone}</div>}
-          {q.customerEmail && <div style={{ marginBottom: 2 }}>Email: {q.customerEmail}</div>}
-          {q.customerGst && <div style={{ marginBottom: 4 }}>GST: {q.customerGst}</div>}
-          {q.subject && <div style={{ marginBottom: 12 }}><strong>Subject - </strong><u>{q.subject}</u></div>}
-
-          {q.summaryText && <div style={{ whiteSpace: 'pre-wrap', marginBottom: 12 }}>{q.summaryText}</div>}
-          {q.siteDescription && <div style={{ whiteSpace: 'pre-wrap', marginBottom: 12 }}>{q.siteDescription}</div>}
-
-          {/* System/Capacity/Benefits — reference shows these on summary page */}
-          {(q.system || q.capacity || q.benefitsOfSystem) && (
-            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12 }}>
-              <tbody>
-                {q.system && <tr><td style={tds}><strong>System</strong></td><td style={tds}>{q.system}</td></tr>}
-                {q.benefitsOfSystem && <tr><td style={tds}><strong>Benefits of System</strong></td><td style={tds}>{q.benefitsOfSystem}</td></tr>}
-                {q.capacity && <tr><td style={tds}><strong>Capacity</strong></td><td style={tds}>{q.capacity}</td></tr>}
-              </tbody>
-            </table>
-          )}
-
-          {q.technicalDescription && <div style={{ whiteSpace: 'pre-wrap', marginBottom: 12 }}>{q.technicalDescription}</div>}
-
-          {renderFooter()}
-
-          {/* ── PAGE 2: SUPPLY & INSTALLATION / PRICING ── */}
-          <div className="page-break" style={{ paddingTop: 16 }}>
-            {renderHeader()}
-
-            {isSolar ? (
-              <>
-                {/* Solar: flat single table with per-item GST */}
-                <div style={{ textAlign: 'center', background: '#e8e800', fontWeight: 'bold', padding: 4, marginBottom: 12 }}>SUPPLY &amp; INSTALLATION OF SOLAR SYSTEM</div>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr>
-                      <th style={thS}>S No</th>
-                      <th style={thS}>Description</th>
-                      <th style={thS}>Unit</th>
-                      <th style={thS}>Qty</th>
-                      <th style={{ ...thS, textAlign: 'right' }}>Supply</th>
-                      <th style={{ ...thS, textAlign: 'right' }}>Basic Amount</th>
-                      <th style={{ ...thS, textAlign: 'right' }}>GST %</th>
-                      <th style={{ ...thS, textAlign: 'right' }}>Amount with GST</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {allItems.map((item, i) => textRow(item, i, 8, tds) || (() => {
-                      const basic = item.supplyAmount || 0;
-                      const itemGst = item.gstPercent != null ? item.gstPercent : (q.gstPercent ?? 18);
-                      const withGst = item.amountWithGst || Math.round(basic * (1 + itemGst / 100));
-                      return (
-                        <tr key={i}>
-                          <td style={tds}>{item.sNo || i + 1}</td>
-                          <td style={tds}>{item.description}</td>
-                          <td style={tds}>{item.unit}</td>
-                          <td style={tds}>{item.qty}</td>
-                          <td style={tdsR}>{money(item.supplyRate)}</td>
-                          <td style={tdsR}>{money(basic)}</td>
-                          <td style={tdsR}>{itemGst}%</td>
-                          <td style={tdsR}>{money(withGst)}</td>
-                        </tr>
-                      );
-                    })())}
-                    <tr style={{ background: '#e8e800' }}>
-                      <td colSpan={5} style={{ ...tds, textAlign: 'right', fontWeight: 'bold' }}>TOTAL (Basic)</td>
-                      <td style={{ ...tdsR, fontWeight: 'bold' }}>{money(q.subtotal)}</td>
-                      <td style={tds}></td>
-                      <td style={tds}></td>
-                    </tr>
-                    <tr style={{ background: '#e8e800' }}>
-                      <td colSpan={5} style={{ ...tds, textAlign: 'right', fontWeight: 'bold' }}>GRAND TOTAL WITH GST</td>
-                      <td colSpan={3} style={{ ...tdsR, fontWeight: 'bold' }}>{money(q.grandTotal)}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </>
-            ) : (
-              <>
-                {/* HVAC/MEP: Equipment + Accessories sections with Supply/Installation columns */}
-                <div style={{ textAlign: 'center', background: '#e8e800', fontWeight: 'bold', padding: 4, marginBottom: 12 }}>SUPPLY &amp; INSTALLATION OF {q.division === 'MEP' ? 'MEP' : 'HVAC'} SYSTEM</div>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr>
-                      <th style={thS}>S No</th>
-                      <th style={thS}>Description</th>
-                      <th style={thS}>Unit</th>
-                      <th style={thS}>Qty</th>
-                      <th colSpan={2} style={{ ...thS, textAlign: 'center' }}>Unit Rate</th>
-                      <th colSpan={2} style={{ ...thS, textAlign: 'center' }}>Amount</th>
-                    </tr>
-                    <tr>
-                      <th colSpan={4} style={thS}></th>
-                      <th style={{ ...thS, fontSize: 11 }}>Supply</th>
-                      <th style={{ ...thS, fontSize: 11 }}>Installation</th>
-                      <th style={{ ...thS, fontSize: 11 }}>Supply</th>
-                      <th style={{ ...thS, fontSize: 11 }}>Installation</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {/* Section A: Equipment */}
-                    {eqItems.length > 0 && (
-                      <>
-                        <tr><td colSpan={8} style={{ ...tds, fontWeight: 'bold', background: '#f9f9f9' }}>Section A : Equipment</td></tr>
-                        {eqItems.map((item, i) => textRow(item, i, 8, tds) || (
-                          <tr key={`eq-${i}`}>
-                            <td style={tds}>{item.sNo || ''}</td>
-                            <td style={tds}>{item.description}</td>
-                            <td style={tds}>{item.unit}</td>
-                            <td style={tds}>{item.qty}</td>
-                            <td style={tdsR}>{money(item.supplyRate)}</td>
-                            <td style={tdsR}>{money(item.installationRate)}</td>
-                            <td style={tdsR}>{money(item.supplyAmount)}</td>
-                            <td style={tdsR}>{money(item.installationAmount)}</td>
-                          </tr>
-                        ))}
-                        <tr>
-                          <td colSpan={6} style={{ ...tds, textAlign: 'right', fontWeight: 'bold' }}>Sub Total</td>
-                          <td style={tdsR}>{money(q.equipmentSupplyTotal)}</td>
-                          <td style={tdsR}>{money(q.equipmentInstallTotal)}</td>
-                        </tr>
-                        <tr style={{ background: '#e8e800' }}>
-                          <td colSpan={6} style={{ ...tds, textAlign: 'right', fontWeight: 'bold' }}>TOTAL Equipment (Basic)</td>
-                          <td colSpan={2} style={{ ...tdsR, fontWeight: 'bold' }}>{money(q.equipmentTotal)}</td>
-                        </tr>
-                        <tr style={{ background: '#e8e800' }}>
-                          <td colSpan={6} style={{ ...tds, textAlign: 'right', fontWeight: 'bold' }}>TOTAL Equipment (With {q.gstPercent ?? 18}% GST)</td>
-                          <td colSpan={2} style={{ ...tdsR, fontWeight: 'bold' }}>{money(Math.round(q.equipmentTotal * (1 + (q.gstPercent ?? 18) / 100)))}</td>
-                        </tr>
-                      </>
-                    )}
-                    {/* Section B: Accessories */}
-                    {accItems.length > 0 && (
-                      <>
-                        <tr><td colSpan={8} style={{ ...tds, fontWeight: 'bold', background: '#f9f9f9' }}>Section B : Accessories</td></tr>
-                        {accItems.map((item, i) => textRow(item, i, 8, tds) || (
-                          <tr key={`acc-${i}`}>
-                            <td style={tds}>{item.sNo || ''}</td>
-                            <td style={tds}>{item.description}</td>
-                            <td style={tds}>{item.unit}</td>
-                            <td style={tds}>{item.qty}</td>
-                            <td style={tdsR}>{money(item.supplyRate)}</td>
-                            <td style={tdsR}>{money(item.installationRate)}</td>
-                            <td style={tdsR}>{money(item.supplyAmount)}</td>
-                            <td style={tdsR}>{money(item.installationAmount)}</td>
-                          </tr>
-                        ))}
-                        <tr>
-                          <td colSpan={6} style={{ ...tds, textAlign: 'right', fontWeight: 'bold' }}>Sub Total</td>
-                          <td style={tdsR}>{money(q.accessoriesSupplyTotal)}</td>
-                          <td style={tdsR}>{money(q.accessoriesInstallTotal)}</td>
-                        </tr>
-                        <tr style={{ background: '#e8e800' }}>
-                          <td colSpan={6} style={{ ...tds, textAlign: 'right', fontWeight: 'bold' }}>TOTAL Accessories (Basic)</td>
-                          <td colSpan={2} style={{ ...tdsR, fontWeight: 'bold' }}>{money(q.accessoriesTotal)}</td>
-                        </tr>
-                        <tr style={{ background: '#e8e800' }}>
-                          <td colSpan={6} style={{ ...tds, textAlign: 'right', fontWeight: 'bold' }}>TOTAL Accessories (With {q.gstPercent ?? 18}% GST)</td>
-                          <td colSpan={2} style={{ ...tdsR, fontWeight: 'bold' }}>{money(Math.round(q.accessoriesTotal * (1 + (q.gstPercent ?? 18) / 100)))}</td>
-                        </tr>
-                      </>
-                    )}
-                    {/* Grand Total */}
-                    <tr style={{ background: '#e8e800' }}>
-                      <td colSpan={6} style={{ ...tds, textAlign: 'right', fontWeight: 'bold', fontSize: 14 }}>GRAND TOTAL WITH GST</td>
-                      <td colSpan={2} style={{ ...tdsR, fontWeight: 'bold', fontSize: 14 }}>{money(q.grandTotal)}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </>
-            )}
-
-          </div>
-
-          {/* ── PAGE 3: COMMERCIAL TERMS ── */}
-          <div className="page-break" style={{ paddingTop: 16 }}>
-            {renderHeader()}
-            <div style={{ background: '#00b050', color: '#fff', fontWeight: 'bold', padding: '4px 8px', marginBottom: 12 }}>COMMERCIAL TERMS AND CONDITIONS.</div>
-
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <tbody>
-                <tr>
-                  <td style={{ ...tds, width: '30%', verticalAlign: 'top' }}>TAXES</td>
-                  <td style={{ ...tds, fontWeight: 'bold' }}>As Shown Above.</td>
-                </tr>
-                <tr>
-                  <td style={{ ...tds, verticalAlign: 'top' }}>Payment</td>
-                  <td style={{ ...tds, whiteSpace: 'pre-wrap' }}>
-                    {Array.isArray(q.paymentTerms) && q.paymentTerms.length > 0
-                      ? q.paymentTerms.map((t, i) => (
-                          <div key={i}>{t.percentage}% - {t.label}{t.wording ? ` — ${t.wording}` : ''}</div>
-                        ))
-                      : '100% Advance along with work order.'
-                    }
-                  </td>
-                </tr>
-                <tr>
-                  <td style={{ ...tds, verticalAlign: 'top' }}>Offer Validity :</td>
-                  <td style={tds}>{q.offerValidity || '15 days from the date of offer.'}</td>
-                </tr>
-                <tr>
-                  <td style={{ ...tds, verticalAlign: 'top' }}>Delivery</td>
-                  <td style={{ ...tds, whiteSpace: 'pre-wrap' }}>{q.delivery || ''}</td>
-                </tr>
-              </tbody>
-            </table>
-
-            {/* Bank Details */}
-            <div style={{ background: '#00b050', color: '#fff', fontWeight: 'bold', padding: '4px 8px', marginTop: 16, marginBottom: 8 }}>BANK DETAILS.</div>
-            <div style={{ fontSize: 13 }}>
-              <div>Bank : {cp.bankDetails?.bankName || ''}</div>
-              <div>Account Holder Name : {cp.bankDetails?.accountHolderName || cp.displayName || cp.name || ''}</div>
-              <div>Account Number: {cp.bankDetails?.accountNumber || ''}</div>
-              <div>IFSC Code : {cp.bankDetails?.ifscCode || ''}</div>
-            </div>
-
-            {/* Excluded Works */}
-            {(q.excludedWorks || []).length > 0 && (
-              <>
-                <div style={{ background: '#00b050', color: '#fff', fontWeight: 'bold', padding: '4px 8px', marginTop: 16, marginBottom: 8 }}>EXCLUDED WORKS.</div>
-                <div style={{ fontSize: 13 }}>
-                  {q.excludedWorks.map((w, i) => (
-                    <div key={i}>{i + 1}) {w}</div>
-                  ))}
-                </div>
-              </>
-            )}
-
-            {q.notes && <div style={{ marginTop: 12, whiteSpace: 'pre-wrap', fontSize: 13 }}>{q.notes}</div>}
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   /* ── EDIT MODE ── */
   if (editing) {
@@ -739,14 +395,17 @@ export default function QuotationDetail() {
   /* ── READ-ONLY VIEW ── */
   return (
     <div className="enq-page">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
         <div>
           <h2 style={{ margin: 0 }}>Quotation {q.quotationNumber}</h2>
           <span className={`status-badge ${statusClass(q.status)}`}>{q.status}</span>
           {q.revision > 0 && <span style={{ marginLeft: 8, color: '#888' }}>Rev {q.revision}</span>}
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {pdfUrl && <a className="btn pri sm" href={pdfUrl} target="_blank" rel="noopener noreferrer">PDF</a>}
+        {/* Wraps on a phone — without this the last actions run off the edge. */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {pdfUrl
+            ? <a className="btn pri sm" href={pdfUrl} target="_blank" rel="noopener noreferrer">Preview / Print</a>
+            : <button className="btn pri sm" disabled>Preparing…</button>}
           {pdfUrl && whatsappUrl(q.customerPhone, 'x') && (
             <a
               className="btn sec sm"
@@ -763,7 +422,6 @@ export default function QuotationDetail() {
               WhatsApp{companyWa ? ` (from ${displayNumber(companyWa)})` : ''}
             </a>
           )}
-          <button className="btn sec sm" onClick={openPreview}>Preview</button>
           {canEdit && <button className="btn pri sm" onClick={() => { setEditing(true); api.get('/api/payment-term-templates?documentType=quotation').then(d => setPayTermTemplates(d.templates || [])).catch(() => {}); }}>Edit</button>}
           {canEdit && <button className="btn sec sm" onClick={handleDuplicate}>Duplicate</button>}
           {canEdit && <button className="btn sec sm" onClick={handleSaveAsStartingPoint}>Save as starting point</button>}
