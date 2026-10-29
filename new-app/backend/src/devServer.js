@@ -57,6 +57,8 @@ const { createNotificationRouter } = require('./routes/notificationRoutes');
 const { createSubscriptionRouter } = require('./routes/subscriptionRoutes');
 const { createQuotationRouter } = require('./routes/quotationRoutes');
 const { createQuotationTemplateRouter } = require('./routes/quotationTemplateRoutes');
+const { createPortalRouter } = require('./routes/portalRoutes');
+const { createCustomerAccountRouter, createServiceCallAttachmentRouter } = require('./routes/customerAccountRoutes');
 const { createItemNameRouter } = require('./routes/itemNameRoutes');
 const { createAmcDocumentRouter } = require('./routes/amcDocumentRoutes');
 const { createPaymentTermTemplateRouter } = require('./routes/paymentTermTemplateRoutes');
@@ -193,6 +195,9 @@ function createDevRepositories() {
     serviceCallRepo: store.serviceCallRepo,
     notificationRepo: store.notificationRepo,
     pushDeviceRepo: store.pushDeviceRepo,
+    customerAccountRepo: store.customerAccountRepo,
+    customerSessionRepo: store.customerSessionRepo,
+    attachmentRepo: store.attachmentRepo,
     dailyTaskRepo: {
       async deleteManyByCompany(companyId) {
         for (let i = dailyTasks.length - 1; i >= 0; i -= 1) {
@@ -258,6 +263,8 @@ function createDevApp(deps, config) {
   // signature on service-call completion are base64 images too.
   app.use('/api/projects', express.json({ limit: '5mb' }));
   app.use('/api/service-calls', express.json({ limit: '5mb' }));
+  // Owner decision (27 Oct 2026): complaint photographs, as in src/app.js.
+  app.use('/api/portal', express.json({ limit: '22mb' }));
   app.use(express.json());
 
   app.get('/api/health', (req, res) => res.status(200).json({ ok: true, mode: 'dev-fake-repositories' }));
@@ -283,6 +290,10 @@ function createDevApp(deps, config) {
   app.use('/api/amc-documents', createAmcDocumentRouter(fullDeps));
   app.use('/api/payment-term-templates', createPaymentTermTemplateRouter(fullDeps));
   app.use('/api/dashboard', createDashboardRouter(fullDeps));
+  // Owner decision (27 Oct 2026): the customer portal.
+  app.use('/api/portal', createPortalRouter(fullDeps));
+  app.use('/api/customer-accounts', createCustomerAccountRouter(fullDeps));
+  app.use('/api/service-calls', createServiceCallAttachmentRouter(fullDeps));
 
   app.startDelayCheckScheduler = (options) => startDelayCheckScheduler(fullDeps, options);
 

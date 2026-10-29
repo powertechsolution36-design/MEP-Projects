@@ -67,7 +67,17 @@ function backendRoutes() {
     for (const m of s.matchAll(/router\.(get|post|put|patch|delete)\(\s*['"`]([^'"`]+)['"`]/g)) {
       // /api/public/* are the login-free client PDF links, keyed by an
       // unguessable token: a made-up token must get 404, never the document.
-      out.push({ method: m[1].toUpperCase(), path: m[2] === '/' ? base : base + m[2], publicToken: base === '/api/public' });
+      const full = m[2] === '/' ? base : base + m[2];
+      out.push({
+        method: m[1].toUpperCase(),
+        path: full,
+        publicToken: base === '/api/public',
+        // Owner decision (27 Oct 2026): a client registers and signs in
+        // without a login — these are the only unauthenticated write
+        // endpoints in the application. They must still refuse an empty
+        // body rather than doing anything.
+        portalPublic: full === '/api/portal/auth/register' || full === '/api/portal/auth/login',
+      });
     }
   }
   return out;
@@ -97,7 +107,9 @@ function concrete(p, ids = FIXTURE) {
     const missing = [];
     for (const r of routes) {
       const res = await call(r.method, concrete(r.path), r.method === 'GET' || r.method === 'DELETE' ? {} : { body: {} });
-      const ok = r.open ? res.status === 200 : r.publicToken ? res.status === 404 : r.path === '/api/auth/login' ? res.status === 400 || res.status === 401 : res.status === 401;
+      const ok = r.open ? res.status === 200
+        : r.publicToken ? res.status === 404
+        : r.portalPublic ? [400, 401, 429].includes(res.status) : r.path === '/api/auth/login' ? res.status === 400 || res.status === 401 : res.status === 401;
       if (!ok) missing.push(`${r.method} ${r.path} -> ${res.status}`);
     }
     rec('A', `all ${routes.length} backend routes are mounted and refuse anonymous callers (401)`, missing.length === 0, missing.join('; '));

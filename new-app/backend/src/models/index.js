@@ -39,4 +39,10 @@ module.exports = {
   DailyTask: require('./DailyTask'),
   // Owner decision (21 Oct 2026): phones registered for push notifications.
   PushDevice: require('./PushDevice'),
+  // Owner decision (27 Oct 2026): the customer portal — a login for the
+  // company's own AMC/Warranty clients, their sessions (deliberately not the
+  // staff ones), and the photographs they send with a complaint.
+  CustomerAccount: require('./CustomerAccount'),
+  CustomerSession: require('./CustomerSession'),
+  ServiceCallAttachment: require('./ServiceCallAttachment'),
 };

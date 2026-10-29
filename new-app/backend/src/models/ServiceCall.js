@@ -77,6 +77,10 @@ const serviceCallSchema = new Schema(
     // Owner request (22 Oct 2026): what the client was covered by on the day
     // the call was registered — kept as a snapshot, so a service given after
     // the AMC ran out still shows as such on the client's history.
+    // Owner decision (27 Oct 2026): who raised it. 'Staff' for everything
+    // registered at the desk, which is what every existing call is;
+    // 'Customer' for one raised by the client in the portal.
+    source: { type: String, enum: ['Staff', 'Customer'], default: 'Staff' },
     coverage: {
       type: String,
       enum: ['AMC', 'Warranty', 'AMC expired', 'Warranty expired', 'Chargeable'],

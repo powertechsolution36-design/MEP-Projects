@@ -116,11 +116,16 @@ export const NEW_APP_MENU_ADDITIONS = {
   admin: [
     ['dailyTasks', '✅ Daily Tasks', '/daily-tasks'],
     ['quotations', '📄 Quotations', '/quotations'],
+    // Owner decision (27 Oct 2026): approving a client's portal login.
+    ['customerLogins', '👤 Customer Logins', '/customer-accounts'],
     ['companyprofile', '🏷️ Company Profile', '/company-profile'],
   ],
   sales: [['quotations', '📄 Quotations', '/quotations']],
   finance: [['quotations', '📄 Quotations', '/quotations']],
-  service_mgr: [['dailyTasks', '✅ Daily Tasks', '/daily-tasks']],
+  service_mgr: [
+    ['dailyTasks', '✅ Daily Tasks', '/daily-tasks'],
+    ['customerLogins', '👤 Customer Logins', '/customer-accounts'],
+  ],
 };
 
 export function menuForRole(role) {

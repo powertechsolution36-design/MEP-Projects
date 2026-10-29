@@ -19,6 +19,9 @@ const { createNotificationRouter } = require('./routes/notificationRoutes');
 const { createSubscriptionRouter } = require('./routes/subscriptionRoutes');
 const { createQuotationRouter } = require('./routes/quotationRoutes');
 const { createQuotationTemplateRouter } = require('./routes/quotationTemplateRoutes');
+// Owner decision (27 Oct 2026): the customer portal.
+const { createPortalRouter } = require('./routes/portalRoutes');
+const { createCustomerAccountRouter, createServiceCallAttachmentRouter } = require('./routes/customerAccountRoutes');
 const { createItemNameRouter } = require('./routes/itemNameRoutes');
 const { createAmcDocumentRouter } = require('./routes/amcDocumentRoutes');
 const { createPaymentTermTemplateRouter } = require('./routes/paymentTermTemplateRoutes');
@@ -54,6 +57,9 @@ const {
   paymentTermTemplateRepo,
   quotationTemplateRepo,
   dailyTaskRepo,
+  customerAccountRepo,
+  customerSessionRepo,
+  attachmentRepo,
 } = require('./repositories/businessRepositories.mongoose');
 
 /**
@@ -126,6 +132,9 @@ function createApp(overrideConfig) {
   quotationTemplateRepo,
     dailyTaskRepo,
     pushDeviceRepo,
+    customerAccountRepo,
+    customerSessionRepo,
+    attachmentRepo,
   };
 
   // Owner decision (21 Oct 2026): every notification is also pushed to the
@@ -144,6 +153,11 @@ function createApp(overrideConfig) {
   // signature on service-call completion are base64 images too.
   app.use('/api/projects', express.json({ limit: '5mb' }));
   app.use('/api/service-calls', express.json({ limit: '5mb' }));
+  // Owner decision (27 Oct 2026): a client attaches photographs to a
+  // complaint. Up to 5 images of 3 MB each, base64-encoded (~4/3 the bytes),
+  // so this route alone takes a larger body; portalService enforces the real
+  // per-image and per-complaint limits once parsed.
+  app.use('/api/portal', express.json({ limit: '22mb' }));
   app.use(express.json());
 
   app.get('/api/health', (req, res) => res.status(200).json({ ok: true }));
@@ -170,6 +184,13 @@ function createApp(overrideConfig) {
   app.use('/api/daily-tasks', createDailyTaskRouter(businessDeps));
   app.use('/api/public', createPublicRouter(businessDeps));
   app.use('/api/push-devices', createPushRouter(businessDeps));
+  // Owner decision (27 Oct 2026): the customer portal. /api/portal carries
+  // the only unauthenticated write endpoints in the application (register
+  // and login, both rate limited); the staff side below is ordinary
+  // authenticated API.
+  app.use('/api/portal', createPortalRouter(businessDeps));
+  app.use('/api/customer-accounts', createCustomerAccountRouter(businessDeps));
+  app.use('/api/service-calls', createServiceCallAttachmentRouter(businessDeps));
 
   app.startDelayCheckScheduler = (options) => startDelayCheckScheduler(businessDeps, options);
 

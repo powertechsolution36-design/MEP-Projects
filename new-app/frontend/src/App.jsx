@@ -65,6 +65,9 @@ import ExpiringSubscriptions from './pages/admin/ExpiringSubscriptions';
 import LocationSubscribers from './pages/admin/LocationSubscribers';
 import SubscriptionManagement from './pages/admin/SubscriptionManagement';
 import CompanyProfile from './pages/company/CompanyProfile';
+// Owner decision (27 Oct 2026): the customer portal and its staff review screen.
+import CustomerAccounts from './pages/company/CustomerAccounts';
+import PortalApp from './portal/PortalApp';
 import DailyTasks from './pages/DailyTasks';
 
 function LoginRoute() {
@@ -85,6 +88,11 @@ export default function App() {
     <AuthProvider>
       <Routes>
         <Route path="/login" element={<LoginRoute />} />
+        {/* The customer portal (owner decision, 27 Oct 2026). Deliberately
+            outside ProtectedRoute and outside Shell: it has its own session,
+            its own header and no staff navigation, and the staff login page
+            is untouched. */}
+        <Route path="/portal/*" element={<PortalApp />} />
         <Route
           path="/"
           element={
@@ -151,6 +159,7 @@ export default function App() {
           <Route path="admin/locations" element={<LocationSubscribers />} />
           <Route path="admin/subscriptions" element={<SubscriptionManagement />} />
           <Route path="company-profile" element={<CompanyProfile />} />
+          <Route path="customer-accounts" element={<CustomerAccounts />} />
 
           <Route path="*" element={<ComingSoon title="Not Found" />} />
         </Route>

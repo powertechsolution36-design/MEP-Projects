@@ -48,6 +48,10 @@ function createEnquiryFakeStore(seed = {}) {
     amcTemplates: seed.amcTemplates || [],
     paymentTermTemplates: seed.paymentTermTemplates || [],
     quotationTemplates: seed.quotationTemplates || [],
+    // Owner decision (27 Oct 2026) — the customer portal.
+    customerAccounts: seed.customerAccounts || [],
+    customerSessions: seed.customerSessions || [],
+    attachments: seed.attachments || [],
   };
 
   function snapshot() {
@@ -292,6 +296,14 @@ function createEnquiryFakeStore(seed = {}) {
   };
 
   const contractRepo = {
+    /** Across all tenants: the phone number is what finds a registrant's company. */
+    async findCandidatesByPhoneDigits(nationalDigits) {
+      const d = String(nationalDigits || '').replace(/\D/g, '');
+      if (d.length !== 10) return [];
+      return state.contracts
+        .filter((c) => String(c.phone || '').replace(/\D/g, '').endsWith(d))
+        .map(cloneDeep);
+    },
     async create(data) {
       const doc = { id: nextId('contract'), ...data };
       state.contracts.push(doc);
@@ -1014,6 +1026,108 @@ function createEnquiryFakeStore(seed = {}) {
     }
   }
 
+  /* ---- Customer portal (owner decision, 27 Oct 2026) ---- */
+
+  const customerAccountRepo = {
+    async create(data) {
+      if (state.customerAccounts.some((a) => a.phone === data.phone)) {
+        const err = new Error('An account already exists for that mobile number.');
+        err.code = 'DUPLICATE';
+        err.status = 409;
+        throw err;
+      }
+      const doc = { id: nextId('cust'), createdAt: new Date(), ...data };
+      state.customerAccounts.push(doc);
+      return cloneDeep(doc);
+    },
+    async findByPhone(phone) {
+      const doc = state.customerAccounts.find((a) => a.phone === phone);
+      return doc ? cloneDeep(doc) : null;
+    },
+    async findById(id) {
+      const doc = state.customerAccounts.find((a) => String(a.id) === String(id));
+      return doc ? cloneDeep(doc) : null;
+    },
+    async findByIdForCompany(companyId, id) {
+      const doc = state.customerAccounts.find((a) => String(a.id) === String(id) && sameCompany(a, companyId));
+      return doc ? cloneDeep(doc) : null;
+    },
+    async listByCompany(companyId, filters = {}) {
+      return state.customerAccounts
+        .filter((a) => sameCompany(a, companyId))
+        .filter((a) => !filters.status || a.status === filters.status)
+        .map(cloneDeep);
+    },
+    async listUnassigned() {
+      return state.customerAccounts.filter((a) => !a.companyId).map(cloneDeep);
+    },
+    async updateFields(id, patch) {
+      const doc = state.customerAccounts.find((a) => String(a.id) === String(id));
+      if (!doc) return null;
+      Object.assign(doc, patch);
+      return cloneDeep(doc);
+    },
+    async deleteManyByCompany(companyId) {
+      for (let i = state.customerAccounts.length - 1; i >= 0; i -= 1) {
+        if (sameCompany(state.customerAccounts[i], companyId)) state.customerAccounts.splice(i, 1);
+      }
+    },
+  };
+
+  const customerSessionRepo = {
+    async create(data) {
+      const doc = { id: nextId('csess'), revokedAt: null, ...data };
+      state.customerSessions.push(doc);
+      return cloneDeep(doc);
+    },
+    async findActive(id) {
+      const doc = state.customerSessions.find((x) => String(x.id) === String(id));
+      if (!doc || doc.revokedAt || new Date(doc.expiresAt) <= new Date()) return null;
+      return cloneDeep(doc);
+    },
+    async revoke(id) {
+      const doc = state.customerSessions.find((x) => String(x.id) === String(id));
+      if (!doc) return null;
+      doc.revokedAt = new Date();
+      return cloneDeep(doc);
+    },
+    async revokeAllForAccount(accountId) {
+      state.customerSessions
+        .filter((x) => String(x.accountId) === String(accountId) && !x.revokedAt)
+        .forEach((x) => { x.revokedAt = new Date(); });
+    },
+    async deleteManyByCompany(companyId) {
+      for (let i = state.customerSessions.length - 1; i >= 0; i -= 1) {
+        if (sameCompany(state.customerSessions[i], companyId)) state.customerSessions.splice(i, 1);
+      }
+    },
+  };
+
+  const attachmentRepo = {
+    async create(data) {
+      const doc = { id: nextId('att'), createdAt: new Date(), ...data };
+      state.attachments.push(doc);
+      return cloneDeep(doc);
+    },
+    async listForCall(companyId, serviceCallId) {
+      return state.attachments
+        .filter((a) => sameCompany(a, companyId) && String(a.serviceCallId) === String(serviceCallId))
+        .map((a) => { const { data, ...rest } = a; return cloneDeep(rest); });
+    },
+    async findById(companyId, id) {
+      const doc = state.attachments.find((a) => sameCompany(a, companyId) && String(a.id) === String(id));
+      return doc ? { ...doc, data: doc.data } : null;
+    },
+    async countForCall(companyId, serviceCallId) {
+      return state.attachments.filter((a) => sameCompany(a, companyId) && String(a.serviceCallId) === String(serviceCallId)).length;
+    },
+    async deleteManyByCompany(companyId) {
+      for (let i = state.attachments.length - 1; i >= 0; i -= 1) {
+        if (sameCompany(state.attachments[i], companyId)) state.attachments.splice(i, 1);
+      }
+    },
+  };
+
   return {
     state,
     pushDeviceRepo,
@@ -1035,6 +1149,9 @@ function createEnquiryFakeStore(seed = {}) {
     itemNameRepo,
     quotationRepo,
     quotationTemplateRepo,
+    customerAccountRepo,
+    customerSessionRepo,
+    attachmentRepo,
     amcTemplateRepo,
     paymentTermTemplateRepo,
     inventoryCategoryRepo,

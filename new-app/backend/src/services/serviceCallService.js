@@ -394,6 +394,9 @@ async function registerComplaint(input, actorAuth, deps) {
         clientSignatureImage: null,
         contractId: contract ? contract.id : null,
         coverage,
+        // Owner decision (27 Oct 2026): the portal passes 'Customer'; every
+        // other caller leaves it alone and the call is a staff one.
+        source: input && input.source === 'Customer' ? 'Customer' : 'Staff',
       },
       session
     );

@@ -26,6 +26,9 @@ const {
   QuotationTemplate,
   DailyTask,
   PushDevice,
+  CustomerAccount,
+  CustomerSession,
+  ServiceCallAttachment,
 } = require('../models');
 const { Counter } = require('../models/Counter');
 
@@ -400,6 +403,31 @@ const contractRepo = {
   async findByLetterToken(token) {
     const doc = await Contract.findOne({ letterToken: token }).lean();
     return toPlainLean(doc);
+  },
+  /**
+   * Candidate contracts for a phone number, across all tenants.
+   *
+   * Deliberately NOT company-scoped: a client registering for the portal
+   * does not know their company and must never be allowed to name one — the
+   * number is what decides which tenant they belong to. Used only by
+   * portalAuthService.registerCustomer, which creates nothing a member of
+   * staff has not approved.
+   *
+   * Contracts store the number as somebody typed it — "9422011234",
+   * "+91 94220 11234", "094220-11234" are all the same client. This narrows
+   * the scan with a regex that tolerates anything non-numeric between the
+   * digits; the caller then compares properly normalised values, so the
+   * regex only has to be generous, never exact.
+   *
+   * @param {string} nationalDigits the last ten digits, digits only
+   */
+  async findCandidatesByPhoneDigits(nationalDigits) {
+    const d = String(nationalDigits || '').replace(/\D/g, '');
+    if (d.length !== 10) return [];
+    const pattern = new RegExp(`^\\D*(?:\\+?91\\D*)?${d.split('').join('\\D*')}\\D*$`);
+    const docs = await Contract.find({ phone: pattern })
+      .select('_id companyId customer site category phone').limit(50).lean();
+    return docs.map(toPlainLean);
   },
   async setLetterTokenIfMissing(companyId, id, token) {
     await Contract.updateOne(
@@ -1146,6 +1174,98 @@ async function withTransaction(deps, fn) {
   }
 }
 
+/* ================= Customer portal (owner decision, 27 Oct 2026) ================= */
+
+const customerAccountRepo = {
+  async create(data) {
+    try {
+      const doc = await CustomerAccount.create(data);
+      return toPlainLean(doc.toObject());
+    } catch (err) {
+      throw wrapDuplicateKeyError(err, 'An account already exists for that mobile number.');
+    }
+  },
+  /** Global by design: a registrant's phone number is what finds their tenant. */
+  async findByPhone(phone) {
+    return toPlainLean(await CustomerAccount.findOne({ phone }).lean());
+  },
+  async findById(id) {
+    if (!mongoose.isValidObjectId(id)) return null;
+    return toPlainLean(await CustomerAccount.findById(id).lean());
+  },
+  /** Company-scoped: what staff may act on. */
+  async findByIdForCompany(companyId, id) {
+    if (!mongoose.isValidObjectId(id)) return null;
+    return toPlainLean(await CustomerAccount.findOne({ _id: id, companyId }).lean());
+  },
+  async listByCompany(companyId, filters = {}) {
+    const q = { companyId };
+    if (filters.status) q.status = filters.status;
+    const docs = await CustomerAccount.find(q).sort({ createdAt: -1 }).limit(500).lean();
+    return docs.map(toPlainLean);
+  },
+  /** Registrations that matched nothing, so belong to no company yet. */
+  async listUnassigned() {
+    const docs = await CustomerAccount.find({ companyId: null }).sort({ createdAt: -1 }).limit(200).lean();
+    return docs.map(toPlainLean);
+  },
+  async updateFields(id, patch) {
+    if (!mongoose.isValidObjectId(id)) return null;
+    return toPlainLean(await CustomerAccount.findOneAndUpdate({ _id: id }, { $set: patch }, { new: true }).lean());
+  },
+  async deleteManyByCompany(companyId, session) {
+    await CustomerAccount.deleteMany({ companyId }, { session });
+  },
+};
+
+const customerSessionRepo = {
+  async create(data) {
+    const doc = await CustomerSession.create(data);
+    return toPlainLean(doc.toObject());
+  },
+  async findActive(id) {
+    if (!mongoose.isValidObjectId(id)) return null;
+    const doc = await CustomerSession.findOne({ _id: id, revokedAt: null, expiresAt: { $gt: new Date() } }).lean();
+    return toPlainLean(doc);
+  },
+  async revoke(id) {
+    if (!mongoose.isValidObjectId(id)) return null;
+    return toPlainLean(await CustomerSession.findOneAndUpdate({ _id: id }, { $set: { revokedAt: new Date() } }, { new: true }).lean());
+  },
+  async revokeAllForAccount(accountId) {
+    await CustomerSession.updateMany({ accountId, revokedAt: null }, { $set: { revokedAt: new Date() } });
+  },
+  async deleteManyByCompany(companyId, session) {
+    await CustomerSession.deleteMany({ companyId }, { session });
+  },
+};
+
+const attachmentRepo = {
+  async create(data) {
+    const doc = await ServiceCallAttachment.create(data);
+    return toPlainLean(doc.toObject());
+  },
+  /** Never returns the bytes — listings must stay cheap. */
+  async listForCall(companyId, serviceCallId) {
+    if (!mongoose.isValidObjectId(serviceCallId)) return [];
+    const docs = await ServiceCallAttachment.find({ companyId, serviceCallId })
+      .select('-data').sort({ createdAt: 1 }).lean();
+    return docs.map(toPlainLean);
+  },
+  /** The bytes, for a request that has already been authorized. */
+  async findById(companyId, id) {
+    if (!mongoose.isValidObjectId(id)) return null;
+    return toPlainLean(await ServiceCallAttachment.findOne({ _id: id, companyId }).lean());
+  },
+  async countForCall(companyId, serviceCallId) {
+    if (!mongoose.isValidObjectId(serviceCallId)) return 0;
+    return ServiceCallAttachment.countDocuments({ companyId, serviceCallId });
+  },
+  async deleteManyByCompany(companyId, session) {
+    await ServiceCallAttachment.deleteMany({ companyId }, { session });
+  },
+};
+
 module.exports = {
   enquiryRepo,
   salesOrderRepo,
@@ -1172,4 +1292,7 @@ module.exports = {
   amcTemplateRepo,
   paymentTermTemplateRepo,
   quotationTemplateRepo,
+  customerAccountRepo,
+  customerSessionRepo,
+  attachmentRepo,
 };

@@ -180,9 +180,17 @@ test('audit-correction scope guard: only authorized routes and services exist', 
   // explicitly requested by the owner and added as its own module.
   // Any OTHER route/service file still fails this guard.
   assert.deepEqual(routeFiles, [
-    'amcDocumentRoutes.js', 'authRoutes.js', 'checklistTemplateRoutes.js', 'companyRoutes.js', 'contractRoutes.js', 'dailyTaskRoutes.js', 'dashboardRoutes.js',
+    'amcDocumentRoutes.js', 'authRoutes.js', 'checklistTemplateRoutes.js', 'companyRoutes.js', 'contractRoutes.js',
+    // UPDATE (owner decision, 27 Oct 2026): the staff side of the customer
+    // portal — approving a client's login, and reading the photographs they
+    // attached to a complaint.
+    'customerAccountRoutes.js',
+    'dailyTaskRoutes.js', 'dashboardRoutes.js',
     'enquiryRoutes.js', 'inventoryRoutes.js', 'itemNameRoutes.js', 'notificationRoutes.js', 'paymentRoutes.js',
-    'paymentTermTemplateRoutes.js', 'projectRoutes.js',
+    'paymentTermTemplateRoutes.js',
+    // UPDATE (owner decision, 27 Oct 2026): the customer portal's own API.
+    'portalRoutes.js',
+    'projectRoutes.js',
     // UPDATE (owner request, 21 Oct 2026): the client's Service Report PDF
     // link -- the only no-login route, keyed by an unguessable token.
     'publicRoutes.js',
@@ -207,6 +215,10 @@ test('audit-correction scope guard: only authorized routes and services exist', 
     'checklistTemplateService.js',
     'companyService.js',
     'contractService.js',
+    // UPDATE (owner decision, 27 Oct 2026): the customer portal — the
+    // WhatsApp boundary (deliberately connected to nothing), what a client
+    // may see and do, and the registration/approval/login behind it.
+    'customerNotifier.js',
     'dailyTaskService.js',
     'dashboardService.js',
     'enquiryService.js',
@@ -214,6 +226,8 @@ test('audit-correction scope guard: only authorized routes and services exist', 
     'itemNameService.js',
     'notificationService.js',
     'paymentService.js',
+    'portalAuthService.js',
+    'portalService.js',
     'projectService.js',
     // UPDATE (owner request, 21 Oct 2026): phone push notifications.
     'pushService.js',
