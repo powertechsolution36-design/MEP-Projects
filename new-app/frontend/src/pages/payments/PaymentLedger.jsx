@@ -131,6 +131,32 @@ export default function PaymentLedger() {
     setAddForm({ amount: bal > 0 ? String(bal) : '', date: new Date().toISOString().slice(0, 10), mode: 'Bank Transfer/NEFT', reference: '', remark: '', invoiceIssued: false });
   }
 
+  // Mark the whole outstanding balance received in one click. This records a
+  // receipt for exactly the balance against the SAME payment (the app keeps one
+  // payment per SO milestone); when the receipts cover the amount the status
+  // flips to Received automatically. It does NOT create a second payment.
+  async function handleMarkFullyReceived(p) {
+    const bal = balance(p);
+    if (bal <= 0) { alert('This payment is already fully received.'); return; }
+    if (!confirm(`Mark ₹${bal} received in full for "${p.projectOrReference || p.customer || 'this payment'}"? This records a receipt for the whole balance and settles the milestone.`)) return;
+    setBusy(true);
+    try {
+      await api.post(`/api/payments/${p.id}/part-payments`, {
+        amount: bal,
+        date: new Date().toISOString().slice(0, 10),
+        mode: 'Bank Transfer/NEFT',
+        reference: '',
+        remark: 'Marked fully received',
+        invoiceIssued: false,
+      });
+      load();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleAddPayment() {
     if (!addTarget) return;
     const amt = Number(addForm.amount);
@@ -344,7 +370,7 @@ export default function PaymentLedger() {
         <div className="pay-actions">
           <button className="btn sec sm" onClick={exportPending}>📥 Pending CSV</button>
           <button className="btn sec sm" onClick={exportReceipts}>📥 Receipts CSV</button>
-          <button className="btn pri sm" onClick={() => setShowManualAdd(true)}>+ Add Payment</button>
+          <button className="btn pri sm" onClick={() => setShowManualAdd(true)}>+ New Manual Payment</button>
         </div>
       </div>
 
@@ -414,7 +440,11 @@ export default function PaymentLedger() {
             </div>
           ) : (
             <div className="table-wrap">
-              <table className="data-table">
+              {/* pay-sticky-actions: this table is wider than a laptop screen,
+                  so the action buttons used to sit off the right edge behind a
+                  horizontal scroll and were easy to miss. The last column is
+                  pinned so "Mark Received" is always reachable. */}
+              <table className="data-table pay-sticky-actions">
                 <thead>
                   <tr>
                     <th>Project</th>
@@ -428,7 +458,8 @@ export default function PaymentLedger() {
                     <th>Last Call</th>
                     <th>Discussion</th>
                     <th>Next Call</th>
-                    <th></th>
+                    <th>Actions</th>
+                    <th>Received?</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -480,7 +511,7 @@ export default function PaymentLedger() {
                         <td className={callDue ? 'due' : undefined}>{nextCall || '-'}</td>
                         <td className="nowrap">
                           <div className="btn-row">
-                            <button className="btn grn sm" onClick={() => openAddPayment(p)}>+ Add Payment</button>
+                            <button className="btn sec sm" onClick={() => openAddPayment(p)}>Record Receipt</button>
                             <button className="btn sec sm" onClick={() => openFollowUp(p)}>Follow-up</button>
                             {(p.partPayments || []).length > 0 && (
                               <button className="btn sec sm" onClick={() => setHistoryTarget(p)}>
@@ -491,6 +522,13 @@ export default function PaymentLedger() {
                             {!p.salesOrderId && <button className="btn danger sm" onClick={() => handleDeleteRecord(p.id)}>Delete</button>}
                           </div>
                         </td>
+                        {/* Pinned to the right edge so it is reachable without
+                            scrolling this very wide table sideways. */}
+                        <td className="nowrap">
+                          {balance(p) > 0
+                            ? <button className="btn grn sm" onClick={() => handleMarkFullyReceived(p)}>✓ Mark Received</button>
+                            : <span className="status-badge status-received">Received</span>}
+                        </td>
                       </tr>
                     );
                   })}
@@ -500,7 +538,7 @@ export default function PaymentLedger() {
                     <td>{money(pendBilled)}</td>
                     <td className="fg-ok">{money(pendReceived)}</td>
                     <td className="fg-bad">{money(pendBalance)}</td>
-                    <td colSpan={6}></td>
+                    <td colSpan={7}></td>
                   </tr>
                 </tbody>
               </table>
@@ -622,7 +660,7 @@ export default function PaymentLedger() {
       {addTarget && (
         <div className="modal-overlay" onClick={() => setAddTarget(null)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <h3>Add Payment — {addTarget.projectOrReference}</h3>
+            <h3>Record Receipt — {addTarget.projectOrReference}</h3>
             <p className="muted">Milestone: {money(addTarget.amount)} | Received: {money(received(addTarget))} | Balance: {money(balance(addTarget))}</p>
             <div className="filter-field"><label>Amount *</label><input type="number" value={addForm.amount} onChange={e => setAddForm(f => ({ ...f, amount: e.target.value }))} /></div>
             <div className="filter-field"><label>Date</label><input type="date" value={addForm.date} onChange={e => setAddForm(f => ({ ...f, date: e.target.value }))} /></div>
@@ -640,7 +678,7 @@ export default function PaymentLedger() {
             </div>
             <div className="modal-actions">
               <button className="btn sec sm" onClick={() => setAddTarget(null)}>Cancel</button>
-              <button className="btn pri sm" onClick={handleAddPayment} disabled={busy}>Add Payment</button>
+              <button className="btn pri sm" onClick={handleAddPayment} disabled={busy}>Record Receipt</button>
             </div>
           </div>
         </div>

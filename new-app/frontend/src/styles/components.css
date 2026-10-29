@@ -1736,3 +1736,25 @@
   .portal-head, .portal-foot, .portal-back, .portal-actions, .portal-skip { display: none !important; }
   .portal-card { box-shadow: none; border-color: var(--n-300); break-inside: avoid; }
 }
+
+/* ── Pending Payments: keep the row actions reachable ───────────────
+   The pending-payments table carries twelve columns, so on a laptop the
+   action buttons sat off the right edge behind a horizontal scroll and
+   people could not find "Mark Received". Pinning the last column keeps
+   it on screen however far the table is scrolled. Scoped to this one
+   table by its own class — no other data table is affected. */
+.pay-sticky-actions th:last-child,
+.pay-sticky-actions td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--surface);
+  /* A hairline so the pinned column reads as separate from what scrolls
+     underneath it. */
+  box-shadow: inset 1px 0 0 var(--border-subtle);
+}
+.pay-sticky-actions thead th:last-child { z-index: 2; }
+/* Rows carry their own tint (raised-to-finance, hover); the pinned cell
+   has to pick it up or it looks detached from its row. */
+.pay-sticky-actions tbody tr:hover td:last-child { background: var(--surface-hover); }
+.pay-sticky-actions tbody tr.row-raised td:last-child { background: inherit; }

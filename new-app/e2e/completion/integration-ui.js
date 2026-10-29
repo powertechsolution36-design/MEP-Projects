@@ -384,7 +384,7 @@ async function group6f(browser) {
   const ref = 'E2E Pay ' + uniq();
   const s = await session(browser, 'finance');
   await open(s, '/payments');
-  await s.page.locator('button:has-text("+ Add Payment")').first().click();
+  await s.page.locator('button:has-text("+ New Manual Payment")').first().click();
   let m = s.page.locator('.modal');
   await field(m, 'Project / Reference *').fill(ref);
   await field(m, 'Amount *').fill('10000');
@@ -393,17 +393,17 @@ async function group6f(browser) {
   await m.locator('button:has-text("Add")').last().click();
   await settle(s);
   const p0 = ((await api(finT, 'GET', '/api/payments')).json?.payments || []).find((x) => x.projectOrReference === ref);
-  rec('payments: + Add Payment creates a manual record (POST /api/payments)', !!p0 && Number(p0.amount) === 10000 && p0.status === 'Pending', (p0 ? p0.status : 'not found') + noAlerts(s));
+  rec('payments: + New Manual Payment creates a manual record (POST /api/payments)', !!p0 && Number(p0.amount) === 10000 && p0.status === 'Pending', (p0 ? p0.status : 'not found') + noAlerts(s));
   const row = () => s.page.locator('tr', { hasText: ref }).first();
-  await row().locator('button:has-text("+ Add Payment")').click();
+  await row().locator('button:has-text("Record Receipt")').click();
   m = s.page.locator('.modal');
   await field(m, 'Amount *').fill('4000');
   await field(m, 'Reference').fill('UTR123');
-  await m.locator('button:has-text("Add Payment")').click();
+  await m.locator('button:has-text("Record Receipt")').click();
   await settle(s);
   let p = await getP(p0?.id);
   // PWA: a milestone stays "Pending" (balance shown) until fully received, then "Received".
-  rec('payments: + Add Payment on the row records a part payment (POST /:id/part-payments); still Pending with the balance', (p?.partPayments || []).length === 1 && Number(p.partPayments[0].amount) === 4000 && p.status === 'Pending', `${p?.status} ${(p?.partPayments || []).length}${noAlerts(s)}`);
+  rec('payments: Record Receipt on the row records a part payment (POST /:id/part-payments); still Pending with the balance', (p?.partPayments || []).length === 1 && Number(p.partPayments[0].amount) === 4000 && p.status === 'Pending', `${p?.status} ${(p?.partPayments || []).length}${noAlerts(s)}`);
   if (process.env.SHOTS) await s.page.screenshot({ path: `${process.env.SHOTS}/6f-after-part.png`, fullPage: true });
   // Edit the entry from the receipts ledger.
   await s.page.locator('.panel:has(h3:has-text("Receipts Ledger")) tr', { hasText: ref }).locator('button:has-text("Edit")').click();
@@ -446,6 +446,29 @@ async function group6f(browser) {
   await settle(s);
   const gone = await api(finT, 'GET', `/api/payments/${p0?.id}`);
   rec('payments: Delete removes a manual record (DELETE /api/payments/:id)', gone.status === 404, `${gone.status}${noAlerts(s)}`);
+
+  // Owner request (29 Oct 2026): a pending payment that is NOT tied to a sales
+  // order must be settleable in one click from its own row.
+  // The session's own dialog handler (above) already accepts the
+  // "mark in full?" confirm.
+  const ref2 = 'E2E MarkRcv ' + uniq();
+  await s.page.locator('button:has-text("+ New Manual Payment")').first().click();
+  m = s.page.locator('.modal');
+  await field(m, 'Project / Reference *').fill(ref2);
+  await field(m, 'Amount *').fill('7500');
+  await m.locator('button:has-text("Add")').last().click();
+  await settle(s);
+  const p2 = ((await api(finT, 'GET', '/api/payments')).json?.payments || []).find((x) => x.projectOrReference === ref2);
+  const row2 = () => s.page.locator('tr', { hasText: ref2 }).first();
+  await row2().locator('button:has-text("Mark Received")').click();
+  await settle(s);
+  const p2done = await getP(p2?.id);
+  rec('payments: "Mark Received" settles a non-SO pending in one click, as a receipt for the full balance',
+    p2done?.status === 'Received'
+      && (p2done.partPayments || []).length === 1
+      && Number(p2done.partPayments[0].amount) === 7500,
+    `${p2done?.status} parts=${(p2done?.partPayments || []).length} amt=${p2done?.partPayments?.[0]?.amount}${noAlerts(s)}`);
+
   rec('payments: no errors', s.errors.length === 0, s.errors.join('|'));
   await s.ctx.close();
 }
