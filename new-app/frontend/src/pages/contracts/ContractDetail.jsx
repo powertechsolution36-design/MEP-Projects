@@ -105,6 +105,10 @@ export default function ContractDetail() {
   const [payForm, setPayForm] = useState({ amountPaid: '', paidOn: today(), mode: 'UPI', reference: '' });
   const [showRenew, setShowRenew] = useState(false);
   const [renewForm, setRenewForm] = useState({ startDate: '', endDate: '', amount: '', amcType: 'Quarterly' });
+  const [showEdit, setShowEdit] = useState(false);
+  const [editForm, setEditForm] = useState(null);
+  const [visitDraft, setVisitDraft] = useState({});
+  const [busyVisit, setBusyVisit] = useState(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -206,6 +210,59 @@ export default function ContractDetail() {
   const waLink = whatsappUrl(c.phone, letterMessage);
   const sender = canSendToClients(role);
 
+  /* Owner request (29 Oct 2026): correct the client's AMC details in place.
+     Only the fields below are sent; the visit schedule is never regenerated,
+     so recorded completions survive an edit. */
+  function openEdit() {
+    setEditForm({
+      customer: c.customer || '', phone: c.phone || '', email: c.email || '',
+      site: c.site || '', capacity: c.capacity || '',
+      startDate: c.startDate ? fmtDate(c.startDate) : '',
+      endDate: c.endDate ? fmtDate(c.endDate) : '',
+      amcType: c.amcType || 'Quarterly', category: c.category || 'AMC',
+      amount: c.amount === undefined || c.amount === null ? '' : String(c.amount),
+    });
+    setShowPay(false); setShowRenew(false); setShowEdit(true);
+  }
+
+  async function saveEdit(e) {
+    e.preventDefault();
+    setBusy(true); setError(null); setNotice('');
+    try {
+      await api.patch(`/api/contracts/${id}`, {
+        ...editForm,
+        amount: editForm.amount === '' ? 0 : Number(editForm.amount),
+        endDate: editForm.endDate === '' ? null : editForm.endDate,
+      });
+      setShowEdit(false);
+      setNotice('Client details updated.');
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /* One visit's completed date — for a service done before this app existed,
+     or one recorded against the wrong month. Blank clears it. */
+  async function saveVisit(i, override) {
+    const value = override !== undefined
+      ? override
+      : (visitDraft[i] !== undefined ? visitDraft[i] : '');
+    setBusyVisit(i); setError(null); setNotice('');
+    try {
+      await api.patch(`/api/contracts/${id}/visits/${i}`, { completedDate: value === '' ? null : value });
+      setVisitDraft((p) => { const n = { ...p }; delete n[i]; return n; });
+      setNotice(value === '' ? `Visit ${i + 1} marked not done.` : `Visit ${i + 1} completed date saved.`);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyVisit(null);
+    }
+  }
+
   return (
     <div className="enq-page">
       <div className="detail-head" style={{ flexWrap: 'wrap', gap: 8 }}>
@@ -221,6 +278,9 @@ export default function ContractDetail() {
         )}
         {MANAGE_ROLES.includes(role) && (
           <button className="btn sm sec" onClick={() => navigate(`/service-calls/new?contractId=${c.id}`)}>Schedule PM visit</button>
+        )}
+        {MANAGE_ROLES.includes(role) && (
+          <button className="btn sm sec" onClick={openEdit}>Edit details</button>
         )}
         {PAYMENT_ROLES.includes(role) && !paid && (
           <button className="btn sm sec" onClick={() => { setShowPay((v) => !v); setShowRenew(false); }}>Mark AMC paid</button>
@@ -285,6 +345,57 @@ export default function ContractDetail() {
           <div className="detail-actions" style={{ marginTop: 8 }}>
             <button type="submit" className="btn pri" disabled={busy}>{busy ? 'Saving…' : 'Renew'}</button>
             <button type="button" className="btn sec" onClick={() => setShowRenew(false)}>Cancel</button>
+          </div>
+        </form>
+      )}
+
+      {showEdit && editForm && (
+        <form className="panel" onSubmit={saveEdit}>
+          <h3 style={{ marginTop: 0 }}>Edit client AMC details</h3>
+          <p className="muted">
+            The visit schedule and every recorded completion are left exactly as they are.
+            Correct a visit date below, under “Scheduled AMC visits”.
+          </p>
+          <div className="filter-grid">
+            <label className="filter-field">Customer
+              <input value={editForm.customer} onChange={(e) => setEditForm((f) => ({ ...f, customer: e.target.value }))} />
+            </label>
+            <label className="filter-field">Site *
+              <input value={editForm.site} required onChange={(e) => setEditForm((f) => ({ ...f, site: e.target.value }))} />
+            </label>
+            <label className="filter-field">Phone
+              <input inputMode="tel" value={editForm.phone} onChange={(e) => setEditForm((f) => ({ ...f, phone: e.target.value }))} />
+            </label>
+            <label className="filter-field">Email
+              <input type="email" value={editForm.email} onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))} />
+            </label>
+            <label className="filter-field">Capacity
+              <input value={editForm.capacity} onChange={(e) => setEditForm((f) => ({ ...f, capacity: e.target.value }))} />
+            </label>
+            <label className="filter-field">Cover
+              <select value={editForm.category} onChange={(e) => setEditForm((f) => ({ ...f, category: e.target.value }))}>
+                <option>AMC</option><option>Warranty</option>
+              </select>
+            </label>
+            <label className="filter-field">Frequency
+              <select value={editForm.amcType} onChange={(e) => setEditForm((f) => ({ ...f, amcType: e.target.value }))}>
+                {AMC_TYPES.map((t) => <option key={t}>{t}</option>)}
+              </select>
+            </label>
+            <label className="filter-field">Amount
+              <input type="number" min="0" value={editForm.amount} onChange={(e) => setEditForm((f) => ({ ...f, amount: e.target.value }))} />
+            </label>
+            <label className="filter-field">Start date
+              <input type="date" value={editForm.startDate} onChange={(e) => setEditForm((f) => ({ ...f, startDate: e.target.value }))} />
+            </label>
+            <label className="filter-field">End date
+              <input type="date" value={editForm.endDate} onChange={(e) => setEditForm((f) => ({ ...f, endDate: e.target.value }))} />
+              <span className="muted" style={{ fontSize: 12 }}>Leave blank if there is no end date.</span>
+            </label>
+          </div>
+          <div className="detail-actions">
+            <button type="submit" className="btn pri" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
+            <button type="button" className="btn sec" onClick={() => setShowEdit(false)}>Cancel</button>
           </div>
         </form>
       )}
@@ -407,7 +518,24 @@ export default function ContractDetail() {
                       <td>{i + 1}</td>
                       <td>{v.month}</td>
                       <td><span className={`status-badge ${cls}`}>{label}</span></td>
-                      <td>{v.completedDate ? fmtDate(v.completedDate) : '—'}</td>
+                      <td>
+                        {MANAGE_ROLES.includes(role) ? (
+                          <span className="visit-edit">
+                            <input
+                              type="date"
+                              aria-label={`Completed date for visit ${i + 1}`}
+                              value={visitDraft[i] !== undefined ? visitDraft[i] : (v.completedDate ? fmtDate(v.completedDate) : '')}
+                              onChange={(ev) => setVisitDraft((p) => ({ ...p, [i]: ev.target.value }))}
+                            />
+                            <button type="button" className="btn sm sec" disabled={busyVisit === i}
+                              onClick={() => saveVisit(i)}>{busyVisit === i ? '…' : 'Save'}</button>
+                            {v.completedDate && (
+                              <button type="button" className="btn sm ghost" disabled={busyVisit === i}
+                                onClick={() => saveVisit(i, '')}>Clear</button>
+                            )}
+                          </span>
+                        ) : (v.completedDate ? fmtDate(v.completedDate) : '—')}
+                      </td>
                     </tr>
                   );
                 })}

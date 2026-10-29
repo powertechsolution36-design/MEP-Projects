@@ -431,9 +431,13 @@ test('Contract module never creates a Payment or a ServiceCall record, anywhere 
   assert.equal(store.state.svcCalls, undefined); // this fake store has no ServiceCall concept at all
 });
 
-test('Contract has no edit/delete exported function (Decisions 2-3)', () => {
+test('Contract can be edited but never deleted (Decisions 2-3, narrowed 29 Oct 2026)', () => {
+  // Owner decision (29 Oct 2026): editing a client's AMC details is now
+  // supported, so editContract is exported deliberately. The rest of the
+  // decision stands — there is still no way to delete a Contract, because
+  // that would take its service history with it.
+  assert.equal(typeof service.editContract, 'function');
   assert.equal(service.updateContract, undefined);
-  assert.equal(service.editContract, undefined);
   assert.equal(service.deleteContract, undefined);
   assert.equal(service.removeContract, undefined);
 });
@@ -449,5 +453,119 @@ test('getContract / completePmVisitForContract — cross-company access is rejec
   await assert.rejects(
     () => service.completePmVisitForContract('c1', auth({ companyId: 'co2', role: 'admin' }), store),
     (err) => err.code === 'NOT_FOUND'
+  );
+});
+
+/* ------------------------------------------------------------------ *
+ * Owner request (29 Oct 2026): editing a client's AMC details, and
+ * correcting one PM visit's completed date.
+ * ------------------------------------------------------------------ */
+
+function editableContract(over) {
+  return baseContract({
+    id: 'ec1', customer: 'Old Name', phone: '900', email: '', site: 'Old Site',
+    capacity: '12', amcType: 'Quarterly', category: 'AMC', amount: 1000,
+    startDate: '2026-01-01', endDate: '2026-12-31',
+    scheduledVisits: [
+      { month: '2026-01', completedDate: new Date('2026-01-20') },
+      { month: '2026-04', completedDate: null },
+      { month: '2026-07', completedDate: null },
+      { month: '2026-10', completedDate: null },
+    ],
+    ...over,
+  });
+}
+
+test('editContract — changes the client details and leaves the visit history alone', async () => {
+  const store = createEnquiryFakeStore({ contracts: [editableContract()] });
+  const out = await service.editContract('ec1', {
+    customer: 'New Name', phone: '9820011223', amount: 2500, category: 'Warranty',
+  }, auth(), store);
+
+  assert.equal(out.customer, 'New Name');
+  assert.equal(out.phone, '9820011223');
+  assert.equal(out.amount, 2500);
+  assert.equal(out.category, 'Warranty');
+  assert.equal(out.scheduledVisits.length, 4);
+  assert.equal(new Date(out.scheduledVisits[0].completedDate).toISOString().slice(0, 10), '2026-01-20',
+    'a recorded completion must survive an edit');
+});
+
+test('editContract — changing the start date or frequency does NOT regenerate the schedule', async () => {
+  const store = createEnquiryFakeStore({ contracts: [editableContract()] });
+  const out = await service.editContract('ec1',
+    { startDate: '2027-05-01', amcType: 'Monthly' }, auth(), store);
+
+  assert.equal(new Date(out.startDate).toISOString().slice(0, 10), '2027-05-01');
+  assert.equal(out.amcType, 'Monthly');
+  assert.equal(out.scheduledVisits.length, 4, 'the existing schedule stands — regenerating would delete history');
+  assert.ok(out.scheduledVisits[0].completedDate);
+});
+
+test('editContract — a blank end date is allowed; rubbish is refused', async () => {
+  const store = createEnquiryFakeStore({ contracts: [editableContract()] });
+  const cleared = await service.editContract('ec1', { endDate: '' }, auth(), store);
+  assert.equal(cleared.endDate, null);
+
+  await assert.rejects(
+    () => service.editContract('ec1', { endDate: 'not-a-date' }, auth(), store),
+    (e) => e.code === 'VALIDATION_ERROR' && e.status === 400
+  );
+});
+
+test('editContract — refuses an out-of-list cover, frequency, amount or empty site', async () => {
+  const store = createEnquiryFakeStore({ contracts: [editableContract()] });
+  for (const bad of [{ category: 'Gold' }, { amcType: 'Weekly' }, { amount: -5 }, { site: '  ' }]) {
+    await assert.rejects(
+      () => service.editContract('ec1', bad, auth(), store),
+      (e) => e.code === 'VALIDATION_ERROR' && e.status === 400,
+      JSON.stringify(bad)
+    );
+  }
+});
+
+test('editContract — role gate and tenant isolation', async () => {
+  const store = createEnquiryFakeStore({ contracts: [editableContract()] });
+  await assert.rejects(
+    () => service.editContract('ec1', { customer: 'X' }, auth({ role: 'engineer' }), store),
+    (e) => e.code === 'FORBIDDEN' && e.status === 403
+  );
+  await assert.rejects(
+    () => service.editContract('ec1', { customer: 'X' }, auth({ companyId: 'co2' }), store),
+    (e) => e.code === 'NOT_FOUND' && e.status === 404
+  );
+  // companyId can never be moved by an edit
+  const out = await service.editContract('ec1', { companyId: 'co2', customer: 'Y' }, auth(), store);
+  assert.equal(String(out.companyId), 'co1');
+});
+
+test('setVisitCompletedDate — records a historical visit, and can clear it again', async () => {
+  const store = createEnquiryFakeStore({ contracts: [editableContract()] });
+
+  const set = await service.setVisitCompletedDate('ec1', 2, '2026-07-19', auth(), store);
+  assert.equal(new Date(set.scheduledVisits[2].completedDate).toISOString().slice(0, 10), '2026-07-19');
+  assert.equal(set.scheduledVisits[2].month, '2026-07', 'the scheduled month is not moved to the completion date');
+
+  const cleared = await service.setVisitCompletedDate('ec1', 2, null, auth(), store);
+  assert.equal(cleared.scheduledVisits[2].completedDate, null);
+});
+
+test('setVisitCompletedDate — a visit that does not exist is 404, rubbish is 400, engineer is 403', async () => {
+  const store = createEnquiryFakeStore({ contracts: [editableContract()] });
+  await assert.rejects(
+    () => service.setVisitCompletedDate('ec1', 9, '2026-07-19', auth(), store),
+    (e) => e.code === 'NOT_FOUND' && e.status === 404
+  );
+  await assert.rejects(
+    () => service.setVisitCompletedDate('ec1', 0, 'yesterday', auth(), store),
+    (e) => e.code === 'VALIDATION_ERROR' && e.status === 400
+  );
+  await assert.rejects(
+    () => service.setVisitCompletedDate('ec1', 0, '2026-07-19', auth({ role: 'engineer' }), store),
+    (e) => e.code === 'FORBIDDEN' && e.status === 403
+  );
+  await assert.rejects(
+    () => service.setVisitCompletedDate('ec1', 0, '2026-07-19', auth({ companyId: 'co2' }), store),
+    (e) => e.code === 'NOT_FOUND' && e.status === 404
   );
 });

@@ -774,8 +774,116 @@ async function completePmVisitForContract(contractId, actorAuth, deps, { assigne
   return deps.contractRepo.setVisitCompleted(actorAuth.companyId, contractId, due[0], todayDate(), deps.session);
 }
 
+/**
+ * Owner request (29 Oct 2026): correct a client's AMC details in the app.
+ *
+ * Only the client-facing facts are editable. Two things are deliberately NOT
+ * touched:
+ *   - companyId, so an edit can never move a contract between tenants;
+ *   - scheduledVisits, so the service history survives. Changing the start
+ *     date or the frequency does NOT regenerate the schedule — regenerating
+ *     would discard every recorded completedDate, which is exactly the
+ *     history this app exists to keep. Visit dates are corrected one at a
+ *     time through setVisitCompletedDate below.
+ */
+const EDITABLE = Object.freeze([
+  'customer', 'phone', 'email', 'site', 'capacity', 'amcType', 'category', 'amount',
+]);
+
+async function editContract(contractId, input, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  assertCanManageContracts(actorAuth, 'edit a Contract');
+
+  const contract = await deps.contractRepo.findById(actorAuth.companyId, contractId);
+  if (!contract) throw new ServiceError('Contract not found.', 'NOT_FOUND', 404);
+
+  const src = input || {};
+  const patch = {};
+
+  for (const key of EDITABLE) {
+    if (src[key] === undefined) continue;
+    if (key === 'amount') {
+      const n = Number(src.amount);
+      if (!Number.isFinite(n) || n < 0) {
+        throw new ServiceError('Amount must be a number of 0 or more.', 'VALIDATION_ERROR', 400);
+      }
+      patch.amount = n;
+    } else if (key === 'site') {
+      const site = String(src.site || '').trim();
+      if (!site) throw new ServiceError('Site name required.', 'VALIDATION_ERROR', 400);
+      patch.site = site;
+    } else if (key === 'amcType') {
+      if (!['Monthly', 'Quarterly', 'Half-Yearly'].includes(src.amcType)) {
+        throw new ServiceError('AMC type must be Monthly, Quarterly or Half-Yearly.', 'VALIDATION_ERROR', 400);
+      }
+      patch.amcType = src.amcType;
+    } else if (key === 'category') {
+      if (!['AMC', 'Warranty'].includes(src.category)) {
+        throw new ServiceError('Cover must be AMC or Warranty.', 'VALIDATION_ERROR', 400);
+      }
+      patch.category = src.category;
+    } else {
+      patch[key] = String(src[key] === null || src[key] === undefined ? '' : src[key]).trim();
+    }
+  }
+
+  if (src.startDate !== undefined) {
+    const d = new Date(src.startDate);
+    if (!src.startDate || Number.isNaN(d.getTime())) {
+      throw new ServiceError('Start date is not a date.', 'VALIDATION_ERROR', 400);
+    }
+    patch.startDate = d;
+  }
+  if (src.endDate !== undefined) {
+    if (src.endDate === null || src.endDate === '') {
+      patch.endDate = null; // PWA FACT: a blank end is allowed and reads as Expired
+    } else {
+      const d = new Date(src.endDate);
+      if (Number.isNaN(d.getTime())) throw new ServiceError('End date is not a date.', 'VALIDATION_ERROR', 400);
+      patch.endDate = d;
+    }
+  }
+
+  if (Object.keys(patch).length === 0) {
+    throw new ServiceError('Nothing to change.', 'VALIDATION_ERROR', 400);
+  }
+  return deps.contractRepo.update(actorAuth.companyId, contractId, patch);
+}
+
+/**
+ * Owner request (29 Oct 2026): correct ONE scheduled visit's completed date —
+ * for a visit done before the app existed, or one recorded against the wrong
+ * month. Passing null clears it back to not-done.
+ *
+ * Writes only scheduledVisits[i].completedDate, through the same repository
+ * call the engineer-completion path uses. It creates no ServiceCall.
+ */
+async function setVisitCompletedDate(contractId, visitIndex, completedDate, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  assertCanManageContracts(actorAuth, 'change a PM visit date');
+
+  const contract = await deps.contractRepo.findById(actorAuth.companyId, contractId);
+  if (!contract) throw new ServiceError('Contract not found.', 'NOT_FOUND', 404);
+
+  const i = Number(visitIndex);
+  const visits = contract.scheduledVisits || [];
+  if (!Number.isInteger(i) || i < 0 || i >= visits.length) {
+    throw new ServiceError(`There is no visit ${Number(visitIndex) + 1} on this contract.`, 'NOT_FOUND', 404);
+  }
+
+  let value = null;
+  if (completedDate !== null && completedDate !== undefined && completedDate !== '') {
+    const d = new Date(completedDate);
+    if (Number.isNaN(d.getTime())) throw new ServiceError('Completed date is not a date.', 'VALIDATION_ERROR', 400);
+    value = d;
+  }
+  return deps.contractRepo.setVisitCompleted(actorAuth.companyId, contractId, i, value);
+}
+
 module.exports = {
   createManualContract,
+  editContract,
+  setVisitCompletedDate,
   convertProjectToContract,
   getContract,
   listContracts,

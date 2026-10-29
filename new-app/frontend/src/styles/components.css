@@ -1811,3 +1811,7 @@
   text-align: right;
 }
 .data-table tr.clickable-row:hover .amc-chevron { color: var(--text-secondary); }
+
+/* A visit's completed date, editable in place (owner request, 29 Oct 2026). */
+.visit-edit { display: inline-flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; }
+.visit-edit input[type="date"] { max-width: 160px; }

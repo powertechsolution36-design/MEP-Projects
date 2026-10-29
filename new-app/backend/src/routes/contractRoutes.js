@@ -108,6 +108,26 @@ function createContractRouter(deps) {
     })
   );
 
+  /** Owner request (29 Oct 2026): edit the client's AMC details. */
+  router.patch(
+    '/:id',
+    handle(async (req, res) => {
+      const contract = await service.editContract(req.params.id, req.body, req.auth, deps);
+      res.json({ contract });
+    })
+  );
+
+  /** Owner request (29 Oct 2026): correct one PM visit's completed date. */
+  router.patch(
+    '/:id/visits/:visitIndex',
+    handle(async (req, res) => {
+      const contract = await service.setVisitCompletedDate(
+        req.params.id, req.params.visitIndex, (req.body || {}).completedDate, req.auth, deps
+      );
+      res.json({ contract });
+    })
+  );
+
   router.post(
     '/:id/payment',
     handle(async (req, res) => {
