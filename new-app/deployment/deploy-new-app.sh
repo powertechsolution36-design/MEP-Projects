@@ -43,6 +43,18 @@ BACKEND_PORT=4000
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
+# An existing Nginx config is KEPT by default. It is usually certbot-managed
+# (listen 443 + ssl_certificate), and the template here is plain HTTP, so
+# rewriting it on a redeploy silently removes HTTPS and replaces the real
+# server_name with whatever is typed at the prompt. Pass --rewrite-nginx to
+# deliberately rebuild it from the template (first install, or a domain change).
+REWRITE_NGINX=0
+for _arg in "$@"; do
+  case "$_arg" in
+    --rewrite-nginx) REWRITE_NGINX=1 ;;
+  esac
+done
+
 echo ""
 echo "══════════════════════════════════════════════════════════════"
 echo " MEP New App — Production Deployment"
@@ -384,18 +396,44 @@ info "Step 11: Nginx configuration"
 
 NGINX_CONF="/etc/nginx/sites-available/mep-new-app"
 
-if [ -f "$NGINX_CONF" ]; then
-  warn "Nginx config $NGINX_CONF already exists."
-  echo "  It will be updated. Backup was already created."
+if [ -f "$NGINX_CONF" ] && [ "$REWRITE_NGINX" != "1" ]; then
+  log "Nginx config $NGINX_CONF already exists — keeping it unchanged."
+  echo "  The live config (including any certbot HTTPS block) is left alone."
+  echo "  Current server_name:"
+  grep -E "^[[:space:]]*server_name" "$NGINX_CONF" | sed "s/^/    /" || true
+  echo ""
+  echo "  To rebuild it from the template instead:"
+  echo "    bash deployment/deploy-new-app.sh --rewrite-nginx"
+  NEW_APP_DOMAIN=""
+  SKIP_NGINX=1
+else
+  if [ -f "$NGINX_CONF" ]; then
+    warn "Nginx config $NGINX_CONF will be REWRITTEN from the template (--rewrite-nginx)."
+    warn "Any certbot HTTPS block in it is replaced; re-run certbot afterwards."
+    echo "  Backup was already created."
+  fi
+
+  echo ""
+  echo "  The Nginx configuration requires your NEW APP domain."
+  echo "  This must be the full hostname, e.g. mep-projects.spereon.codes"
+  echo "  — not a short name. It becomes server_name verbatim."
+  echo ""
+  read -p "  Enter NEW APP domain (e.g., app.mep-projects.spereon.codes): " NEW_APP_DOMAIN
+
+  # A server_name with no dot cannot be a real host; taking it would send the
+  # site to whichever server block is the default.
+  case "$NEW_APP_DOMAIN" in
+    *.*) : ;;
+    "")  : ;;
+    *)   err "\"$NEW_APP_DOMAIN\" is not a hostname (no dot). Nginx left unchanged."
+         NEW_APP_DOMAIN="" ;;
+  esac
+  SKIP_NGINX=0
 fi
 
-echo ""
-echo "  The Nginx configuration requires your NEW APP domain."
-echo "  This is the domain where the new application will be accessible."
-echo ""
-read -p "  Enter NEW APP domain (e.g., app.mep-projects.spereon.codes): " NEW_APP_DOMAIN
-
-if [ -z "$NEW_APP_DOMAIN" ]; then
+if [ "${SKIP_NGINX:-0}" = "1" ]; then
+  : # nothing to do — the existing config stands
+elif [ -z "$NEW_APP_DOMAIN" ]; then
   warn "No domain entered. Nginx configuration skipped."
   warn "You must configure Nginx manually using: $SCRIPT_DIR/deployment/nginx-new-app.conf.example"
 else
