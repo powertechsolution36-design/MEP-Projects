@@ -11,7 +11,8 @@ import { EnquiryFilterPanel, EnquiryTable, filterParams } from './EnquiryFilterP
  *
  * PWA MENUS: only sales + admin have the Enquiries menu item.
  * PWA vEnqs: shows all non-Lost enquiries by default.
- * PWA "+ New Enquiry" button: shown ONLY for sales (not admin).
+ * "+ New Enquiry" button: sales and admin (owner decision, 29 Oct 2026; the
+ * PWA showed it to sales only).
  * Filters: q, seg, siteType, rating, status, ref, from/to, ndFrom/ndTo, vmin/vmax
  * Table columns: #, Project/Address, Site Type, Cap., Customer, Reference,
  *   Segment, Rating, Action Done, Next Action, Next Date, Value, Status
@@ -85,8 +86,8 @@ export default function EnquiryList() {
             🔎 {showFilters ? 'Hide Filters' : 'Filters'}
           </button>
           <button className="btn sec sm" onClick={handleExport}>📥 Export CSV</button>
-          {/* PWA FACT: "+ New Enquiry" shown only for sales, NOT admin */}
-          {user?.role === 'sales' && (
+          {/* Owner decision (29 Oct 2026): sales and admin may raise an Enquiry. */}
+          {(user?.role === 'sales' || user?.role === 'admin') && (
             <button className="btn pri sm" onClick={() => navigate('/enquiries/new')}>+ New Enquiry</button>
           )}
         </div>

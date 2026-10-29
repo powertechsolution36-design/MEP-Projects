@@ -15,7 +15,7 @@ function auth(overrides) {
   return { userId: 'u1', companyId: 'co1', role: 'sales', ...overrides };
 }
 
-test('createEnquiry — sales can create; admin cannot (server-side, not just UI)', async () => {
+test('createEnquiry — sales and admin can create; another role cannot (server-side, not just UI)', async () => {
   const { deps } = makeDeps();
 
   const enquiry = await service.createEnquiry(
@@ -28,8 +28,18 @@ test('createEnquiry — sales can create; admin cannot (server-side, not just UI
   assert.deepEqual(enquiry.followUpLog, []);
   assert.ok(enquiry.lastReviewDate);
 
+  // Owner decision (29 Oct 2026): admin may raise an Enquiry too.
+  const byAdmin = await service.createEnquiry(
+    { name: 'Admin raised', segment: 'HVAC' },
+    auth({ role: 'admin' }),
+    deps
+  );
+  assert.equal(byAdmin.name, 'Admin raised');
+  assert.equal(byAdmin.status, 'Open');
+
+  // The gate is still a gate: a role outside it is refused.
   await assert.rejects(
-    () => service.createEnquiry({ name: 'X', segment: 'HVAC' }, auth({ role: 'admin' }), deps),
+    () => service.createEnquiry({ name: 'X', segment: 'HVAC' }, auth({ role: 'finance' }), deps),
     (err) => err.code === 'FORBIDDEN' && err.status === 403
   );
 });

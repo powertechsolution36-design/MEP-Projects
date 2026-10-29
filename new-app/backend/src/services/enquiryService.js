@@ -80,10 +80,13 @@ function assertRole(actorAuth, allowedRoles, actionDescription) {
 // PWA FACT: only `sales` can create ("+ New Enquiry" is hidden for `admin`
 // via `U.role!=="admin"`, and no other role has menu access to Enquiries at
 // all). Enforced HERE, server-side — the PWA only ever hid the button.
-const CREATE_ROLES = Object.freeze(['sales']);
-// PWA FACT: `admin` can do everything `sales` can except create (edit,
-// follow-up, mark Lost, reopen, convert — none of these carry a role gate
-// in the PWA beyond menu access). Enforced HERE, server-side.
+// Owner decision (29 Oct 2026): `admin` may raise an Enquiry as well. The
+// PWA showed "+ New Enquiry" to sales only and this gate reproduced that
+// server-side; the owner asked for admin to be able to add one too.
+const CREATE_ROLES = Object.freeze(['sales', 'admin']);
+// `admin` can do everything `sales` can (edit, follow-up, mark Lost, reopen,
+// convert — none of these carry a role gate in the PWA beyond menu access).
+// Enforced HERE, server-side.
 const MANAGE_ROLES = Object.freeze(['sales', 'admin']);
 
 async function createEnquiry(input, actorAuth, deps) {
