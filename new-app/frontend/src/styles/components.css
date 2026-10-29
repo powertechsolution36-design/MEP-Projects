@@ -1758,3 +1758,56 @@
    has to pick it up or it looks detached from its row. */
 .pay-sticky-actions tbody tr:hover td:last-child { background: var(--surface-hover); }
 .pay-sticky-actions tbody tr.row-raised td:last-child { background: inherit; }
+
+/* ── AMC / Warranty client list (owner decision, 29 Oct 2026) ───────
+   The screen is a client list now, so the only chrome it needs is a row
+   of cover filters. Scoped to this screen by its own classes. */
+.amc-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  margin-bottom: var(--s-6);
+}
+.amc-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: var(--control-h);
+  padding: 0 var(--s-5);
+  background: var(--surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+.amc-tab:hover { background: var(--surface-hover); border-color: var(--border-strong); }
+.amc-tab.is-on {
+  background: var(--navy-900);
+  border-color: var(--navy-900);
+  color: var(--text-inverse);
+}
+.amc-tab-n {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-semi);
+  font-size: var(--fs-sm);
+  padding: 0 var(--s-3);
+  border-radius: var(--r-pill);
+  background: var(--n-100);
+  color: var(--text-secondary);
+}
+.amc-tab.is-on .amc-tab-n { background: rgba(255, 255, 255, 0.18); color: var(--text-inverse); }
+/* A visit that is due is the one thing on this screen that needs chasing. */
+.amc-tab.is-due .amc-tab-n { background: var(--bad-100); color: var(--bad-700); }
+.amc-tab.is-due.is-on .amc-tab-n { background: var(--bad-600); color: var(--text-inverse); }
+
+.amc-due { color: var(--bad-700); font-weight: var(--fw-semi); }
+.amc-chevron {
+  width: 1px;
+  color: var(--n-400);
+  font-size: var(--fs-lg);
+  text-align: right;
+}
+.data-table tr.clickable-row:hover .amc-chevron { color: var(--text-secondary); }

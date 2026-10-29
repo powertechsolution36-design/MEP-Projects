@@ -683,29 +683,51 @@ async function group5e(browser) {
   const cid = c.json?.contract?.id;
   rec('contract created for the test (API)', c.status === 201 && !!cid, `${c.status} ${c.text.slice(0, 120)}`);
 
-  // Contract list (service manager): PM Due and Renewal Opportunities panels; Schedule PM; renewal row opens the contract.
+  // Owner decision (29 Oct 2026): /contracts is the CLIENT LIST. The old
+  // "PM Due" and "Renewal Opportunities" panels are gone; what they showed is
+  // now the cover filters plus the client's own page, and is checked here.
   {
     const s = await session(browser, 'service');
     await open(s, '/contracts');
-    const pmRow = s.page.locator('.panel:has(h3:has-text("PM Due")) tr', { hasText: site });
-    rec('contracts (service mgr): the due visit is listed in the PM Due panel', (await pmRow.count()) >= 1);
-    const renRow = s.page.locator('.panel:has(h3:has-text("Renewal Opportunities")) tr', { hasText: site });
-    rec('contracts (service mgr): the expiring contract is listed under Renewal Opportunities', (await renRow.count()) === 1);
-    await pmRow.first().locator('button:has-text("Schedule PM")').click();
+    const row = () => s.page.locator('tr.clickable-row', { hasText: site });
+    const rowText = async () => (await row().innerText()).replace(/\s+/g, ' ').trim();
+    rec('contracts (service mgr): the client is listed with its cover status',
+      (await row().count()) === 1 && (await rowText()).includes('Expiring Soon'),
+      (await row().count()) ? await rowText() : 'not listed');
+    rec('contracts (service mgr): the row shows how many PM visits are due',
+      /\d+ PM due/.test(await rowText()), await rowText());
+
+    // The filters do the job the Renewal Opportunities panel used to do.
+    await s.page.locator('.amc-tab:has-text("Expiring Soon")').first().click();
+    await s.page.waitForTimeout(300);
+    rec('contracts (service mgr): the Expiring Soon filter keeps it', (await row().count()) === 1);
+    await s.page.locator('.amc-tab:has-text("Active")').first().click();
+    await s.page.waitForTimeout(300);
+    rec('contracts (service mgr): the Active filter excludes it', (await row().count()) === 0);
+    await s.page.locator('.amc-tab:has-text("PM due")').first().click();
+    await s.page.waitForTimeout(300);
+    rec('contracts (service mgr): the PM due filter keeps it', (await row().count()) === 1);
+
+    await row().click();
     await s.page.waitForLoadState('networkidle');
-    rec('contracts (service mgr): Schedule PM opens a new service call for that contract', s.page.url().endsWith(`/service-calls/new?contractId=${cid}`), s.page.url());
-    await open(s, '/contracts');
-    await s.page.locator('.panel:has(h3:has-text("Renewal Opportunities")) tr', { hasText: site }).click();
+    rec('contracts (service mgr): a client row opens that client', s.page.url().endsWith(`/contracts/${cid}`), s.page.url());
+
+    // Scheduling a PM now starts from the client's own page.
+    await s.page.locator('button:has-text("Schedule PM visit")').click();
     await s.page.waitForLoadState('networkidle');
-    rec('contracts (service mgr): a renewal row opens the contract', s.page.url().endsWith(`/contracts/${cid}`), s.page.url());
+    rec('contract detail (service mgr): Schedule PM visit opens a new service call for that contract',
+      s.page.url().endsWith(`/service-calls/new?contractId=${cid}`), s.page.url());
     rec('contracts (service mgr): no errors', s.errors.length === 0, s.errors.join('|'));
     await s.ctx.close();
   }
   {
     const s = await session(browser, 'israr');
     await open(s, '/contracts');
-    const pmRow = s.page.locator('.panel:has(h3:has-text("PM Due")) tr', { hasText: site });
-    rec('contracts (service engineer): sees PM Due but no Schedule PM action', (await pmRow.count()) >= 1 && (await s.page.locator('button:has-text("Schedule PM")').count()) === 0);
+    const engRow = s.page.locator('tr.clickable-row', { hasText: site });
+    rec('contracts (service engineer): sees the client list but gets no management actions',
+      (await engRow.count()) === 1
+        && (await s.page.locator('button:has-text("+ New AMC")').count()) === 0
+        && (await s.page.locator('button:has-text("CSV Export")').count()) === 0);
     await open(s, `/contracts/${cid}`);
     rec('contract detail (service engineer): no Schedule PM action', (await s.page.locator('button:has-text("Schedule PM")').count()) === 0 && (await bodyText(s.page)).includes(site));
     rec('contracts (service engineer): no errors', s.errors.length === 0, s.errors.join('|'));
@@ -763,7 +785,7 @@ async function group5e(browser) {
     await s.ctx.close();
   }
 
-  await layoutCheck(browser, 'service', '/contracts', 'contract-list', 'PM Due');
+  await layoutCheck(browser, 'service', '/contracts', 'contract-list', 'AMC / Warranty Clients');
   await layoutCheck(browser, 'admin', `/contracts/${cid}`, 'contract-detail', site);
   await layoutCheck(browser, 'admin', '/contracts/amc_demo/amc-document?type=comprehensive', 'amc-document', 'Intervalve Poonawalla');
   {

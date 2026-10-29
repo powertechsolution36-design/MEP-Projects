@@ -1,38 +1,67 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, getStoredToken, assertDownloadOk } from '../../api/client';
 import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../auth/AuthContext';
-import { money, fmtDate } from '../../utils/format';
+import { fmtDate } from '../../utils/format';
 
 /**
- * Contract (AMC / PM) List — PWA `vPM()` exact reproduction.
+ * AMC / Warranty clients.
  *
- * PWA MENUS: admin + service_mgr have the "AMC / PM List" menu item.
- * PWA vPM: shows all company contracts (no division filter).
- * Search: 10-field case-insensitive substring (customer, phone, email,
- *   site, capacity, amcType, category, start, end, amount).
- * Table columns: Customer, Site, Category, AMC Type, Amount, Start, End,
- *   Status, PM Due.
- * Export: dlContracts -> CSV download (admin/service_mgr only).
+ * Owner decision (29 Oct 2026): this screen is the CLIENT LIST and nothing
+ * else. It used to stack three tables — a "PM Due this month" panel, the
+ * contract table with nine columns, and a "Renewal Opportunities" panel —
+ * which is unreadable once there are sixty clients rather than one.
  *
- * PWA FACT: no division restriction on viewing — any authenticated
- * company member may see the list. The menu is gated to admin/service_mgr
- * only, but the route itself enforces no role check (same as the PWA's own
- * lack of function-level role checks on the Contract view path).
+ * Now: one row per AMC / Warranty client, showing who they are and whether
+ * their cover is Active, Expiring Soon or Expired. Everything about one
+ * client — their PM due dates, scheduled visits, service history, AMC letter,
+ * payment and renewal — is on that client's own page, one click away.
  *
- * PWA FACT: no "+ New Contract" button on the list page itself. Manual
- * AMC creation is a separate route (/contracts/new). Project->Warranty
- * conversion is triggered from the project detail page.
+ * Nothing was lost in the tidy-up:
+ *   - the PM-due visits and the "Schedule PM visit" action already live on
+ *     the client's page (ContractDetail: "Scheduled AMC visits");
+ *   - "Renewal Opportunities" was only ever the non-Active contracts, which
+ *     the Expiring Soon / Expired filters show directly.
+ *
+ * PWA FACT (kept): no division filter — any authenticated company member may
+ * see the list; the menu is gated to admin/service_mgr. Export and creation
+ * stay admin/service_mgr only. Status is computed for display exactly as the
+ * PWA did (45-day "Expiring Soon" window, a blank end date reads Expired).
  */
 
-/* Status badge colours — matches PWA's own visual conventions */
 function statusClass(status) {
   if (status === 'Active') return 'status-open';
   if (status === 'Expiring Soon') return 'status-pending';
   if (status === 'Expired') return 'status-lost';
   return '';
 }
+
+/* PWA FACT: contractStatus computed client-side for display. */
+function computeStatus(c) {
+  if (!c.endDate) return 'Expired';
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const end = new Date(c.endDate);
+  end.setHours(0, 0, 0, 0);
+  if (end < today) return 'Expired';
+  const soonMs = 45 * 24 * 60 * 60 * 1000;
+  if (today >= new Date(end.getTime() - soonMs)) return 'Expiring Soon';
+  return 'Active';
+}
+
+/* PWA FACT: pmDue — uncompleted visits whose month is this month or earlier. */
+function computePmDue(c) {
+  const now = new Date();
+  const tm = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  let count = 0;
+  (c.scheduledVisits || []).forEach((v) => {
+    if (!v.completedDate && v.month <= tm) count += 1;
+  });
+  return count;
+}
+
+const FILTERS = ['All', 'Active', 'Expiring Soon', 'Expired', 'PM due'];
 
 export default function ContractList() {
   const { user } = useAuth();
@@ -41,6 +70,7 @@ export default function ContractList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState('All');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,16 +90,28 @@ export default function ContractList() {
 
   useEffect(() => { load(); }, [load]);
 
-  // PWA FACT (vPM, index.html:3645-3683): PM-Due panel (with "Schedule PM")
-  // above the list, Renewal Opportunities below it.
-  const [pmDue, setPmDue] = useState([]);
-  const [renewals, setRenewals] = useState([]);
-  useEffect(() => {
-    api.get('/api/contracts/pm-due').then(d => setPmDue(d.rows || [])).catch(() => {});
-    api.get('/api/contracts/renewal-opportunities').then(d => setRenewals(d.rows || [])).catch(() => {});
-  }, []);
+  /* Status and PM-due are display-only, so they are derived once here and
+     drive both the counts on the filters and the rows. */
+  const rows = useMemo(
+    () => contracts.map((c) => ({ c, status: computeStatus(c), pmDue: computePmDue(c) })),
+    [contracts]
+  );
 
-  /* PWA FACT: export is admin/service_mgr only (MANAGE_ROLES) */
+  const counts = useMemo(() => ({
+    All: rows.length,
+    Active: rows.filter((r) => r.status === 'Active').length,
+    'Expiring Soon': rows.filter((r) => r.status === 'Expiring Soon').length,
+    Expired: rows.filter((r) => r.status === 'Expired').length,
+    'PM due': rows.filter((r) => r.pmDue > 0).length,
+  }), [rows]);
+
+  const shown = useMemo(() => {
+    if (filter === 'All') return rows;
+    if (filter === 'PM due') return rows.filter((r) => r.pmDue > 0);
+    return rows.filter((r) => r.status === filter);
+  }, [rows, filter]);
+
+  /* PWA FACT: export and creation are admin/service_mgr only (MANAGE_ROLES). */
   const canManage = ['admin', 'service_mgr'].includes(user?.role);
 
   async function handleExport() {
@@ -93,61 +135,16 @@ export default function ContractList() {
     }
   }
 
-  /* PWA FACT: contractStatus computed client-side for display */
-  function computeStatus(c) {
-    if (!c.endDate) return 'Expired';
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const end = new Date(c.endDate);
-    end.setHours(0, 0, 0, 0);
-    if (end < today) return 'Expired';
-    const soonMs = 45 * 24 * 60 * 60 * 1000;
-    if (today >= new Date(end.getTime() - soonMs)) return 'Expiring Soon';
-    return 'Active';
-  }
-
-  /* PWA FACT: pmDue — count of uncompleted visits where month <= current month */
-  function computePmDue(c) {
-    const now = new Date();
-    const tm = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
-    let count = 0;
-    (c.scheduledVisits || []).forEach(v => {
-      if (!v.completedDate && v.month <= tm) count++;
-    });
-    return count;
-  }
-
   return (
     <div className="enq-page">
-      <div className="panel">
-        <h3>🔁 PM Due — {new Date().toLocaleString('en', { month: 'long', year: 'numeric' })} (incl. overdue)</h3>
-        {pmDue.length === 0 ? <p className="muted">No PM due. All caught up!</p> : (
-          <table className="data-table">
-            <thead><tr><th>Site</th><th>Customer</th><th>Phone</th><th>Type</th><th>Service Due (month)</th><th></th></tr></thead>
-            <tbody>
-              {pmDue.map(r => (
-                <tr key={`${r.contractId}-${r.visitIndex}`}>
-                  <td><b>{r.site}</b></td><td>{r.customer}</td><td>{r.phone}</td><td>{r.category}</td>
-                  <td style={r.overdue ? { color: '#c62828' } : undefined}>{r.month}{r.overdue ? ' (overdue)' : ''}</td>
-                  <td>{canManage && <button className="btn sm pri" onClick={() => navigate(`/service-calls/new?contractId=${r.contractId}`)}>Schedule PM</button>}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
       <div className="enq-header">
-        <h2>AMC / Warranty &amp; PM List</h2>
+        <h2>AMC / Warranty Clients</h2>
         <div className="enq-actions">
           {canManage && (
-            <button className="btn pri" onClick={() => navigate('/contracts/new')}>
-              + New AMC
-            </button>
+            <button className="btn pri" onClick={() => navigate('/contracts/new')}>+ New AMC</button>
           )}
           {canManage && (
-            <button className="btn sec" onClick={handleExport}>
-              CSV Export
-            </button>
+            <button className="btn sec" onClick={handleExport}>CSV Export</button>
           )}
         </div>
       </div>
@@ -155,67 +152,75 @@ export default function ContractList() {
       <div className="search-bar">
         <input
           type="text"
-          placeholder="Search contracts..."
+          placeholder="Search by client, site, phone, email…"
           value={search}
-          onChange={e => setSearch(e.target.value)}
+          onChange={(e) => setSearch(e.target.value)}
         />
       </div>
 
-      {error && <p style={{ color: 'red' }}>{error}</p>}
-      {loading && <p className="muted">Loading...</p>}
+      {/* Which cover am I looking at? One tap, no second table. */}
+      <div className="amc-tabs" role="tablist" aria-label="Filter clients by cover">
+        {FILTERS.map((f) => (
+          <button
+            key={f}
+            type="button"
+            role="tab"
+            aria-selected={filter === f}
+            className={`amc-tab${filter === f ? ' is-on' : ''}${f === 'PM due' && counts[f] > 0 ? ' is-due' : ''}`}
+            onClick={() => setFilter(f)}
+          >
+            {f}<span className="amc-tab-n">{counts[f]}</span>
+          </button>
+        ))}
+      </div>
+
+      {error && <p className="error">{error}</p>}
+      {loading && <p className="muted">Loading…</p>}
 
       {!loading && !error && (
         <div className="table-wrap">
           <table className="data-table">
             <thead>
               <tr>
-                <th>Customer</th>
-                <th>Site</th>
-                <th>Category</th>
-                <th>AMC Type</th>
-                <th>Amount</th>
-                <th>Start</th>
-                <th>End</th>
+                <th>Client</th>
+                <th>Cover</th>
+                <th>Covered until</th>
                 <th>Status</th>
-                <th>PM Due</th>
+                <th aria-label="Open" />
               </tr>
             </thead>
             <tbody>
-              {contracts.length === 0 && (
-                <tr><td colSpan={9} className="muted">No contracts found.</td></tr>
+              {shown.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="muted">
+                    {contracts.length === 0
+                      ? 'No AMC or Warranty clients yet.'
+                      : `No clients under “${filter}”.`}
+                  </td>
+                </tr>
               )}
-              {contracts.map(c => {
-                const status = computeStatus(c);
-                const pmDue = computePmDue(c);
-                return (
-                  <tr key={c.id || c._id} className="clickable-row" onClick={() => navigate(`/contracts/${c.id || c._id}`)}>
-                    <td>{c.customer}</td>
-                    <td>{c.site}</td>
-                    <td>{c.category}</td>
-                    <td>{c.amcType}</td>
-                    <td>{money(c.amount)}</td>
-                    <td>{fmtDate(c.startDate)}</td>
-                    <td>{fmtDate(c.endDate)}</td>
-                    <td><span className={`status-badge ${statusClass(status)}`}>{status}</span></td>
-                    <td>{pmDue > 0 ? <span style={{ color: '#c62828', fontWeight: 600 }}>{pmDue}</span> : '0'}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {renewals.length > 0 && (
-        <div className="panel">
-          <h3>⚠️ Renewal Opportunities</h3>
-          <p className="muted">Expired / expiring contracts — offer AMC renewal (warranty → paid AMC).</p>
-          <table className="data-table">
-            <thead><tr><th>Site</th><th>Customer</th><th>Category</th><th>End Date</th><th>Status</th></tr></thead>
-            <tbody>
-              {renewals.map(r => (
-                <tr key={r.contract.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/contracts/${r.contract.id}`)}>
-                  <td>{r.contract.site}</td><td>{r.contract.customer} · {r.contract.phone}</td><td>{r.contract.category}</td>
-                  <td>{fmtDate(r.contract.endDate)}</td><td><span className="status-badge status-lost">{r.status}</span></td>
+              {shown.map(({ c, status, pmDue }) => (
+                <tr
+                  key={c.id || c._id}
+                  className="clickable-row"
+                  onClick={() => navigate(`/contracts/${c.id || c._id}`)}
+                >
+                  <td>
+                    <b>{c.customer || c.site || '—'}</b>
+                    {c.site && c.customer && <div className="cell-sub">{c.site}</div>}
+                  </td>
+                  <td>
+                    {c.category}
+                    {c.amcType && <div className="cell-sub">{c.amcType}</div>}
+                  </td>
+                  <td>
+                    {c.endDate ? fmtDate(c.endDate) : '—'}
+                    {pmDue > 0 && (
+                      <div className="cell-sub amc-due">{pmDue} PM due</div>
+                    )}
+                  </td>
+                  <td><span className={`status-badge ${statusClass(status)}`}>{status}</span></td>
+                  <td className="amc-chevron" aria-hidden="true">›</td>
                 </tr>
               ))}
             </tbody>
