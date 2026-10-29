@@ -81,14 +81,19 @@ test('6. unique indexes exist where DATABASE_SCHEMA.md documents a uniqueness ru
     assert.ok(match, `${model} should declare an index on ${JSON.stringify(keys)}`);
     assert.equal(match[1].unique, true, `${model}'s ${JSON.stringify(keys)} index should be unique`);
   }
-  // sparse-unique payment milestone index
+  // unique payment milestone index — PARTIAL, not sparse
   const paymentIndexes = models.Payment.schema.indexes();
   const milestoneIdx = paymentIndexes.find(
     ([keys]) => JSON.stringify(keys) === JSON.stringify({ companyId: 1, salesOrderId: 1, milestoneIndex: 1 })
   );
   assert.ok(milestoneIdx, 'Payment should index {companyId, salesOrderId, milestoneIndex}');
   assert.equal(milestoneIdx[1].unique, true);
-  assert.equal(milestoneIdx[1].sparse, true);
+  // It must key ONLY the SO-linked payments. `sparse: true` did not do that:
+  // a compound sparse index keys a document when ANY indexed field is present,
+  // and companyId always is, so every manual payment (salesOrderId null) keyed
+  // as (companyId, null, null) and a company could hold only one of them.
+  assert.equal(milestoneIdx[1].sparse, undefined, 'must not be sparse — that broke manual payments');
+  assert.deepEqual(milestoneIdx[1].partialFilterExpression, { salesOrderId: { $type: 'objectId' } });
 
   const counterIdx = Counter.schema.indexes();
   const counterUnique = counterIdx.find(

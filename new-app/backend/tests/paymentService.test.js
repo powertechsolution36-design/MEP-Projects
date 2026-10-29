@@ -260,3 +260,56 @@ test('FIX-6-06 — a second Payment record inserted after the first keeps its re
   const idxSecond = csv.indexOf('SECOND-PAYMENT-ROW');
   assert.ok(idxFirst >= 0 && idxFirst < idxSecond, 'even though the second payment\'s receipt is dated much later, it must still come after the first payment\'s receipt (array insertion order, not date order)');
 });
+
+/* ------------------------------------------------------------------ *
+ * The unique index on (companyId, salesOrderId, milestoneIndex)
+ * ------------------------------------------------------------------ */
+
+test('createManualPayment — a company may hold many manual pending payments (regression: the index must not key null salesOrderIds)', async () => {
+  const store = createEnquiryFakeStore({});
+
+  const first = await service.createManualPayment(
+    { projectOrReference: 'Site advance - Kharadi', amount: 25000, personName: 'Mr Rao' },
+    auth(),
+    store
+  );
+  // The bug: this threw "A payment record already exists for this sales order
+  // milestone." in production. A compound SPARSE index still keys a document
+  // when any indexed field is present, and companyId always is, so every
+  // manual payment collided on (companyId, null, null).
+  const second = await service.createManualPayment(
+    { projectOrReference: 'Balance on handover - Baner', amount: 40000, personName: 'Ms Shah' },
+    auth(),
+    store
+  );
+  const third = await service.createManualPayment(
+    { projectOrReference: 'Retention - Baner', amount: 5000 },
+    auth(),
+    store
+  );
+
+  assert.equal(first.status, 'Pending');
+  assert.equal(second.status, 'Pending');
+  assert.equal(third.status, 'Pending');
+  assert.equal(new Set([first.id, second.id, third.id]).size, 3);
+  assert.equal(store.state.payments.filter((p) => p.salesOrderId == null).length, 3);
+});
+
+test('paymentRepo.create — a SECOND payment for the same SO milestone is still refused', async () => {
+  const store = createEnquiryFakeStore({ payments: [soLinkedPayment()], salesOrders: [baseSalesOrder()] });
+
+  await assert.rejects(
+    () => store.paymentRepo.create({
+      companyId: 'co1', projectOrReference: 'Duplicate', amount: 1, status: 'Pending',
+      salesOrderId: 'so1', milestoneIndex: 0,
+    }),
+    (err) => err.code === 'PAYMENT_ALREADY_EXISTS' && err.status === 409
+  );
+
+  // A different milestone on the same SO is fine.
+  const other = await store.paymentRepo.create({
+    companyId: 'co1', projectOrReference: 'Milestone 2', amount: 50000, status: 'Pending',
+    salesOrderId: 'so1', milestoneIndex: 1,
+  });
+  assert.ok(other.id);
+});

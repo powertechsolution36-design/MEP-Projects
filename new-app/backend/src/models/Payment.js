@@ -80,9 +80,17 @@ const paymentSchema = new Schema(
 );
 
 paymentSchema.index({ companyId: 1, status: 1 });
+// One Payment per SalesOrder milestone — but ONLY for SO-linked payments.
+// This was `sparse: true`, which does not do that: a compound sparse index
+// omits a document only when EVERY indexed field is missing, and `companyId`
+// is always present (salesOrderId/milestoneIndex are `default: null`, so they
+// are present-and-null, not missing). Every manual payment therefore indexed
+// as (companyId, null, null) and the company's SECOND manual payment was
+// rejected as a duplicate. A partial index keys only the SO-linked rows,
+// matching the pattern already used for letterToken/pdfToken/reportToken.
 paymentSchema.index(
   { companyId: 1, salesOrderId: 1, milestoneIndex: 1 },
-  { unique: true, sparse: true }
+  { unique: true, partialFilterExpression: { salesOrderId: { $type: 'objectId' } } }
 );
 paymentSchema.index({ companyId: 1, nextCallDate: 1 });
 paymentSchema.index({ companyId: 1, 'raisedToFinance.raisedDate': -1 }, { sparse: true });

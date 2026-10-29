@@ -236,6 +236,25 @@ function createEnquiryFakeStore(seed = {}) {
 
   const paymentRepo = {
     async create(data) {
+      // Mirrors the real unique partial index on
+      // (companyId, salesOrderId, milestoneIndex): it applies ONLY to
+      // SO-linked payments. Manual payments (salesOrderId null) are
+      // unconstrained. Modelled here because the fakes previously enforced
+      // nothing, which let a production-only duplicate-key bug through.
+      if (data && data.salesOrderId != null) {
+        const clash = state.payments.some(
+          (p) => String(p.companyId) === String(data.companyId)
+            && p.salesOrderId != null
+            && String(p.salesOrderId) === String(data.salesOrderId)
+            && Number(p.milestoneIndex) === Number(data.milestoneIndex)
+        );
+        if (clash) {
+          const err = new Error('A payment record already exists for this sales order milestone.');
+          err.code = 'PAYMENT_ALREADY_EXISTS';
+          err.status = 409;
+          throw err;
+        }
+      }
       const doc = { id: nextId('pay'), partPayments: [], ...data };
       state.payments.push(doc);
       return cloneDeep(doc);
