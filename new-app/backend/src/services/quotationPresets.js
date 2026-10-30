@@ -47,18 +47,39 @@ const sub = (description, unit = 'Nos') => ({ rowType: 'sub', description, unit,
 /** A Solar row, which carries its own GST% (the flat per-item-GST table). */
 const solarItem = (description, unit, gstPercent) => ({ rowType: 'item', description, unit, qty: 0, supplyRate: 0, installationRate: 0, gstPercent });
 
-const term = (sequence, percentage, label) => ({ sequence, section: '', label, percentage: String(percentage), triggerEvent: '', wording: '' });
+/**
+ * `section` says what the percentage is OF — 'Equipment' (the sheets' high
+ * side), 'Accessories' (the low side), or '' for the grand total. The
+ * workbooks compute each instalment from its own section, so this is not
+ * decoration: it is the difference between quoting the right money and the
+ * wrong money.
+ */
+const term = (sequence, percentage, label, section = '') => ({ sequence, section, label, percentage: String(percentage), triggerEvent: '', wording: '' });
 
 /** Shared by the three AC offers — identical in all three workbooks. */
 const AC_EXCLUDED_WORKS = [
   'Lockable/ protected storage space for keeping all our materials during installation stage.',
   'No structural reinforcement shall be included in our scope.',
   'Civil works like breakages and making good the same shall be excluded from our scope.',
-  'Provision for electrical power supply three phase / single phase terminating in our control panel /MCB.',
+  'Provision for electrical power supply three phase / single phase terminating in our control panel / MCB.',
   'Wooden frames for fixing of grilles and enclosed boxing with trap door for keeping indoor unit and collecting the return air.',
-  'Any false ceiling, boxing or carpentary work Ladder.',
+  'Any false ceiling, boxing or carpentry work, and ladder.',
   'Mathadi',
 ];
+
+/**
+ * The opening paragraph on page 1 of EVERY workbook, word for word. The
+ * company's name is substituted at render time, exactly as the AMC document
+ * templates already do it, so this is not tied to one tenant.
+ *
+ * It was missing from the presets until now, which is why a generated
+ * quotation's page 1 had a blank where the workbooks have this.
+ */
+const OPENING_PARAGRAPH = [
+  '"{{company_name}}" is ready to fulfill your specific project\u2019s needs. Whether you\u2019re looking for a few helpful tips or need an experienced professional to fully manage a project — we\u2019ve got the tools and experience to guarantee success.',
+  '',
+  'When you\u2019re looking for top quality work, {{company_name}} is here to help. Our team of professionals is available to provide a wide range of customizable options, all guaranteed to meet and exceed expectations. Contact our office today to learn more about this and our other available services.',
+].join('\n');
 
 const AC_DELIVERY = '1 Week from the date of commercial clear order and payment for Equipment.';
 const FINAL_BILLING = 'If anything extra material required out of BOQ during work it will bill extra.';
@@ -66,7 +87,7 @@ const FINAL_BILLING = 'If anything extra material required out of BOQ during wor
 /** Benefits block — the same three points in the Ducted and VRF workbooks,
  *  apart from the compressor named in the first one. */
 const acBenefits = (compressor) => [
-  `1) Machines comes with ${compressor} compressor, That save more than 15% electrical energy compare to others`,
+  `1) Machines come with a ${compressor} compressor, that saves more than 15% electrical energy compared to others.`,
   '2) These machines are heavy & the operating temperature range is greater for the machines as the machines are made up on global platform.',
   '3) Best part load efficiency in the industry. It can deliver greater cooling for the part cooling loads, resulting in lesser electric bill.',
 ].join('\n');
@@ -78,6 +99,7 @@ const PRESETS = [
     division: 'HVAC',
     description: 'Split AC — 5 accessory rows, flat equipment table.',
     subject: 'AC Quotation',
+    summaryText: OPENING_PARAGRAPH,
     system: 'Split AC',
     benefitsOfSystem: '',
     gstPercent: 18,
@@ -86,9 +108,9 @@ const PRESETS = [
     notes: FINAL_BILLING,
     excludedWorks: AC_EXCLUDED_WORKS,
     paymentTerms: [
-      term(1, 100, 'Advance along with Work Order For Equipment'),
-      term(2, 70, 'Advance along with Work Order For Accessories'),
-      term(3, 30, 'After work Done'),
+      term(1, 100, 'Advance along with Work Order For Equipment', 'Equipment'),
+      term(2, 70, 'Advance along with Work Order For Accessories', 'Accessories'),
+      term(3, 30, 'After work Done', 'Accessories'),
     ],
     equipmentItems: [
       item('2 TR Samsung Inverter Smart Ai Split AC', 'Nos'),
@@ -108,6 +130,7 @@ const PRESETS = [
     division: 'HVAC',
     description: 'Ductable units — equipment specifications, ducting, insulation and grills.',
     subject: 'Ducted Air-conditioning Offer',
+    summaryText: OPENING_PARAGRAPH,
     system: 'Air-Conditioning Ducted System.',
     benefitsOfSystem: acBenefits('Scroll'),
     gstPercent: 18,
@@ -116,7 +139,7 @@ const PRESETS = [
     notes: FINAL_BILLING,
     excludedWorks: AC_EXCLUDED_WORKS,
     paymentTerms: [
-      term(1, 100, 'Advance along with Work Order For Equipment'),
+      term(1, 100, 'Advance along with Work Order For Equipment', 'Equipment'),
     ],
     equipmentItems: [
       heading('OUTDOOR UNITS'),
@@ -152,7 +175,8 @@ const PRESETS = [
     division: 'HVAC',
     description: 'VRF — outdoor and indoor unit tables, refnet joints, ducting, insulation.',
     subject: 'VRF Air-conditioning Offer',
-    system: 'Air-Conditioning VRF System.',
+    summaryText: OPENING_PARAGRAPH,
+    system: 'SAMSUNG Air-Conditioning VRF System.',
     benefitsOfSystem: acBenefits('Twin-Rotary'),
     gstPercent: 18,
     offerValidity: '30 days',
@@ -160,8 +184,8 @@ const PRESETS = [
     notes: FINAL_BILLING,
     excludedWorks: AC_EXCLUDED_WORKS,
     paymentTerms: [
-      term(1, 100, 'Advance along with Work Order For Equipment'),
-      term(2, 100, 'Advance along with Work Order For Accessories'),
+      term(1, 100, 'Advance along with Work Order For Equipment', 'Equipment'),
+      term(2, 100, 'Advance along with Work Order For Accessories', 'Accessories'),
     ],
     equipmentItems: [
       heading('OUTDOOR UNITS'),
@@ -201,6 +225,7 @@ const PRESETS = [
     division: 'Solar',
     description: 'On-grid rooftop PV — one equipment table with GST per item.',
     subject: 'ONGRID-TIE SYSTEM WITH STRING INVERTER SYSTEM',
+    summaryText: OPENING_PARAGRAPH,
     system: 'Solar Roof-Top System',
     benefitsOfSystem: [
       'Subsidy will get as per current Gov. Law',
@@ -282,4 +307,44 @@ function clonePreset(p) {
   };
 }
 
-module.exports = { listPresets, getPreset, PRESET_CODES };
+/**
+ * THE FIXED PAGES (owner decision, 30 Oct 2026).
+ *
+ * Page 1 and the last page of a quotation are the company's own standing
+ * letter and standing commercial terms. They belong to the OFFER TYPE, not
+ * to the individual quotation: a Ducted offer's cover and terms read the
+ * same whoever it is for. Only the client's name and address, the date, the
+ * capacity and the priced rows change from one quotation to the next.
+ *
+ * So the renderer takes these from here, by `offerType`, and ignores the
+ * copies stored on the quotation — which staff could edit or blank, and
+ * which is how two Ducted offers ended up with different terms.
+ *
+ * `capacity` is deliberately NOT in this list. It is the one thing on page 1
+ * that genuinely differs per job (the workbooks show 12 TR, 22 HP, and blank
+ * for Ducted), and Solar's whole payback block is computed from the system
+ * size. Those stay with the quotation.
+ *
+ * Returns null for a quotation with no offer type — one started from blank,
+ * or created before offer types existed. Those keep rendering from their own
+ * stored fields, so nothing already sent to a client changes shape.
+ */
+const FIXED_PAGE_FIELDS = Object.freeze([
+  // page 1
+  'subject', 'summaryText', 'system', 'benefitsOfSystem', 'siteDescription',
+  // last page
+  'offerValidity', 'delivery', 'notes', 'excludedWorks', 'paymentTerms',
+]);
+
+function getFixedPages(code) {
+  const p = getPreset(code);
+  if (!p) return null;
+  const out = {};
+  for (const key of FIXED_PAGE_FIELDS) {
+    if (p[key] === undefined) continue;
+    out[key] = p[key];
+  }
+  return out;
+}
+
+module.exports = { listPresets, getPreset, getFixedPages, FIXED_PAGE_FIELDS, PRESET_CODES };

@@ -22,6 +22,7 @@ const ROW_TYPES = ['item', 'sub', 'heading', 'spec'];
  */
 const TEMPLATE_FIELDS = [
   'subject', 'system', 'capacity', 'siteDescription', 'summaryText',
+  'solarKw', 'solarTariffPerUnit',
   'technicalDescription', 'designApproval', 'benefitsOfSystem', 'designBy',
   'systemApprovedBy', 'gstPercent', 'offerValidity', 'delivery', 'notes',
   'excludedWorks', 'paymentTerms', 'equipmentItems', 'accessoriesItems',
@@ -199,6 +200,9 @@ async function createQuotation(companyId, data, actorId, deps) {
     capacity: data.capacity || '',
     siteDescription: data.siteDescription || '',
     summaryText: data.summaryText || '',
+    solarKw: Number(data.solarKw) || 0,
+    solarTariffPerUnit: data.solarTariffPerUnit === undefined || data.solarTariffPerUnit === null || data.solarTariffPerUnit === ''
+      ? 13 : Number(data.solarTariffPerUnit) || 0,
     technicalDescription: data.technicalDescription || '',
     designApproval: data.designApproval || '',
     benefitsOfSystem: data.benefitsOfSystem || '',
@@ -249,6 +253,7 @@ async function updateQuotation(companyId, quotationId, data, actorId, deps) {
     'status', 'division', 'customerName', 'customerAddress', 'customerPhone',
     'customerEmail', 'customerGst', 'subject', 'system', 'capacity',
     'siteDescription', 'summaryText', 'technicalDescription', 'designApproval',
+    'solarKw', 'solarTariffPerUnit',
     'benefitsOfSystem', 'designBy', 'systemApprovedBy', 'offerType',
     'paymentTerms', 'paymentTermTemplateId', 'offerValidity', 'delivery',
     'excludedWorks', 'notes', 'date', 'revision',

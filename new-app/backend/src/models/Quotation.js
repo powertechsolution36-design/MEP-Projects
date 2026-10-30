@@ -92,6 +92,22 @@ const quotationSchema = new Schema(
     technicalDescription: { type: String, default: '' },
     designApproval: { type: String, default: '' },
     benefitsOfSystem: { type: String, default: '' },
+
+    /*
+     * Solar sizing (owner decision, 30 Oct 2026).
+     *
+     * The Solar workbook's cover page carries a block of figures computed
+     * from two numbers: the system size and the electricity tariff. Every
+     * other figure on that page — rooftop area, monthly and yearly
+     * generation, the payback period — follows from them, so only these two
+     * are stored and the rest is computed at render time. Nothing is typed
+     * twice, and nothing can disagree with itself.
+     *
+     * Ignored for an HVAC quotation.
+     */
+    solarKw: { type: Number, default: 0, min: 0 },
+    // ₹ per unit. The workbook types 13; staff change it when the tariff does.
+    solarTariffPerUnit: { type: Number, default: 13, min: 0 },
     designBy: { type: String, default: '' },
     systemApprovedBy: { type: String, default: '' },
 

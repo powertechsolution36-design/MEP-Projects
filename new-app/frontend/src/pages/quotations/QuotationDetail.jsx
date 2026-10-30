@@ -120,6 +120,7 @@ export default function QuotationDetail() {
       systemApprovedBy: q.systemApprovedBy || '',
       gstPercent: q.gstPercent != null ? q.gstPercent : 18,
       offerValidity: q.offerValidity || '', delivery: q.delivery || '',
+      solarKw: q.solarKw || '', solarTariffPerUnit: q.solarTariffPerUnit ?? 13,
       notes: q.notes || '', date: q.date ? fmtDate(q.date) : '',
       revision: q.revision || 0,
     });
@@ -264,6 +265,17 @@ export default function QuotationDetail() {
   if (!quotation) return <div className="enq-page"><p>Quotation not found.</p></div>;
 
   const q = quotation;
+
+  /*
+   * THE FIXED PAGES (owner decision, 30 Oct 2026).
+   *
+   * Page 1 and the commercial-terms page belong to the OFFER TYPE, not to
+   * this quotation, and the PDF now takes them from the built-in content for
+   * that type. Leaving these boxes editable would let somebody type into a
+   * field the document ignores, so they are shown as they will print and
+   * locked. Capacity, the customer and the prices stay editable.
+   */
+  const fixedByType = Boolean(q.offerType);
   const pdfUrl = pdfToken && typeof window !== 'undefined'
     ? `${window.location.origin}/api/public/quotations/${pdfToken}`
     : '';
@@ -289,16 +301,38 @@ export default function QuotationDetail() {
               <label className="filter-field">Customer Phone <input value={form.customerPhone} onChange={e => setField('customerPhone', e.target.value)} /></label>
               <label className="filter-field">Customer Email <input type="email" value={form.customerEmail} onChange={e => setField('customerEmail', e.target.value)} /></label>
               <label className="filter-field">Customer GST <input value={form.customerGst} onChange={e => setField('customerGst', e.target.value)} /></label>
-              <label className="filter-field">Subject <input value={form.subject} onChange={e => setField('subject', e.target.value)} /></label>
-              <label className="filter-field">System <input value={form.system} onChange={e => setField('system', e.target.value)} /></label>
+              {fixedByType && (
+                <p className="muted" style={{ gridColumn: '1 / -1', margin: 0, fontSize: 13 }}>
+                  The cover letter and the commercial terms are fixed for this offer type and print exactly as your
+                  standard quotation does. Only the client, the date, the capacity and the prices change.
+                </p>
+              )}
+              <label className="filter-field">Subject <input value={form.subject} onChange={e => setField('subject', e.target.value)} disabled={fixedByType} /></label>
+              <label className="filter-field">System <input value={form.system} onChange={e => setField('system', e.target.value)} disabled={fixedByType} /></label>
               <label className="filter-field">Capacity <input value={form.capacity} onChange={e => setField('capacity', e.target.value)} /></label>
+              {/* Owner decision (30 Oct 2026): the Solar cover's figures —
+                  rooftop area, monthly and yearly generation, payback — are
+                  all computed from these two, exactly as the workbook does.
+                  Nothing else on that page is typed. */}
+              {q.division === 'Solar' && (
+                <>
+                  <label className="filter-field">System size (kW)
+                    <input type="number" min="0" step="0.1" value={form.solarKw}
+                      onChange={e => setField('solarKw', e.target.value)} />
+                  </label>
+                  <label className="filter-field">MSEDCL tariff (₹ per unit)
+                    <input type="number" min="0" step="0.1" value={form.solarTariffPerUnit}
+                      onChange={e => setField('solarTariffPerUnit', e.target.value)} />
+                  </label>
+                </>
+              )}
             </div>
             <div className="form-grid" style={{ marginTop: 12 }}>
-              <label className="filter-field" style={{ gridColumn: '1 / -1' }}>Site Description <textarea rows={2} value={form.siteDescription} onChange={e => setField('siteDescription', e.target.value)} /></label>
-              <label className="filter-field" style={{ gridColumn: '1 / -1' }}>Summary Text <textarea rows={2} value={form.summaryText} onChange={e => setField('summaryText', e.target.value)} /></label>
+              <label className="filter-field" style={{ gridColumn: '1 / -1' }}>Site Description <textarea rows={2} value={form.siteDescription} onChange={e => setField('siteDescription', e.target.value)} disabled={fixedByType} /></label>
+              <label className="filter-field" style={{ gridColumn: '1 / -1' }}>Summary Text <textarea rows={2} value={form.summaryText} onChange={e => setField('summaryText', e.target.value)} disabled={fixedByType} /></label>
               <label className="filter-field" style={{ gridColumn: '1 / -1' }}>Technical Description <textarea rows={3} value={form.technicalDescription} onChange={e => setField('technicalDescription', e.target.value)} /></label>
               <label className="filter-field" style={{ gridColumn: '1 / -1' }}>Design Approval <textarea rows={2} value={form.designApproval} onChange={e => setField('designApproval', e.target.value)} /></label>
-              <label className="filter-field" style={{ gridColumn: '1 / -1' }}>Benefits of System <textarea rows={2} value={form.benefitsOfSystem} onChange={e => setField('benefitsOfSystem', e.target.value)} /></label>
+              <label className="filter-field" style={{ gridColumn: '1 / -1' }}>Benefits of System <textarea rows={2} value={form.benefitsOfSystem} onChange={e => setField('benefitsOfSystem', e.target.value)} disabled={fixedByType} /></label>
               <label className="filter-field">Design By <input value={form.designBy} onChange={e => setField('designBy', e.target.value)} /></label>
               <label className="filter-field">System Approved By <input value={form.systemApprovedBy} onChange={e => setField('systemApprovedBy', e.target.value)} /></label>
             </div>
@@ -329,13 +363,15 @@ export default function QuotationDetail() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3>Payment Terms</h3>
               <div style={{ display: 'flex', gap: 8 }}>
-                {payTermTemplates.length > 0 && (
+                {!fixedByType && payTermTemplates.length > 0 && (
                   <select onChange={e => { const tpl = payTermTemplates.find(t => String(t.id || t._id) === e.target.value); if (tpl) setPayTerms(tpl.rows.map((r, i) => ({ ...r, sequence: i + 1 }))); e.target.value = ''; }} defaultValue="">
                     <option value="" disabled>Apply Template...</option>
                     {payTermTemplates.map(t => <option key={t.id || t._id} value={t.id || t._id}>{t.name}</option>)}
                   </select>
                 )}
-                <button type="button" className="btn sec sm" onClick={() => setPayTerms(prev => [...prev, { sequence: prev.length + 1, label: '', percentage: 0, wording: '' }])}>+ Add Term</button>
+                {!fixedByType && (
+                  <button type="button" className="btn sec sm" onClick={() => setPayTerms(prev => [...prev, { sequence: prev.length + 1, label: '', percentage: 0, wording: '' }])}>+ Add Term</button>
+                )}
               </div>
             </div>
             {payTerms.length > 0 && (
@@ -360,16 +396,18 @@ export default function QuotationDetail() {
           <div className="panel" style={{ marginTop: 16 }}>
             <h3>Commercial Terms</h3>
             <div className="form-grid">
-              <label className="filter-field">Offer Validity <input value={form.offerValidity} onChange={e => setField('offerValidity', e.target.value)} /></label>
-              <label className="filter-field">Delivery <input value={form.delivery} onChange={e => setField('delivery', e.target.value)} /></label>
-              <label className="filter-field" style={{ gridColumn: '1 / -1' }}>Notes <textarea rows={2} value={form.notes} onChange={e => setField('notes', e.target.value)} /></label>
+              <label className="filter-field">Offer Validity <input value={form.offerValidity} onChange={e => setField('offerValidity', e.target.value)} disabled={fixedByType} /></label>
+              <label className="filter-field">Delivery <input value={form.delivery} onChange={e => setField('delivery', e.target.value)} disabled={fixedByType} /></label>
+              <label className="filter-field" style={{ gridColumn: '1 / -1' }}>Notes <textarea rows={2} value={form.notes} onChange={e => setField('notes', e.target.value)} disabled={fixedByType} /></label>
             </div>
             <div style={{ marginTop: 8 }}>
               <strong>Excluded Works</strong>
               {exclWorks.map((w, i) => (
                 <div key={i} style={{ display: 'flex', gap: 4, marginTop: 4 }}>
-                  <input value={w} onChange={e => { const c = [...exclWorks]; c[i] = e.target.value; setExclWorks(c); }} style={{ flex: 1 }} />
-                  <button type="button" className="btn danger sm" onClick={() => setExclWorks(prev => prev.filter((_, j) => j !== i))}>&times;</button>
+                  <input value={w} onChange={e => { const c = [...exclWorks]; c[i] = e.target.value; setExclWorks(c); }} style={{ flex: 1 }} disabled={fixedByType} />
+                  {!fixedByType && (
+                    <button type="button" className="btn danger sm" onClick={() => setExclWorks(prev => prev.filter((_, j) => j !== i))}>&times;</button>
+                  )}
                 </div>
               ))}
               <button type="button" className="btn sec sm" style={{ marginTop: 4 }} onClick={() => setExclWorks(prev => [...prev, ''])}>+ Add</button>

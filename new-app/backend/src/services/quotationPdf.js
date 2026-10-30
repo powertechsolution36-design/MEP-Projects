@@ -33,6 +33,7 @@
 
 const path = require('path');
 const PDFDocument = require('pdfkit');
+const { getFixedPages } = require('./quotationPresets');
 
 /*
  * Fonts, chosen to match the company's own quotation workbooks (owner
@@ -116,7 +117,26 @@ function str(v) {
 function buildQuotationPdf({ company, quotation }) {
   return new Promise((resolve, reject) => {
     const co = company || {};
-    const q = quotation || {};
+    const stored = quotation || {};
+
+    /*
+     * THE FIXED PAGES (owner decision, 30 Oct 2026).
+     *
+     * Page 1 and the last page are the company's standing letter and
+     * standing commercial terms, and they belong to the OFFER TYPE. They are
+     * taken from quotationPresets here — overriding whatever copies were
+     * stored on the quotation — so two Ducted offers cannot read
+     * differently, and nobody can blank the terms by clearing a field.
+     *
+     * A quotation with no offer type (started from blank, or made before
+     * offer types existed) keeps rendering from its own stored fields: the
+     * lock changes what new quotations say, never what an old one said.
+     *
+     * `capacity`, the customer and the priced rows are untouched — those are
+     * the parts that genuinely differ per job.
+     */
+    const locked = getFixedPages(stored.offerType);
+    const q = locked ? { ...stored, ...locked } : stored;
     const isSolar = q.division === 'Solar';
     const eqItems = Array.isArray(q.equipmentItems) ? q.equipmentItems : [];
     const accItems = Array.isArray(q.accessoriesItems) ? q.accessoriesItems : [];
@@ -433,17 +453,64 @@ function buildQuotationPdf({ company, quotation }) {
       hasText(q.customerGst) ? `GST: ${str(q.customerGst)}` : '',
     ].filter(Boolean).join('   ');
     if (custLine) paragraph(custLine, { gapBefore: 1, size: 8.5 });
-    if (hasText(q.subject)) labelled('Subject -', q.subject);
+    // The Solar sheet writes the size on the Subject and System lines.
+    const sizeSuffix = isSolar && Number(q.solarKw) > 0 ? `  ${Number(q.solarKw)} KW` : '';
+    if (hasText(q.subject)) labelled('Subject -', str(q.subject) + sizeSuffix);
 
-    if (hasText(q.summaryText)) paragraph(q.summaryText, { gapBefore: 10 });
+    // The opening paragraph names the company; the placeholder is filled
+    // the same way the AMC document templates fill theirs.
+    const summary = str(q.summaryText).replace(/\{\{company_name\}\}/g, str(co.displayName || co.name));
+    if (hasText(summary)) paragraph(summary, { gapBefore: 10 });
     if (hasText(q.siteDescription)) paragraph(q.siteDescription, { gapBefore: 8 });
 
     if (hasText(q.technicalDescription) || hasText(q.system) || hasText(q.capacity) || hasText(q.benefitsOfSystem)) {
-      paragraph('As per the site conditions and design parameters we reached to following Engineering -', { gapBefore: 10 });
+      paragraph('As per the site conditions and design parameters we have arrived at the following engineering -', { gapBefore: 10 });
     }
-    if (hasText(q.system)) labelled('System -', q.system);
+    if (hasText(q.system)) labelled('System -', str(q.system) + sizeSuffix);
     if (hasText(q.benefitsOfSystem)) labelled('Benefits of System -', q.benefitsOfSystem, { gap: 110 });
     if (hasText(q.capacity)) labelled('Capacity -', q.capacity);
+    /*
+     * The Solar cover's figures (owner decision, 30 Oct 2026).
+     *
+     * Every one of these is on the workbook's page 1 and none of them was
+     * reaching the PDF. They are computed here from the two stored numbers,
+     * using the sheet's own arithmetic:
+     *
+     *   rooftop area        = kW x 2 x 45            (=E40*2*45)
+     *   per month generation = kW x 4 x 30 x tariff  (=E40*4*30*E41)
+     *   per year generation  = per month x 12        (=E42*12)
+     *   units in a year      = yearly amount / tariff(=E43/13, generalised)
+     *   payback period       = grand total / yearly  (=H88/E43)
+     *
+     * The sheet divides by a literal 13 for the yearly units because 13 is
+     * the tariff it was typed with. Dividing by the tariff actually in use
+     * gives the same answer there and the right one everywhere else.
+     */
+    if (isSolar && Number(q.solarKw) > 0) {
+      const kw = Number(q.solarKw);
+      const tariff = Number(q.solarTariffPerUnit) || 0;
+      const area = kw * 2 * 45;
+      const perMonth = kw * 4 * 30 * tariff;
+      const perYear = perMonth * 12;
+      const unitsYear = tariff > 0 ? perYear / tariff : 0;
+      const payback = perYear > 0 ? (Number(q.grandTotal) || 0) / perYear : 0;
+      const one = (d) => (Math.round(d * 10) / 10).toString();
+      // Whole numbers, grouped Indian-style. `num` is for money and carries
+      // paise, which an area in square feet and a count of units must not.
+      const whole = (d) => Math.round(d).toLocaleString('en-IN');
+
+      paragraph(`A total of ${whole(area)} Sq.ft of area for rooftop installation will be required.`, { gapBefore: 8 });
+      paragraph(`Annual average system generation in the first year will be ${whole(unitsYear)} units.`, { gapBefore: 2 });
+      paragraph([
+        `Designed System: ${one(kw)} KW`,
+        `MSEDCL Tariff: Rs ${one(tariff)}`,
+        `Per month generation: Rs ${whole(perMonth)}`,
+        `Generation Amount in a Year: Rs ${whole(perYear)}`,
+        `Pay Back Period: ${one(payback)} Years`,
+      ].join('\n'), { gapBefore: 6 });
+      paragraph('*Approximate calculations', { gapBefore: 2, size: 8.5 });
+    }
+
     if (hasText(q.technicalDescription)) paragraph(q.technicalDescription, { gapBefore: 8 });
     if (hasText(q.designApproval)) paragraph(q.designApproval, { gapBefore: 8 });
 
@@ -590,8 +657,26 @@ function buildQuotationPdf({ company, quotation }) {
         const pct = str(t.percentage).replace(/%$/, '').trim();
         const label = [pct ? `${pct}%` : '', str(t.label), hasText(t.triggerEvent) ? str(t.triggerEvent) : '', hasText(t.wording) ? `— ${str(t.wording)}` : '']
           .filter(Boolean).join(' ');
+        /*
+         * The base a payment line is a percentage OF (owner decision,
+         * 30 Oct 2026). The workbooks do not take every instalment from the
+         * grand total: Split's high-side line is 100% of the high-side
+         * total (=H68) while its low-side lines are 70% and 30% of the
+         * low-side total (=H85), and Ducted's single line is the high side
+         * alone (=H107). Charging a percentage of the grand total instead
+         * quotes the client the wrong money, which is why the term carries
+         * the section it belongs to.
+         *
+         * The base is the section's total WITH GST, as in the sheets.
+         * A term with no section still means the grand total.
+         */
+        const base = t.section === 'Equipment'
+          ? sectionWithGst(q.equipmentTotal, q.equipmentGstAmount)
+          : t.section === 'Accessories'
+            ? sectionWithGst(q.accessoriesTotal, q.accessoriesGstAmount)
+            : (Number(q.grandTotal) || 0);
         const amount = pct !== '' && !Number.isNaN(Number(pct))
-          ? (Number(q.grandTotal) || 0) * Number(pct) / 100
+          ? base * Number(pct) / 100
           : null;
         paymentLines.push({ text: label, amount });
       });

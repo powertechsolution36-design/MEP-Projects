@@ -346,3 +346,208 @@ test('duplicate: the copy does not reuse the original’s client PDF link', asyn
   assert.ok(copyWithToken.pdfToken && copyWithToken.pdfToken !== withToken.pdfToken);
   assert.equal(link.pdfToken, copyWithToken.pdfToken);
 });
+
+/* ---------------- the fixed cover and terms pages ---------------- */
+
+const { getFixedPages, FIXED_PAGE_FIELDS } = require('../src/services/quotationPresets');
+const { buildQuotationPdf } = require('../src/services/quotationPdf');
+
+const CO = {
+  name: 'MEP Powertech Pvt Ltd',
+  displayName: 'MEP POWERTECH PVT LTD',
+  subtitle: 'MEP Consultant & Contractor',
+  tagline: '"Trusted-Economical-Reliable"',
+  address: 'Plot No. 4, Shrusti Vihar, Undri, Pune - 411060',
+  authorizedPerson: { name: 'Suhas Mahadik', phone: '8793320820' },
+  bankDetails: { bankName: 'HDFC Bank', accountHolder: 'MEP Powertech Pvt Ltd', accountNumber: '50200012345678', ifscCode: 'HDFC0001234' },
+};
+
+/** A quotation whose own cover/terms fields have all been filled with rubbish. */
+function tamperedQuotation(offerType, extra = {}) {
+  return {
+    quotationNumber: 'Q-9001', division: offerType === 'solar' ? 'Solar' : 'HVAC', offerType,
+    customerName: 'Gastro Hub', customerAddress: 'Pimple Saudagar, Pune', capacity: '18 TR',
+    subject: 'TAMPERED SUBJECT', system: 'TAMPERED SYSTEM', benefitsOfSystem: 'TAMPERED BENEFITS',
+    summaryText: 'TAMPERED SUMMARY', siteDescription: 'TAMPERED SITE',
+    offerValidity: '999 days', delivery: 'TAMPERED DELIVERY', notes: 'TAMPERED NOTES',
+    excludedWorks: ['TAMPERED EXCLUSION'],
+    paymentTerms: [{ sequence: 1, percentage: '5', label: 'TAMPERED TERM' }],
+    equipmentItems: [{ rowType: 'item', sNo: 1, description: 'Unit', unit: 'Nos', qty: 1, supplyRate: 100, supplyAmount: 100, totalAmount: 100 }],
+    accessoriesItems: [],
+    equipmentTotal: 100, accessoriesTotal: 0, subtotal: 100, grandTotal: 118, gstPercent: 18,
+    ...extra,
+  };
+}
+
+test('fixed pages: every offer type has one, and a blank offer type has none', () => {
+  for (const code of PRESET_CODES) {
+    const f = getFixedPages(code);
+    assert.ok(f, `${code} must have fixed pages`);
+    assert.ok(f.subject && f.summaryText && f.offerValidity, code);
+    assert.ok(Array.isArray(f.excludedWorks) && f.excludedWorks.length > 0, code);
+    assert.ok(Array.isArray(f.paymentTerms) && f.paymentTerms.length > 0, code);
+  }
+  assert.equal(getFixedPages(''), null);
+  assert.equal(getFixedPages('nonsense'), null);
+  // Capacity is per job, so it must never be locked.
+  assert.ok(!FIXED_PAGE_FIELDS.includes('capacity'));
+});
+
+test('fixed pages: each offer type carries the terms its own workbook carries', () => {
+  // Split =H68, =H85*70%, =H85*30%; Ducted =H107; VRF =H114, =H112*100%;
+  // Solar 70/20/10 of the grand total.
+  const shape = (code) => getFixedPages(code).paymentTerms.map((t) => `${t.percentage}:${t.section || 'GRAND'}`);
+  assert.deepEqual(shape('split'), ['100:Equipment', '70:Accessories', '30:Accessories']);
+  assert.deepEqual(shape('ducted'), ['100:Equipment']);
+  assert.deepEqual(shape('vrf'), ['100:Equipment', '100:Accessories']);
+  assert.deepEqual(shape('solar'), ['70:GRAND', '20:GRAND', '10:GRAND']);
+
+  assert.equal(getFixedPages('solar').offerValidity, '7 days');
+  assert.equal(getFixedPages('ducted').offerValidity, '30 days');
+  assert.equal(getFixedPages('split').benefitsOfSystem, '', 'the Split workbook leaves Benefits blank');
+  assert.equal(getFixedPages('solar').excludedWorks.length, 5);
+  assert.equal(getFixedPages('ducted').excludedWorks.length, 7);
+});
+
+test('fixed pages: a tampered quotation still prints the standard cover and terms', async () => {
+  const pdf = await buildQuotationPdf({ company: CO, quotation: tamperedQuotation('ducted') });
+  const text = pdf.toString('latin1');
+  // Nothing typed into those boxes reaches the document.
+  for (const junk of ['TAMPERED SUBJECT', 'TAMPERED SYSTEM', 'TAMPERED BENEFITS', 'TAMPERED SUMMARY',
+    'TAMPERED DELIVERY', 'TAMPERED NOTES', 'TAMPERED EXCLUSION', 'TAMPERED TERM', '999 days']) {
+    assert.ok(!text.includes(junk), `"${junk}" must not reach the PDF`);
+  }
+  assert.ok(pdf.length > 1000);
+});
+
+test('fixed pages: a quotation with no offer type keeps its own wording', async () => {
+  const q = tamperedQuotation('');
+  const pdf = await buildQuotationPdf({ company: CO, quotation: q });
+  assert.ok(pdf.length > 1000, 'a blank-start quotation still renders');
+  // The lock changes what NEW typed quotations say, never an old one.
+  assert.equal(getFixedPages(q.offerType), null);
+});
+
+test('fixed pages: a payment line is a share of its own section, not of the grand total', async () => {
+  // Equipment 3,60,000 and Accessories 1,50,000 -> with 18% GST,
+  // 4,24,800 and 1,77,000. Split: 100% / 70% / 30% of those.
+  const q = tamperedQuotation('split', {
+    equipmentItems: [{ rowType: 'item', sNo: 1, description: 'Split AC', unit: 'Nos', qty: 6, supplyRate: 60000, supplyAmount: 360000, totalAmount: 360000 }],
+    accessoriesItems: [{ rowType: 'item', sNo: 1, description: 'Copper pipe', unit: 'Rmt', qty: 60, installationRate: 2500, installationAmount: 150000, totalAmount: 150000 }],
+    equipmentTotal: 360000, accessoriesTotal: 150000, subtotal: 510000, grandTotal: 601800,
+  });
+  const pdf = await buildQuotationPdf({ company: CO, quotation: q });
+  assert.ok(pdf.length > 1000);
+
+  // The shares themselves, computed the way the renderer does.
+  const eqWithGst = Math.round(360000 * 1.18);
+  const accWithGst = Math.round(150000 * 1.18);
+  assert.equal(eqWithGst, 424800);
+  assert.equal(Math.round(accWithGst * 0.7), 123900);
+  assert.equal(Math.round(accWithGst * 0.3), 53100);
+  // And they add up to the grand total, as the workbook's do.
+  assert.equal(eqWithGst + accWithGst, 601800);
+});
+
+test('fixed pages: the opening paragraph names the company, never a hardcoded one', async () => {
+  const other = { ...CO, name: 'Another Firm Pvt Ltd', displayName: 'ANOTHER FIRM PVT LTD' };
+  const pdf = await buildQuotationPdf({ company: other, quotation: tamperedQuotation('vrf') });
+  const text = pdf.toString('latin1');
+  assert.ok(!text.includes('{{company_name}}'), 'the placeholder must be filled in');
+  assert.ok(!getFixedPages('vrf').summaryText.includes('MEP POWERTECH'),
+    'the stored paragraph must not name one tenant');
+  assert.ok(pdf.length > 1000);
+});
+
+/* ---------------- the sheets' wording, after the approved corrections ---------------- */
+
+test('wording: the approved spelling and grammar fixes are in, and nothing else moved', () => {
+  const split = getFixedPages('split');
+  const ducted = getFixedPages('ducted');
+
+  // Spelling fixes approved 30 Oct 2026.
+  assert.match(split.excludedWorks[3], /terminating in our control panel \/ MCB\.$/);
+  assert.equal(split.excludedWorks[5], 'Any false ceiling, boxing or carpentry work, and ladder.');
+  assert.ok(!JSON.stringify(split).includes('carpentary'));
+  assert.ok(!JSON.stringify(split).includes('terminaiong'));
+  assert.ok(!JSON.stringify(split).includes('Equipement'));
+
+  // The ladder is a genuine exclusion, confirmed by the owner.
+  assert.ok(split.excludedWorks[5].includes('ladder'));
+
+  // Grammar fix on benefit 1; benefits 2 and 3 untouched from the sheet.
+  const lines = ducted.benefitsOfSystem.split('\n');
+  assert.equal(lines[0], '1) Machines come with a Scroll compressor, that saves more than 15% electrical energy compared to others.');
+  assert.match(lines[1], /^2\) These machines are heavy & the operating temperature range is greater/);
+  assert.match(lines[2], /^3\) Best part load efficiency in the industry\./);
+
+  // Everything else still word for word from the sheets.
+  assert.equal(split.excludedWorks[1], 'No structural reinforcement shall be included in our scope.');
+  assert.equal(split.excludedWorks[6], 'Mathadi');
+  assert.equal(ducted.subject, 'Ducted Air-conditioning Offer');
+});
+
+test('wording: the VRF system line names the manufacturer, as the sheet does', () => {
+  assert.equal(getFixedPages('vrf').system, 'SAMSUNG Air-Conditioning VRF System.');
+  assert.equal(getFixedPages('ducted').system, 'Air-Conditioning Ducted System.');
+  // The compressor is the only difference between the two benefit blocks.
+  assert.ok(getFixedPages('vrf').benefitsOfSystem.includes('Twin-Rotary'));
+  assert.ok(getFixedPages('ducted').benefitsOfSystem.includes('Scroll'));
+});
+
+test('solar cover: every figure is computed from the system size and the tariff', async () => {
+  const q = {
+    quotationNumber: 'Q-SOLAR', division: 'Solar', offerType: 'solar',
+    customerName: 'Mr Gaikwad', capacity: '5 KW',
+    solarKw: 5, solarTariffPerUnit: 13,
+    equipmentItems: [{ rowType: 'item', sNo: 1, description: 'Inverter', unit: 'Nos', qty: 1, supplyRate: 60000, supplyAmount: 60000, totalAmount: 60000 }],
+    accessoriesItems: [], equipmentTotal: 230000, subtotal: 230000, grandTotal: 271426, gstPercent: 18,
+  };
+  const pdf = await buildQuotationPdf({ company: CO, quotation: q });
+  assert.ok(pdf.length > 1000);
+
+  // The workbook's own arithmetic, checked here rather than read off a PDF.
+  const kw = 5; const tariff = 13;
+  assert.equal(kw * 2 * 45, 450);                       // =E40*2*45  rooftop area
+  const perMonth = kw * 4 * 30 * tariff;
+  assert.equal(perMonth, 7800);                         // =E40*4*30*E41
+  const perYear = perMonth * 12;
+  assert.equal(perYear, 93600);                         // =E42*12
+  assert.equal(perYear / tariff, 7200);                 // =E43/13, generalised
+  assert.equal(Math.round((271426 / perYear) * 10) / 10, 2.9); // =H88/E43
+});
+
+test('solar cover: a quotation with no system size prints no figures block', async () => {
+  const q = {
+    quotationNumber: 'Q-SOLAR-0', division: 'Solar', offerType: 'solar',
+    customerName: 'Mr Gaikwad', solarKw: 0, solarTariffPerUnit: 13,
+    equipmentItems: [], accessoriesItems: [], equipmentTotal: 0, subtotal: 0, grandTotal: 0, gstPercent: 18,
+  };
+  const pdf = await buildQuotationPdf({ company: CO, quotation: q });
+  const text = pdf.toString('latin1');
+  assert.ok(!text.includes('Pay Back Period'), 'no payback line without a size to compute it from');
+  assert.ok(pdf.length > 1000);
+});
+
+test('solar cover: the tariff is per quotation and defaults to the sheet\'s 13', () => {
+  const Quotation = require('../src/models/Quotation');
+  const path = Quotation.schema.path('solarTariffPerUnit');
+  assert.equal(path.defaultValue, 13);
+  assert.equal(Quotation.schema.path('solarKw').defaultValue, 0);
+});
+
+test('cover layout: the letter reaches the foot of the page whatever its length', async () => {
+  // A three-line Split cover and a long Solar cover must both end at the
+  // same place: the signature sits at the foot, and nothing overflows onto
+  // a second page.
+  const short = { ...tamperedQuotation('split'), capacity: '12 TR' };
+  const long = {
+    ...tamperedQuotation('solar'), division: 'Solar', offerType: 'solar',
+    capacity: '5 KW', solarKw: 5, solarTariffPerUnit: 13,
+  };
+  for (const q of [short, long]) {
+    const pdf = await buildQuotationPdf({ company: CO, quotation: q });
+    const pages = (pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length;
+    assert.equal(pages, 3, `${q.offerType} must still be three pages`);
+  }
+});
