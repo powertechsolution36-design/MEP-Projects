@@ -375,6 +375,13 @@ async function deleteCompany(companyId, actorAuth, deps) {
     if (txnDeps.dailyTaskRepo && typeof txnDeps.dailyTaskRepo.deleteManyByCompany === 'function') {
       await txnDeps.dailyTaskRepo.deleteManyByCompany(companyId, session);
     }
+    // Owner decision (30 Oct 2026): photographs of a project's work live in
+    // their own collection, so deleting the projects does not take them.
+    // Guarded like dailyTaskRepo above, so a caller wired without this
+    // repository still deletes everything it does know about.
+    if (txnDeps.projectPhotoRepo && typeof txnDeps.projectPhotoRepo.deleteManyByCompany === 'function') {
+      await txnDeps.projectPhotoRepo.deleteManyByCompany(companyId, session);
+    }
     // NEW-APP-only record (no PWA counterpart): the company's subscription
     // must not outlive the company.
     if (txnDeps.subscriptionRepo && typeof txnDeps.subscriptionRepo.deleteByCompany === 'function') {

@@ -1637,6 +1637,96 @@
 .portal-step-when { font-size: var(--fs-md); color: var(--p-muted); }
 .portal-step.is-done .portal-step-when { color: var(--text-secondary); }
 
+/* The stage the project is standing on now — ringed, not just ticked, so a
+   client can find it at a glance on a phone (owner decision, 30 Oct 2026). */
+.portal-step.is-current .portal-step-mark {
+  background: var(--accent-50);
+  border-color: var(--primary);
+  color: var(--primary);
+  box-shadow: 0 0 0 3px var(--accent-50);
+}
+.portal-step.is-current .portal-step-label { color: var(--primary); }
+
+/* ---- Progress meter --------------------------------------------- */
+.portal-meter {
+  display: block;
+  height: 8px;
+  width: 100%;
+  margin: var(--s-2) 0;
+  border-radius: 999px;
+  background: var(--n-100);
+  overflow: hidden;
+}
+.portal-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+  transition: width 240ms ease;
+}
+.portal-meter-note { font-size: var(--fs-md); color: var(--text-secondary); margin: var(--s-2) 0 0; }
+
+/* ---- Update feed ------------------------------------------------- */
+.portal-feed { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
+.portal-feed-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-4) 0;
+  border-top: 1px solid var(--border-subtle);
+}
+.portal-feed-item:first-child { border-top: 0; }
+.portal-feed-when { font-size: var(--fs-sm); color: var(--p-muted); font-variant-numeric: tabular-nums; }
+.portal-feed-note { font-size: var(--fs-md); line-height: 1.55; }
+
+/* ---- Photographs of the work ------------------------------------ */
+.portal-photos { display: flex; flex-wrap: wrap; gap: var(--s-3); margin-top: var(--s-3); }
+.portal-photo-wrap { display: flex; flex-direction: column; gap: var(--s-1); width: 104px; }
+.portal-photo {
+  display: block;
+  width: 104px;
+  height: 78px;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  background: var(--n-50);
+  overflow: hidden;
+  cursor: zoom-in;
+}
+.portal-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.portal-photo-wait { display: block; width: 100%; height: 100%; background: var(--n-100); }
+.portal-photo:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.portal-photo-cap { font-size: var(--fs-sm); color: var(--p-muted); line-height: 1.35; }
+
+.portal-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-4);
+  padding: var(--s-5);
+  background: rgba(10, 14, 20, 0.92);
+}
+.portal-lightbox .portal-photo {
+  width: auto;
+  height: auto;
+  max-width: 92vw;
+  max-height: 72vh;
+  border: 0;
+  background: transparent;
+  cursor: zoom-out;
+}
+.portal-lightbox .portal-photo img { max-width: 92vw; max-height: 72vh; object-fit: contain; }
+.portal-lightbox-cap { color: #fff; font-size: var(--fs-md); text-align: center; margin: 0; max-width: 60ch; }
+
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-meter-fill { transition: none; }
+}
+
 /* ---- Notices ---------------------------------------------------- */
 .portal-notice {
   display: flex;

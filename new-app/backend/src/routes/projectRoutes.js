@@ -236,6 +236,55 @@ function createProjectRouter(deps) {
     })
   );
 
+  // Owner decision (30 Oct 2026): share one execution update with the
+  // client, or take it back.
+  router.patch(
+    '/:id/updates/:i/share',
+    handle(async (req, res) => {
+      const project = await service.setExecutionUpdateShared(req.params.id, Number(req.params.i), req.body, req.auth, deps);
+      return res.status(200).json({ project });
+    })
+  );
+
+  /* ---- photographs of the work (owner decision, 30 Oct 2026) ---- */
+
+  router.post(
+    '/:id/updates/:i/photos',
+    handle(async (req, res) => {
+      const photos = await service.addUpdatePhotos(req.params.id, Number(req.params.i), req.body, req.auth, deps);
+      return res.status(201).json({ photos });
+    })
+  );
+
+  router.get(
+    '/:id/photos',
+    handle(async (req, res) => {
+      const photos = await service.listProjectPhotos(req.params.id, req.auth, deps);
+      return res.json({ photos });
+    })
+  );
+
+  router.get(
+    '/:id/photos/:photoId',
+    handle(async (req, res) => {
+      const file = await service.getProjectPhoto(req.params.id, req.params.photoId, req.auth, deps);
+      res.setHeader('Content-Type', file.contentType);
+      res.setHeader('Content-Disposition', `inline; filename="${file.filename}"`);
+      res.setHeader('Cache-Control', 'private, no-store');
+      // Nothing here is a document the browser should ever run.
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+      return res.send(Buffer.isBuffer(file.data) ? file.data : Buffer.from(file.data));
+    })
+  );
+
+  router.delete(
+    '/:id/photos/:photoId',
+    handle(async (req, res) => {
+      return res.json(await service.removeProjectPhoto(req.params.id, req.params.photoId, req.auth, deps));
+    })
+  );
+
   router.post(
     '/:id/delivery-challans',
     handle(async (req, res) => {

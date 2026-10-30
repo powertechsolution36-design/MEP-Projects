@@ -8,9 +8,12 @@
  *
  * Walks the whole journey in a real browser: a client registers, is refused
  * until staff approve them, signs in, raises a complaint with a photograph,
- * and follows it while staff assign an engineer and complete it. Also checks
- * the things that must NOT work from a browser — reaching a staff screen
- * with a client session, and seeing another client's complaint.
+ * and follows it while staff assign an engineer and complete it. It then
+ * covers project progress (owner decision, 30 Oct 2026): staff link a
+ * project to the account, and the client sees its stage, its timeline and
+ * only the updates a PM published. Also checks the things that must NOT
+ * work from a browser — reaching a staff screen with a client session,
+ * seeing another client's complaint, and seeing a project nobody linked.
  */
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const path = require('path');
@@ -172,6 +175,139 @@ async function api(method, pathname, { token, body } = {}) {
     rec('client: never sees the internal remark or the amount',
       !completed.includes('INTERNAL ONLY') && !completed.includes('1800'), completed.slice(0, 200));
     await page.screenshot({ path: path.join(SHOTS, '6-completed.png'), fullPage: true });
+
+
+    /* ---- project progress (owner decision, 30 Oct 2026) ---- */
+
+    // Nothing is linked yet, so the dashboard must not offer a project at
+    // all — not even the one whose customer name matches this client.
+    await page.goto(`${BASE}/portal`, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(700);
+    const beforeLink = await page.locator('body').innerText();
+    rec('client: no project is shown until staff link one', !beforeLink.includes('Your projects'), beforeLink.slice(0, 120));
+
+    const admin = (await api('POST', '/api/auth/login', { body: { username: 'admin', password: 'password123' } })).json.token;
+    const accounts = (await api('GET', '/api/customer-accounts', { token: staff })).json.accounts || [];
+    const myAccount = accounts.find((a) => a.status === 'Active');
+
+    // The suggestion list should put this client's own project at the top.
+    const cands = await api('GET', `/api/customer-accounts/${myAccount.id}/project-candidates`, { token: staff });
+    rec('staff: the client’s own project is suggested first',
+      cands.status === 200 && cands.json.projects[0] && cands.json.projects[0].id === 'prj_demo',
+      JSON.stringify((cands.json.projects || []).slice(0, 2).map((x) => [x.id, x.score])));
+
+    const linked = await api('PUT', `/api/customer-accounts/${myAccount.id}/projects`, {
+      token: staff, body: { projectIds: ['prj_demo'] },
+    });
+    rec('staff: linking the project is recorded', linked.status === 200
+      && (linked.json.account.linkedProjectIds || []).includes('prj_demo'), String(linked.status));
+
+    // One update published for the client, in the PM's own client wording.
+    const shared = await api('PATCH', '/api/projects/prj_demo/updates/0/share', {
+      token: admin, body: { shared: true, customerNote: 'Ducting is about 80% done on your floor.' },
+    });
+    rec('PM: an update can be published to the client', shared.status === 200, String(shared.status));
+
+    await page.goto(`${BASE}/portal`, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(800);
+    const projDash = await page.locator('body').innerText();
+    rec('client: the dashboard now lists their project with its stage',
+      projDash.includes('Your projects') && projDash.includes('Poonawalla KP87') && projDash.includes('Installation'),
+      projDash.slice(0, 200));
+    await page.screenshot({ path: path.join(SHOTS, '7-projects.png'), fullPage: true });
+
+    // Open it by tapping the row, the way a client would.
+    await page.locator('a.portal-row:has-text("Poonawalla KP87")').first().click();
+    await page.waitForURL(/\/portal\/projects\//, { timeout: 8000 });
+    await page.waitForTimeout(800);
+    const projPage = await page.locator('body').innerText();
+
+    rec('client: the project page shows how far along it is',
+      projPage.includes('50% complete') && projPage.includes('Installation'), projPage.slice(0, 240));
+    rec('client: every stage of their division is listed, in order',
+      ['Planning', 'Piping', 'Installation', 'Testing', 'Finishing', 'Completed'].every((st) => projPage.includes(st)));
+    rec('client: the published update is there, in the words the PM chose',
+      projPage.includes('Ducting is about 80% done on your floor.'));
+    rec('client: nothing internal is on the page',
+      !projPage.includes('CoolTech Fabricators')
+      && !projPage.includes('Start AHU positioning')
+      && !/challan/i.test(projPage),
+      projPage.slice(0, 240));
+    rec('client: the stage they are at is marked as current',
+      (await page.locator('.portal-step.is-current').count()) === 1);
+    await page.screenshot({ path: path.join(SHOTS, '8-project-detail.png'), fullPage: true });
+
+    /* ---- photographs of the work ---- */
+    // Two pictures on the published update, one on an unpublished one.
+    const png = `data:image/png;base64,${PNG.toString('base64')}`;
+    const putPhotos = await api('POST', '/api/projects/prj_demo/updates/0/photos', {
+      token: admin,
+      body: { photos: [
+        { data: png, caption: 'Ducting run above the false ceiling' },
+        { data: png, caption: 'AHU platform ready' },
+      ] },
+    });
+    rec('PM: photographs can be attached to a published update',
+      putPhotos.status === 201 && putPhotos.json.photos.length === 2, String(putPhotos.status));
+    rec('PM: a photograph listing never carries the bytes',
+      (putPhotos.json.photos || []).every((ph) => !('data' in ph)));
+
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForTimeout(1200);
+    const withPhotos = await page.locator('body').innerText();
+    rec('client: the captions are on the page',
+      withPhotos.includes('Ducting run above the false ceiling') && withPhotos.includes('AHU platform ready'),
+      withPhotos.slice(0, 200));
+    rec('client: both photographs render', (await page.locator('.portal-photo img').count()) === 2);
+    await page.screenshot({ path: path.join(SHOTS, '9-project-photos.png'), fullPage: true });
+
+    // Tapping one opens it full size.
+    await page.locator('.portal-photo').first().click();
+    await page.waitForTimeout(700);
+    rec('client: a photograph opens full size', (await page.locator('.portal-lightbox').count()) === 1);
+    await page.screenshot({ path: path.join(SHOTS, '10-photo-full.png'), fullPage: false });
+    await page.locator('.portal-lightbox button:has-text("Close")').click();
+    await page.waitForTimeout(400);
+
+    // A photograph on an update nobody published must not be reachable.
+    // A fresh update is written for it, left unshared (the default).
+    const internal = await api('POST', '/api/projects/prj_demo/updates', {
+      token: admin, body: { actionDone: 'Snagging walk with the vendor' },
+    });
+    const internalIdx = (internal.json.project.executionUpdates || []).length - 1;
+    const hiddenShot = await api('POST', `/api/projects/prj_demo/updates/${internalIdx}/photos`, {
+      token: admin, body: { photos: [{ data: png, caption: 'Internal snag list' }] },
+    });
+    rec('PM: a photograph can go on an update that is not published',
+      hiddenShot.status === 201, String(hiddenShot.status));
+    const clientToken = await page.evaluate(() => localStorage.getItem('mep_portal_token'));
+    const peek = await api('GET', `/api/portal/projects/prj_demo/photos/${hiddenShot.json.photos[0].id}`, { token: clientToken });
+    rec('client: a photograph on an unpublished update is not found, even with its id',
+      peek.status === 404, String(peek.status));
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForTimeout(900);
+    rec('client: its caption is not on the page either',
+      !(await page.locator('body').innerText()).includes('Internal snag list'));
+
+    // Taking the update back removes it from the client's page.
+    await api('PATCH', '/api/projects/prj_demo/updates/0/share', { token: admin, body: { shared: false } });
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.waitForTimeout(800);
+    const afterHide = await page.locator('body').innerText();
+    rec('client: un-publishing an update takes it off their page',
+      !afterHide.includes('Ducting is about 80% done'), afterHide.slice(0, 160));
+    rec('client: and its photographs close with it',
+      (await page.locator('.portal-photo').count()) === 0
+      && !afterHide.includes('Ducting run above the false ceiling'));
+
+    // And unlinking removes the project itself.
+    await api('PUT', `/api/customer-accounts/${myAccount.id}/projects`, { token: staff, body: { projectIds: [] } });
+    await page.goto(`${BASE}/portal/projects/prj_demo`, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(800);
+    const afterUnlink = await page.locator('body').innerText();
+    rec('client: unlinking ends their access to the project page',
+      !afterUnlink.includes('Poonawalla KP87') || /not found/i.test(afterUnlink),
+      afterUnlink.slice(0, 160));
 
     /* ---- what must not work ---- */
     await page.goto(`${BASE}/service-calls`, { waitUntil: 'networkidle' });

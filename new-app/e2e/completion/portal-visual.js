@@ -195,6 +195,26 @@ async function shoot(page, name) {
     const pending = (await api('GET', '/api/customer-accounts', { token: staff })).json.accounts.find((a) => a.status === 'Pending');
     await api('POST', `/api/customer-accounts/${pending.id}/approve`, { token: staff, body: { contractId: pending.contractId } });
 
+    /* The client's project, linked once so every width has it on screen
+       (owner decision, 30 Oct 2026). */
+    const admin = (await api('POST', '/api/auth/login', { body: { username: 'admin', password: 'password123' } })).json.token;
+    const active = (await api('GET', '/api/customer-accounts', { token: staff })).json.accounts
+      .find((a) => a.status === 'Active');
+    if (active) {
+      await api('PUT', `/api/customer-accounts/${active.id}/projects`, { token: staff, body: { projectIds: ['prj_demo'] } });
+      await api('PATCH', '/api/projects/prj_demo/updates/0/share', {
+        token: admin, body: { shared: true, customerNote: 'Ducting is about 80% done on your floor.' },
+      });
+      const png = `data:image/png;base64,${PNG.toString('base64')}`;
+      await api('POST', '/api/projects/prj_demo/updates/0/photos', {
+        token: admin,
+        body: { photos: [
+          { data: png, caption: 'Ducting run above the false ceiling' },
+          { data: png, caption: 'AHU platform ready' },
+        ] },
+      });
+    }
+
     for (const w of WIDTHS) {
       const ctx = await browser.newContext({
         viewport: { width: w.width, height: w.height },
@@ -292,6 +312,28 @@ async function shoot(page, name) {
         .filter((el) => el.tagName === 'A' && el.hasAttribute('href') && el.tabIndex >= 0).length);
       rec(`dashboard @${w.name}: every complaint in the list is reachable by keyboard`,
         rows > 0 && reachable === rows, `${reachable} of ${rows} (${full.focusable} controls on the page)`);
+
+      /* ---- the project page (owner decision, 30 Oct 2026) ---- */
+      await page.goto(`${BASE}/portal/projects/prj_demo`, { waitUntil: 'networkidle' });
+      await page.waitForTimeout(800);
+      await shoot(page, `${w.name}-9-project`);
+      const projAudit = await audit(page, 'project progress', w.name);
+      rec(`project @${w.name}: one top-level heading`,
+        projAudit.headings.filter((h) => h.startsWith('H1')).length === 1, projAudit.headings.join(' | '));
+      rec(`project @${w.name}: the progress figure is in words, not only in the bar`,
+        (await page.locator('body').innerText()).includes('% complete'));
+      rec(`project @${w.name}: the meter is labelled for a screen reader`,
+        (await page.locator('.portal-meter[aria-label]').count()) > 0);
+      rec(`project @${w.name}: each stage says whether it is done, not just by colour`,
+        (await page.locator('.portal-step .portal-sr').count()) >= 6);
+      rec(`project @${w.name}: the photographs of the work are on the page`,
+        (await page.locator('.portal-photo img').count()) === 2);
+      rec(`project @${w.name}: each photograph can be opened from the keyboard`,
+        (await page.evaluate(() => [...document.querySelectorAll('.portal-photo')]
+          .every((el) => el.tagName === 'BUTTON' && el.tabIndex >= 0))));
+      rec(`project @${w.name}: each photograph is described, not left bare`,
+        (await page.evaluate(() => [...document.querySelectorAll('.portal-photo img')]
+          .every((el) => (el.getAttribute('alt') || '').trim().length > 0))));
 
       /* ---- a wrong sign-in, so the error state is on record ---- */
       await page.goto(`${BASE}/portal/login`, { waitUntil: 'networkidle' });

@@ -10,9 +10,18 @@ import { fmtDate } from '../../utils/format';
  * matches the mobile number against the contracts and shows what it found,
  * but the decision is a person's.
  *
+ * An approved client is also told which PROJECTS they may watch (owner
+ * decision, 30 Oct 2026). That is a separate, deliberate step from approving
+ * the login: a project is reached only because somebody here ticked it, and
+ * the portal reads nothing else. The list below is ordered by how closely
+ * each project's name matches the client's — a hint to save hunting, not a
+ * decision the server made.
+ *
  * API: GET  /api/customer-accounts
  *      POST /api/customer-accounts/:id/approve
  *      POST /api/customer-accounts/:id/status
+ *      GET  /api/customer-accounts/:id/project-candidates
+ *      PUT  /api/customer-accounts/:id/projects
  */
 
 const MATCH_TEXT = {
@@ -20,6 +29,103 @@ const MATCH_TEXT = {
   ambiguous: 'That number is on more than one client — choose which',
   'no-match': 'No client has that number — choose one, or reject',
 };
+
+
+/**
+ * Pick the projects one client may watch. Opens closed, because most of the
+ * time staff are here to approve a login, not to change links.
+ */
+function ProjectLinks({ account, onSaved }) {
+  const [open, setOpen] = useState(false);
+  const [rows, setRows] = useState(null);
+  const [picked, setPicked] = useState(new Set());
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  async function openPicker() {
+    setOpen(true); setErr('');
+    try {
+      const r = await api.get(`/api/customer-accounts/${account.id}/project-candidates`);
+      const list = r.projects || [];
+      setRows(list);
+      setPicked(new Set(list.filter((p) => p.linked).map((p) => p.id)));
+    } catch (e) {
+      setErr(e.message || 'Could not load the projects.');
+      setRows([]);
+    }
+  }
+
+  function toggle(id) {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function save() {
+    setBusy(true); setErr('');
+    try {
+      await api.put(`/api/customer-accounts/${account.id}/projects`, { projectIds: [...picked] });
+      setOpen(false);
+      if (onSaved) await onSaved();
+    } catch (e) {
+      setErr(e.message || 'Could not save that.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const linkedCount = (account.linkedProjectIds || []).length;
+
+  return (
+    <div style={{ marginTop: 10, borderTop: '1px solid var(--line, #e5e7eb)', paddingTop: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 13 }}>
+          <strong>Projects this client can follow:</strong>{' '}
+          {linkedCount === 0
+            ? <span className="muted">none — they see no project progress</span>
+            : `${linkedCount} linked`}
+        </div>
+        {!open && (
+          <button className="btn sec sm" onClick={openPicker}>
+            {linkedCount === 0 ? 'Link projects' : 'Change'}
+          </button>
+        )}
+      </div>
+
+      {open && (
+        <>
+          {err && <p className="error" style={{ fontSize: 13 }}>{err}</p>}
+          {rows === null && <p className="muted" style={{ fontSize: 13 }}>Loading projects…</p>}
+          {rows && rows.length === 0 && <p className="muted" style={{ fontSize: 13 }}>This company has no projects yet.</p>}
+          {rows && rows.length > 0 && (
+            <div style={{ maxHeight: 280, overflowY: 'auto', marginTop: 8 }}>
+              {rows.map((p) => (
+                <label
+                  key={p.id}
+                  style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '6px 4px', fontSize: 13, cursor: 'pointer' }}
+                >
+                  <input type="checkbox" checked={picked.has(p.id)} onChange={() => toggle(p.id)} />
+                  <span>
+                    <strong>{p.name}</strong>{' '}
+                    <span className="muted">{p.division} · {p.stage} · {p.status}</span>
+                    {p.customer && <div className="muted">Billed to: {p.customer}</div>}
+                    {p.score >= 50 && <div style={{ color: 'var(--ok, #15803d)' }}>Looks like this client</div>}
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+          <div className="detail-actions">
+            <button className="btn pri sm" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
+            <button className="btn sec sm" disabled={busy} onClick={() => setOpen(false)}>Cancel</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 export default function CustomerAccounts() {
   const [accounts, setAccounts] = useState(null);
@@ -104,12 +210,15 @@ export default function CustomerAccounts() {
         )}
 
         {!showActions && a.status === 'Active' && (
-          <div className="detail-actions">
-            <button className="btn sec sm" disabled={busyId === a.id}
-              onClick={() => act(a.id, 'status', { status: 'Disabled' })}>
-              Switch off this login
-            </button>
-          </div>
+          <>
+            <ProjectLinks account={a} onSaved={load} />
+            <div className="detail-actions">
+              <button className="btn sec sm" disabled={busyId === a.id}
+                onClick={() => act(a.id, 'status', { status: 'Disabled' })}>
+                Switch off this login
+              </button>
+            </div>
+          </>
         )}
       </div>
     );

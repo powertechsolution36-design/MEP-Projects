@@ -8,6 +8,7 @@ const {
 } = require('../services/portalAuthService');
 const {
   getPortalProfile, listMyComplaints, getMyComplaint, createMyComplaint, getMyAttachment,
+  listMyProjects, getMyProject, getMyProjectPhoto,
 } = require('../services/portalService');
 
 /**
@@ -61,6 +62,45 @@ function createPortalRouter(deps) {
   router.get('/me', portalAuth, async (req, res) => {
     try {
       return res.json(await getPortalProfile(req.portal, deps));
+    } catch (err) {
+      return sendError(res, err, 'portalRoutes');
+    }
+  });
+
+  /**
+   * The client's own projects (owner decision, 30 Oct 2026). Takes no
+   * parameters: which projects these are is a fact on the account, not
+   * something the caller may ask for.
+   */
+  router.get('/projects', portalAuth, async (req, res) => {
+    try {
+      return res.json({ projects: await listMyProjects(req.portal, deps) });
+    } catch (err) {
+      return sendError(res, err, 'portalRoutes');
+    }
+  });
+
+  router.get('/projects/:id', portalAuth, async (req, res) => {
+    try {
+      return res.json({ project: await getMyProject(req.portal, req.params.id, deps) });
+    } catch (err) {
+      return sendError(res, err, 'portalRoutes');
+    }
+  });
+
+  /**
+   * A photograph of the work, behind the client's own session. Served only
+   * when the project is theirs AND the update it hangs on is shared.
+   */
+  router.get('/projects/:id/photos/:photoId', portalAuth, async (req, res) => {
+    try {
+      const file = await getMyProjectPhoto(req.portal, req.params.id, req.params.photoId, deps);
+      res.setHeader('Content-Type', file.contentType);
+      res.setHeader('Content-Disposition', `inline; filename="${file.filename}"`);
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+      return res.send(Buffer.isBuffer(file.data) ? file.data : Buffer.from(file.data));
     } catch (err) {
       return sendError(res, err, 'portalRoutes');
     }

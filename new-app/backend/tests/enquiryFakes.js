@@ -52,6 +52,7 @@ function createEnquiryFakeStore(seed = {}) {
     customerAccounts: seed.customerAccounts || [],
     customerSessions: seed.customerSessions || [],
     attachments: seed.attachments || [],
+    projectPhotos: seed.projectPhotos || [],
   };
 
   function snapshot() {
@@ -207,6 +208,14 @@ function createEnquiryFakeStore(seed = {}) {
     },
     async listByCompany(companyId) {
       return state.projects.filter((p) => String(p.companyId) === String(companyId)).map((p) => cloneDeep(p));
+    },
+    /** Mirrors the real repo: BOTH the id list and the company must match. */
+    async listByIdsForCompany(companyId, ids) {
+      const want = new Set((Array.isArray(ids) ? ids : []).map(String));
+      if (want.size === 0) return [];
+      return state.projects
+        .filter((p) => want.has(String(p.id)) && String(p.companyId) === String(companyId))
+        .map((p) => cloneDeep(p));
     },
     async update(companyId, id, patch, session, options = {}) {
       const doc = state.projects.find((p) => matchesId(p, id) && String(p.companyId) === String(companyId));
@@ -1147,8 +1156,49 @@ function createEnquiryFakeStore(seed = {}) {
     },
   };
 
+  /** Owner decision (30 Oct 2026) — photographs of the work on a project. */
+  const projectPhotoRepo = {
+    async create(data) {
+      const doc = { id: nextId('pph'), createdAt: new Date(), ...data };
+      state.projectPhotos.push(doc);
+      const { data: _bytes, ...rest } = doc;
+      return cloneDeep(rest);
+    },
+    /** Mirrors the real repo: a listing never carries the bytes. */
+    async listForProject(companyId, projectId) {
+      return state.projectPhotos
+        .filter((p) => sameCompany(p, companyId) && String(p.projectId) === String(projectId))
+        .sort((a, b) => (a.updateIndex - b.updateIndex) || (new Date(a.createdAt) - new Date(b.createdAt)))
+        .map((p) => { const { data, ...rest } = p; return cloneDeep(rest); });
+    },
+    async countForUpdate(companyId, projectId, updateIndex) {
+      return state.projectPhotos.filter((p) => sameCompany(p, companyId)
+        && String(p.projectId) === String(projectId) && p.updateIndex === updateIndex).length;
+    },
+    async countForProject(companyId, projectId) {
+      return state.projectPhotos.filter((p) => sameCompany(p, companyId)
+        && String(p.projectId) === String(projectId)).length;
+    },
+    async findById(companyId, id) {
+      const doc = state.projectPhotos.find((p) => sameCompany(p, companyId) && String(p.id) === String(id));
+      return doc ? { ...doc, data: doc.data } : null;
+    },
+    async deleteById(companyId, id) {
+      const i = state.projectPhotos.findIndex((p) => sameCompany(p, companyId) && String(p.id) === String(id));
+      if (i < 0) return false;
+      state.projectPhotos.splice(i, 1);
+      return true;
+    },
+    async deleteManyByCompany(companyId) {
+      for (let i = state.projectPhotos.length - 1; i >= 0; i -= 1) {
+        if (sameCompany(state.projectPhotos[i], companyId)) state.projectPhotos.splice(i, 1);
+      }
+    },
+  };
+
   return {
     state,
+    projectPhotoRepo,
     pushDeviceRepo,
     enquiryRepo,
     salesOrderRepo,

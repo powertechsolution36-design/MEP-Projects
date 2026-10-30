@@ -78,6 +78,7 @@ const IconShield = () => icon('M12 3l7 3v5.5c0 4.3-3 7.6-7 9-4-1.4-7-4.7-7-9V6z'
 const IconCheck = () => icon('M4.5 12.5l5 5 10-11');
 const IconUser = () => icon('M4.5 20a7.5 7.5 0 0 1 15 0', <circle cx="12" cy="7.5" r="3.8" />);
 const IconClock = () => icon('M12 7v5.2l3.2 2', <circle cx="12" cy="12" r="9" />);
+const IconSite = () => icon('M3 20h18M6 20V9l6-4 6 4v11M10 20v-5h4v5');
 
 /* ------------------------------------------------------------------ *
  * Shell
@@ -332,10 +333,279 @@ function ComplaintRow({ c }) {
   );
 }
 
+
+/* ------------------------------------------------------------------ *
+ * Projects — "what stage is my project at" (owner decision, 30 Oct 2026)
+ *
+ * The client sees their own HVAC, Solar or MEP work: the stage it has
+ * reached, when the earlier stages were reached, and whatever the project
+ * manager has chosen to tell them. Which projects these are is decided by
+ * staff and sent by the server; this screen asks for nothing and can show
+ * nothing else.
+ *
+ * "Live" here is honest about what it is: the page asks again every half
+ * minute while the client is looking at it. There is no socket in this
+ * application, and pretending otherwise would be a lie in the interface.
+ * ------------------------------------------------------------------ */
+
+
+/**
+ * A photograph of the work. The bytes sit behind the client's own session,
+ * so this cannot be a plain <img src>: fetched with the token and handed to
+ * the browser as a blob URL, revoked when the thumbnail goes away.
+ */
+function PortalPhoto({ src, alt, onOpen }) {
+  const [url, setUrl] = useState('');
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    let made = '';
+    (async () => {
+      try {
+        const token = getPortalToken();
+        const res = await fetch(src, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        if (!res.ok) throw new Error(String(res.status));
+        made = URL.createObjectURL(await res.blob());
+        if (alive) setUrl(made); else URL.revokeObjectURL(made);
+      } catch { if (alive) setFailed(true); }
+    })();
+    return () => { alive = false; if (made) URL.revokeObjectURL(made); };
+  }, [src]);
+
+  if (failed) return null;
+  return (
+    <button type="button" className="portal-photo" onClick={onOpen} aria-label={alt || 'Open the photograph'}>
+      {url ? <img src={url} alt={alt || ''} /> : <span className="portal-photo-wait" aria-hidden="true" />}
+    </button>
+  );
+}
+
+const POLL_MS = 30000;
+
+/**
+ * Fetch, then keep fetching while the tab is in front. Polling stops when
+ * the client switches away — a phone left on this screen in a pocket should
+ * not spend its battery or their data.
+ */
+function useLive(path, pick) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+  const [at, setAt] = useState(null);
+  const pickRef = useRef(pick);
+  pickRef.current = pick;
+
+  useEffect(() => {
+    let alive = true;
+    let timer = null;
+
+    const stop = () => { if (timer) { clearTimeout(timer); timer = null; } };
+
+    const tick = async (first) => {
+      if (!alive) return;
+      try {
+        const d = await portalApi.get(path);
+        if (!alive) return;
+        setData(pickRef.current(d));
+        setAt(new Date());
+        setError('');
+      } catch (e) {
+        if (!alive) return;
+        // A later poll failing must not blank a page that is already
+        // showing good data — say so quietly instead.
+        setError(e.message);
+        if (first) setData(null);
+      }
+      if (alive && !document.hidden) timer = setTimeout(() => tick(false), POLL_MS);
+    };
+
+    const onVisible = () => {
+      if (document.hidden) stop();
+      else if (!timer) tick(false);
+    };
+
+    tick(true);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { alive = false; stop(); document.removeEventListener('visibilitychange', onVisible); };
+  }, [path]);
+
+  return { data, error, at };
+}
+
+/** "just now", "4 minutes ago" — when the figures on screen were read. */
+function sinceText(at) {
+  if (!at) return '';
+  const mins = Math.floor((Date.now() - at.getTime()) / 60000);
+  if (mins < 1) return 'Updated just now';
+  if (mins === 1) return 'Updated a minute ago';
+  return `Updated ${mins} minutes ago`;
+}
+
+function Meter({ percent, label }) {
+  return (
+    <div className="portal-meter" role="img" aria-label={label}>
+      <span className="portal-meter-fill" style={{ width: `${Math.max(2, percent)}%` }} />
+    </div>
+  );
+}
+
+function ProjectRow({ p }) {
+  return (
+    <Link className="portal-row" to={`/portal/projects/${p.id}`}>
+      <span className="portal-row-main">
+        <span className="portal-row-title">{p.name}</span>
+        <span className="portal-row-meta">
+          {p.division}{p.capacity ? ` · ${p.capacity}` : ''}
+        </span>
+        <Meter percent={p.progressPercent} label={`${p.progressPercent}% complete`} />
+        <span className="portal-row-meta">
+          {p.status === 'Completed' ? 'Finished' : `Now at: ${p.stage}`} · {p.progressPercent}%
+        </span>
+      </span>
+      <span className="portal-row-side">
+        <span className={`status-badge ${p.status === 'Completed' ? 'status-won' : 'status-pending'}`}>
+          {p.status === 'Completed' ? 'Completed' : 'In progress'}
+        </span>
+        {p.lastUpdateAt && <span className="portal-row-meta">Latest {fmtLong(p.lastUpdateAt)}</span>}
+      </span>
+      <span className="portal-row-chevron" aria-hidden="true">{icon('M9 6l6 6-6 6')}</span>
+    </Link>
+  );
+}
+
+/** The division's stages, with the dates somebody actually recorded. */
+function StageTrail({ stages }) {
+  return (
+    <ol className="portal-steps">
+      {stages.map((st) => (
+        <li
+          key={st.stage}
+          className={`portal-step${st.reached ? ' is-done' : ''}${st.current ? ' is-current' : ''}`}
+        >
+          <span className="portal-step-mark" aria-hidden="true">
+            {/* The stage in hand is NOT finished, so it must not carry a
+                tick — a client reading quickly would take it for done. */}
+            {st.current || !st.reached ? <IconClock /> : <IconCheck />}
+          </span>
+          <span className="portal-step-body">
+            <span className="portal-step-label">{st.stage}</span>
+            <span className="portal-step-when">
+              {st.at ? fmtLong(st.at) : st.current ? 'Happening now' : st.reached ? 'Done' : 'Not yet'}
+            </span>
+          </span>
+          <span className="portal-sr">{st.reached ? 'Done' : 'Not done yet'}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function PortalProjectDetail() {
+  const { profile, signOut } = usePortal();
+  const { id } = useParams();
+  const { data: p, error, at } = useLive(`/api/portal/projects/${id}`, (d) => d.project);
+  const [viewing, setViewing] = useState(null);
+
+  return (
+    <PortalShell profile={profile} onLogout={signOut} narrow>
+      <Link className="portal-back" to="/portal"><IconBack />Back</Link>
+
+      {error && !p && <div className="portal-card"><Notice>{error}</Notice></div>}
+      {!p && !error && <div className="portal-card"><Skeleton rows={4} /></div>}
+
+      {p && (
+        <div className="portal-stack">
+          <section className="portal-card" aria-labelledby="portal-proj-h">
+            <span className="portal-cover-mark" aria-hidden="true"><IconSite /></span>
+            <h1 id="portal-proj-h">{p.name}</h1>
+            <p className="portal-row-meta">
+              {p.division}{p.siteType ? ` · ${p.siteType}` : ''}{p.capacity ? ` · ${p.capacity}` : ''}
+            </p>
+
+            <Meter percent={p.progressPercent} label={`${p.progressPercent}% complete`} />
+            <p className="portal-meter-note">
+              <strong>{p.progressPercent}% complete</strong>
+              {p.status === 'Completed'
+                ? <> — finished{p.completedDate ? ` on ${fmtLong(p.completedDate)}` : ''}.</>
+                : <> — currently at <strong>{p.stage}</strong>.</>}
+            </p>
+
+            <dl className="portal-facts">
+              <div>
+                <dt>Started</dt>
+                <dd>{p.startDate ? fmtLong(p.startDate) : 'Not recorded'}</dd>
+              </div>
+              <div>
+                <dt>Stage</dt>
+                <dd>{p.stage || 'Not recorded'}</dd>
+              </div>
+              <div>
+                <dt>Status</dt>
+                <dd>{p.status === 'Completed' ? 'Completed' : 'In progress'}</dd>
+              </div>
+            </dl>
+            {at && <p className="portal-cta-note">{sinceText(at)}</p>}
+          </section>
+
+          <section className="portal-card" aria-labelledby="portal-trail-h">
+            <h2 id="portal-trail-h" className="portal-card-h">Progress</h2>
+            <StageTrail stages={p.stages || []} />
+          </section>
+
+          <section className="portal-card" aria-labelledby="portal-upd-h">
+            <h2 id="portal-upd-h" className="portal-card-h">
+              Updates from your project manager <span className="portal-count">{(p.updates || []).length}</span>
+            </h2>
+            {(p.updates || []).length === 0
+              ? <Empty icon={IconClock} title="No updates yet">
+                  When your project manager posts an update about this site, it will appear here.
+                </Empty>
+              : <ol className="portal-feed">
+                  {p.updates.map((u, i) => (
+                    <li key={`${u.date}-${i}`} className="portal-feed-item">
+                      <span className="portal-feed-when">{u.date ? fmtLong(u.date) : ''}</span>
+                      <span className="portal-feed-note">{u.note}</span>
+                      {(u.photos || []).length > 0 && (
+                        <span className="portal-photos">
+                          {u.photos.map((ph) => (
+                            <span key={ph.id} className="portal-photo-wrap">
+                              <PortalPhoto
+                                src={`/api/portal/projects/${p.id}/photos/${ph.id}`}
+                                alt={ph.caption || 'Photograph of the work'}
+                                onOpen={() => setViewing({ id: ph.id, caption: ph.caption })}
+                              />
+                              {ph.caption && <span className="portal-photo-cap">{ph.caption}</span>}
+                            </span>
+                          ))}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ol>}
+          </section>
+        </div>
+      )}
+
+      {viewing && (
+        <div className="portal-lightbox" role="dialog" aria-modal="true"
+          aria-label={viewing.caption || 'Photograph of the work'}
+          onClick={() => setViewing(null)}>
+          <PortalPhoto src={`/api/portal/projects/${id}/photos/${viewing.id}`} alt={viewing.caption || ''} />
+          {viewing.caption && <p className="portal-lightbox-cap">{viewing.caption}</p>}
+          <button type="button" className="btn sec portal-btn" onClick={() => setViewing(null)}>Close</button>
+        </div>
+      )}
+    </PortalShell>
+  );
+}
+
 function PortalDashboard() {
   const { profile, signOut } = usePortal();
   const [complaints, setComplaints] = useState(null);
   const [error, setError] = useState('');
+  // Owner decision (30 Oct 2026). Kept apart from the complaints request:
+  // a client with no linked project still gets their service history, and a
+  // client with projects still gets them if the complaints call fails.
+  const { data: projects } = useLive('/api/portal/projects', (d) => d.projects || []);
 
   useEffect(() => {
     let alive = true;
@@ -382,6 +652,15 @@ function PortalDashboard() {
         <div className="portal-stack">
           {error && <div className="portal-card"><Notice>{error}</Notice></div>}
           {complaints === null && !error && <div className="portal-card"><Skeleton rows={3} /></div>}
+
+          {projects && projects.length > 0 && (
+            <section className="portal-card" aria-labelledby="portal-proj-h">
+              <h2 id="portal-proj-h" className="portal-card-h">
+                Your projects <span className="portal-count">{projects.length}</span>
+              </h2>
+              <div className="portal-rows">{projects.map((p) => <ProjectRow key={p.id} p={p} />)}</div>
+            </section>
+          )}
 
           {complaints && (
             <>
@@ -762,6 +1041,7 @@ export default function PortalApp() {
         <Route path="login" element={<PortalLogin />} />
         <Route path="register" element={<PortalRegister />} />
         <Route index element={<RequirePortalAuth><PortalDashboard /></RequirePortalAuth>} />
+        <Route path="projects/:id" element={<RequirePortalAuth><PortalProjectDetail /></RequirePortalAuth>} />
         <Route path="complaints/new" element={<RequirePortalAuth><PortalComplaintNew /></RequirePortalAuth>} />
         <Route path="complaints/:id" element={<RequirePortalAuth><PortalComplaintDetail /></RequirePortalAuth>} />
         <Route path="*" element={<Navigate to="/portal" replace />} />

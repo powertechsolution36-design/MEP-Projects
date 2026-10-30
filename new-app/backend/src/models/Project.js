@@ -92,6 +92,37 @@ const executionUpdateSchema = new Schema(
     nextActionDate: { type: Date }, // PWA FACT
     // PWA FACT (as name) -> NEW BACKEND DESIGN (durable ref).
     enteredByUserId: { type: Schema.Types.ObjectId, ref: 'User' },
+
+    // NEW BACKEND DESIGN (owner decision, 30 Oct 2026) — the customer
+    // portal's project feed.
+    //
+    // An execution update is written for the office: `nextAction` is an
+    // internal commitment, and `actionDone` is often shorthand naming a
+    // vendor or a problem. So nothing here reaches the client until the PM
+    // says so, and the default is false — which means no update already in
+    // the database can start being visible because this field was added.
+    sharedWithCustomer: { type: Boolean, default: false },
+    // What the client reads, when the PM wants different words from
+    // `actionDone`. Blank and shared means `actionDone` is shown as it is.
+    customerNote: { type: String, default: '' },
+  },
+  { _id: false }
+);
+
+/**
+ * NEW BACKEND DESIGN (owner decision, 30 Oct 2026) — append-only record of
+ * every stage this project has passed through, so "what stage is my project
+ * at" can be answered with dates rather than a single current value.
+ *
+ * `stage` is NOT validated against the division here: a division's stage
+ * list may be edited later, and a historical entry must stay readable even
+ * when the stage it names is no longer offered.
+ */
+const stageHistoryEntrySchema = new Schema(
+  {
+    stage: { type: String, required: true },
+    enteredAt: { type: Date, required: true },
+    enteredByUserId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
   },
   { _id: false }
 );
@@ -133,6 +164,12 @@ const projectSchema = new Schema(
     checklistTemplateName: { type: String }, // PWA FACT — display only
     checklist: { type: [checklistExecutionItemSchema], default: [] }, // PWA FACT
     executionUpdates: { type: [executionUpdateSchema], default: [] }, // PWA FACT — append-only
+    // NEW BACKEND DESIGN (owner decision, 30 Oct 2026) — see
+    // stageHistoryEntrySchema. Append-only; projects created before this
+    // existed have an empty array, and projectService synthesises a first
+    // entry for them at read time rather than back-writing a date nobody
+    // recorded.
+    stageHistory: { type: [stageHistoryEntrySchema], default: [] },
     deliveryChallans: { type: [deliveryChallanItemSchema], default: [] }, // PWA FACT
     timelineSet: { type: Boolean, default: false }, // PWA FACT
     lastDelayNotifiedDate: { type: Date, default: null }, // PWA FACT — throttle marker

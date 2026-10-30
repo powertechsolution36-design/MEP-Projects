@@ -31,6 +31,53 @@ import SignaturePad from '../../components/SignaturePad';
  *   isPmOrAssignedEngineer: tick/remark/photo/update/DC
  */
 
+
+/* ---- Project photographs (owner decision, 30 Oct 2026) ---------------- */
+
+const PHOTO_ACCEPT = 'image/jpeg,image/png,image/webp';
+const PHOTO_MAX_BYTES = 3 * 1024 * 1024;
+const PHOTO_MAX_PER_UPDATE = 6;
+
+/**
+ * The bytes sit behind an authenticated route, so a photograph cannot be a
+ * plain <img src>. Fetched with the token and handed to the browser as a
+ * blob URL, which is revoked when the thumbnail goes away.
+ */
+function AuthedImage({ src, alt, style, onClick }) {
+  const [url, setUrl] = useState('');
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    let made = '';
+    (async () => {
+      try {
+        const resp = await fetch(src, { headers: { Authorization: `Bearer ${getStoredToken()}` } });
+        if (!resp.ok) throw new Error(String(resp.status));
+        made = URL.createObjectURL(await resp.blob());
+        if (alive) setUrl(made); else URL.revokeObjectURL(made);
+      } catch { if (alive) setFailed(true); }
+    })();
+    return () => { alive = false; if (made) URL.revokeObjectURL(made); };
+  }, [src]);
+  if (failed) return <span className="muted" style={style}>could not load</span>;
+  if (!url) return <span className="muted" style={style} />;
+  return <img src={url} alt={alt} style={style} onClick={onClick} />;
+}
+
+/** Read chosen files into data URIs, refusing anything too big here too. */
+function readPhotoFiles(files) {
+  return Promise.all([...files].map((f) => new Promise((resolve, reject) => {
+    if (f.size > PHOTO_MAX_BYTES) {
+      reject(new Error(`${f.name} is over 3 MB. Please choose a smaller photograph.`));
+      return;
+    }
+    const r = new FileReader();
+    r.onerror = () => reject(new Error(`${f.name} could not be read.`));
+    r.onload = () => resolve({ data: String(r.result), caption: '', name: f.name });
+    r.readAsDataURL(f);
+  })));
+}
+
 /* PWA FACT (STAGES, §5) */
 const STAGES_BY_DIVISION = {
   HVAC: ['Planning', 'Piping', 'Installation', 'Testing', 'Finishing', 'Completed'],
@@ -130,7 +177,10 @@ export default function ProjectDetail() {
   const [approveForm, setApproveForm] = useState({ approverName: '', approvalRemark: '', signatureImage: '' });
 
   const [showUpdateModal, setShowUpdateModal] = useState(false);
-  const [updateForm, setUpdateForm] = useState({ actionDone: '', nextAction: '', nextActionDate: '' });
+  const [updateForm, setUpdateForm] = useState({ actionDone: '', nextAction: '', nextActionDate: '', shareWithCustomer: false, customerNote: '' });
+  const [updatePhotos, setUpdatePhotos] = useState([]);
+  const [lightbox, setLightbox] = useState('');
+  const [photos, setPhotos] = useState([]);
 
 
 
@@ -492,14 +542,65 @@ export default function ProjectDetail() {
     finally { setBusy(false); }
   }
 
+  /* ---------- Project photographs ---------- */
+  const loadPhotos = useCallback(async () => {
+    try {
+      const d = await api.get(`/api/projects/${id}/photos`);
+      setPhotos(d.photos || []);
+    } catch { /* the page is still usable without them */ }
+  }, [id]);
+
+  useEffect(() => { loadPhotos(); }, [loadPhotos]);
+
+  async function handleRemovePhoto(photoId) {
+    setBusy(true);
+    try {
+      await api.del(`/api/projects/${id}/photos/${photoId}`);
+      await loadPhotos();
+    } catch (err) { alert(err.message); }
+    finally { setBusy(false); }
+  }
+
   /* ---------- Execution Update ---------- */
   async function handleUpdateSubmit() {
     setBusy(true);
     try {
       const data = await api.post(`/api/projects/${id}/updates`, updateForm);
       setProj(data.project);
+      // The update just appended is the last one, so that is where its
+      // photographs belong.
+      const idx = (data.project.executionUpdates || []).length - 1;
+      if (updatePhotos.length && idx >= 0) {
+        try {
+          await api.post(`/api/projects/${id}/updates/${idx}/photos`, {
+            photos: updatePhotos.map((p) => ({ data: p.data, caption: p.caption })),
+          });
+          await loadPhotos();
+        } catch (err) {
+          // The words are saved; say plainly that the pictures are not.
+          alert(`The update was saved, but the photographs were not: ${err.message}`);
+        }
+      }
       setShowUpdateModal(false);
-      setUpdateForm({ actionDone: '', nextAction: '', nextActionDate: '' });
+      setUpdateForm({ actionDone: '', nextAction: '', nextActionDate: '', shareWithCustomer: false, customerNote: '' });
+      setUpdatePhotos([]);
+    } catch (err) { alert(err.message); }
+    finally { setBusy(false); }
+  }
+
+  /**
+   * Show this update to the client in their portal, or take it back (owner
+   * decision, 30 Oct 2026).
+   *
+   * `idx` is the real position in `executionUpdates`. The list below is
+   * rendered newest-first, so its loop index is NOT this number — passing
+   * the wrong one would publish somebody else's line.
+   */
+  async function handleShareUpdate(idx, shared) {
+    setBusy(true);
+    try {
+      const data = await api.patch(`/api/projects/${id}/updates/${idx}/share`, { shared });
+      setProj(data.project);
     } catch (err) { alert(err.message); }
     finally { setBusy(false); }
   }
@@ -731,16 +832,57 @@ export default function ProjectDetail() {
           <p className="muted">No updates yet.</p>
         ) : (
           <ul className="log-list">
-            {[...updates].reverse().map((u, i) => (
-              <li key={i}>
-                <span className="log-date">{fmtDate(u.date)}</span>
-                <span className="log-text">
-                  <strong>Done:</strong> {u.actionDone}
-                  {u.nextAction && <> | <strong>Next:</strong> {u.nextAction}</>}
-                  {u.nextActionDate && <> ({fmtDate(u.nextActionDate)})</>}
-                </span>
-              </li>
-            ))}
+            {[...updates].reverse().map((u, i) => {
+              // Newest-first render over an append-only array.
+              const idx = updates.length - 1 - i;
+              return (
+                <li key={idx}>
+                  <span className="log-date">{fmtDate(u.date)}</span>
+                  <span className="log-text">
+                    <strong>Done:</strong> {u.actionDone}
+                    {u.nextAction && <> | <strong>Next:</strong> {u.nextAction}</>}
+                    {u.nextActionDate && <> ({fmtDate(u.nextActionDate)})</>}
+                    {u.sharedWithCustomer && (
+                      <>
+                        {' '}<span className="status-badge status-won">Client can see this</span>
+                        {u.customerNote && <div className="muted">Client reads: “{u.customerNote}”</div>}
+                      </>
+                    )}
+                    {canAct && (
+                      <>
+                        {' '}
+                        <button
+                          className="btn sec sm"
+                          disabled={busy}
+                          onClick={() => handleShareUpdate(idx, !u.sharedWithCustomer)}
+                        >
+                          {u.sharedWithCustomer ? 'Hide from client' : 'Show to client'}
+                        </button>
+                      </>
+                    )}
+                    {photos.filter((ph) => ph.updateIndex === idx).length > 0 && (
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+                        {photos.filter((ph) => ph.updateIndex === idx).map((ph) => (
+                          <figure key={ph.id} style={{ margin: 0, width: 110 }}>
+                            <AuthedImage
+                              src={`${API_BASE_URL}/api/projects/${id}/photos/${ph.id}`}
+                              alt={ph.caption || 'Project photograph'}
+                              style={{ width: 110, height: 82, objectFit: 'cover', borderRadius: 6, display: 'block', cursor: 'zoom-in' }}
+                              onClick={() => setLightbox(`${API_BASE_URL}/api/projects/${id}/photos/${ph.id}`)}
+                            />
+                            {ph.caption && <figcaption className="muted" style={{ fontSize: 11 }}>{ph.caption}</figcaption>}
+                            {canAct && (
+                              <button className="btn sec sm" style={{ marginTop: 2 }} disabled={busy}
+                                onClick={() => handleRemovePhoto(ph.id)}>Remove</button>
+                            )}
+                          </figure>
+                        ))}
+                      </div>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
@@ -1054,6 +1196,13 @@ export default function ProjectDetail() {
       )}
 
       {/* Add Update Modal */}
+      {lightbox && (
+        <div className="modal-overlay" onClick={() => setLightbox('')}>
+          <AuthedImage src={lightbox} alt="Project photograph"
+            style={{ maxWidth: '92vw', maxHeight: '88vh', objectFit: 'contain', borderRadius: 8 }} />
+        </div>
+      )}
+
       {showUpdateModal && (
         <div className="modal-overlay" onClick={() => setShowUpdateModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
@@ -1070,8 +1219,84 @@ export default function ProjectDetail() {
               <label>Next Action Date</label>
               <input type="date" value={updateForm.nextActionDate} onChange={e => setUpdateForm(f => ({ ...f, nextActionDate: e.target.value }))} />
             </div>
+
+            {/* Owner decision (30 Oct 2026): an update is internal unless
+                somebody says otherwise here. "Next Action" is never sent to
+                a client whatever is ticked. */}
+            <div className="filter-field">
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  type="checkbox"
+                  checked={updateForm.shareWithCustomer}
+                  onChange={e => setUpdateForm(f => ({ ...f, shareWithCustomer: e.target.checked }))}
+                />
+                Show this to the client in their portal
+              </label>
+            </div>
+            {/* Photographs of the work, attached to THIS update (owner
+                decision, 30 Oct 2026). They follow the tick-box above:
+                shared update, visible pictures. */}
+            <div className="filter-field" style={{ marginTop: 12 }}>
+              <label>Photographs of the work (optional, up to {PHOTO_MAX_PER_UPDATE})</label>
+              <input
+                type="file"
+                accept={PHOTO_ACCEPT}
+                multiple
+                onChange={async (e) => {
+                  const picked = e.target.files;
+                  if (!picked || !picked.length) return;
+                  try {
+                    const read = await readPhotoFiles(picked);
+                    setUpdatePhotos((prev) => {
+                      const next = [...prev, ...read].slice(0, PHOTO_MAX_PER_UPDATE);
+                      if (prev.length + read.length > PHOTO_MAX_PER_UPDATE) {
+                        alert(`Only ${PHOTO_MAX_PER_UPDATE} photographs can go on one update.`);
+                      }
+                      return next;
+                    });
+                  } catch (err) { alert(err.message); }
+                  e.target.value = '';
+                }}
+              />
+              {updatePhotos.length > 0 && (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                  {updatePhotos.map((ph, n) => (
+                    <figure key={`${ph.name}-${n}`} style={{ margin: 0, width: 120 }}>
+                      <img src={ph.data} alt="" style={{ width: 120, height: 88, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
+                      <input
+                        type="text"
+                        placeholder="What it shows"
+                        value={ph.caption}
+                        maxLength={200}
+                        style={{ width: '100%', marginTop: 4, fontSize: 12 }}
+                        onChange={(e) => setUpdatePhotos((prev) => prev.map((x, j) => (j === n ? { ...x, caption: e.target.value } : x)))}
+                      />
+                      <button className="btn sec sm" style={{ marginTop: 2 }}
+                        onClick={() => setUpdatePhotos((prev) => prev.filter((_, j) => j !== n))}>Remove</button>
+                    </figure>
+                  ))}
+                </div>
+              )}
+              {updateForm.shareWithCustomer && updatePhotos.length > 0 && (
+                <small className="muted">These {updatePhotos.length === 1 ? 'photograph goes' : 'photographs go'} to the client with this update.</small>
+              )}
+            </div>
+
+            {updateForm.shareWithCustomer && (
+              <div className="filter-field">
+                <label>What the client reads (optional)</label>
+                <textarea
+                  value={updateForm.customerNote}
+                  onChange={e => setUpdateForm(f => ({ ...f, customerNote: e.target.value }))}
+                  rows={2}
+                  placeholder="Leave blank to show the Action Done text as it is"
+                />
+                <small className="muted">Only this line and the date reach the client. Next Action stays internal.</small>
+              </div>
+            )}
+
             <div className="modal-actions">
-              <button className="btn sec sm" onClick={() => setShowUpdateModal(false)}>Cancel</button>
+              <button className="btn sec sm" onClick={() => { setShowUpdateModal(false); setUpdatePhotos([]); }}>Cancel</button>
               <button className="btn pri sm" onClick={handleUpdateSubmit} disabled={busy || !updateForm.actionDone}>Add</button>
             </div>
           </div>

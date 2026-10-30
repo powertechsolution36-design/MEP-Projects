@@ -198,6 +198,7 @@ function createDevRepositories() {
     customerAccountRepo: store.customerAccountRepo,
     customerSessionRepo: store.customerSessionRepo,
     attachmentRepo: store.attachmentRepo,
+    projectPhotoRepo: store.projectPhotoRepo,
     dailyTaskRepo: {
       async deleteManyByCompany(companyId) {
         for (let i = dailyTasks.length - 1; i >= 0; i -= 1) {

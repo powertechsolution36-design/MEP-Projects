@@ -165,6 +165,7 @@ function publicAccount(a, contract) {
     claimedSite: a.claimedSite || '',
     matchResult: a.matchResult || 'no-match',
     contractId: a.contractId || null,
+    linkedProjectIds: (a.linkedProjectIds || []).map(String),
     contract: contract ? { id: contract.id, customer: contract.customer, site: contract.site, category: contract.category } : null,
     createdAt: a.createdAt || null,
     approvedAt: a.approvedAt || null,
@@ -309,6 +310,11 @@ async function verifyCustomerSession(token, deps) {
     sessionId: String(session.id),
     name: account.name,
     phone: account.phone,
+    // Owner decision (30 Oct 2026): the projects this client may watch,
+    // read from the account on every request along with its status — so
+    // unlinking a project takes effect on the client's next page load, the
+    // same way disabling an account does.
+    linkedProjectIds: (account.linkedProjectIds || []).map(String),
   };
 }
 
@@ -317,8 +323,125 @@ async function logoutCustomer(sessionId, deps) {
   return { loggedOut: true };
 }
 
+
+/* ------------------------------------------------------------------ *
+ * Which projects a client may watch (owner decision, 30 Oct 2026)
+ *
+ * A client's access to a project is a stored fact a member of staff put
+ * there. This module helps them find the right project and records the
+ * decision; it never grants access on its own.
+ *
+ * The ranking below is a CONVENIENCE, not an authorization. It exists so
+ * that linking the obvious project is one click instead of a hunt through
+ * every project in the company. A high score grants nothing: only
+ * setLinkedProjects writes, and only a person can call it.
+ * ------------------------------------------------------------------ */
+
+/** Lower case, punctuation out, meaningless words out. */
+const NOISE_WORDS = new Set([
+  'the', 'and', 'pvt', 'ltd', 'private', 'limited', 'llp', 'inc', 'co',
+  'project', 'site', 'hvac', 'solar', 'mep', 'mr', 'mrs', 'dr', 'ms',
+]);
+
+function tokens(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(' ')
+    .filter((t) => t.length > 2 && !NOISE_WORDS.has(t));
+}
+
+/**
+ * How strongly a project's text looks like this client's text. The share of
+ * the client's distinctive words that the project repeats — so a project
+ * named for the site scores high, and a long project name full of unrelated
+ * words is not rewarded for its length.
+ */
+function matchScore(clientTokens, projectTokens) {
+  if (clientTokens.size === 0 || projectTokens.size === 0) return 0;
+  let hits = 0;
+  for (const t of clientTokens) if (projectTokens.has(t)) hits += 1;
+  return Math.round((hits / clientTokens.size) * 100);
+}
+
+async function listProjectCandidates(companyId, accountId, actorAuth, deps) {
+  assertCanReview(actorAuth);
+  const account = await deps.customerAccountRepo.findByIdForCompany(companyId, accountId);
+  if (!account) throw portalError('Customer account not found.', 'NOT_FOUND', 404);
+
+  const contract = account.contractId
+    ? await deps.contractRepo.findById(companyId, account.contractId)
+    : null;
+
+  const clientTokens = new Set([
+    ...tokens(contract && contract.customer),
+    ...tokens(contract && contract.site),
+    ...tokens(account.name),
+    ...tokens(account.claimedSite),
+  ]);
+
+  const linked = new Set((account.linkedProjectIds || []).map(String));
+  const projects = await deps.projectRepo.listByCompany(companyId);
+
+  return projects
+    .map((p) => ({
+      id: String(p.id || p._id),
+      name: p.name || '',
+      division: p.division || '',
+      customer: p.customer || '',
+      stage: p.stage || '',
+      status: p.status || '',
+      startDate: p.startDate || null,
+      linked: linked.has(String(p.id || p._id)),
+      score: matchScore(clientTokens, new Set([...tokens(p.customer), ...tokens(p.name)])),
+    }))
+    .sort((a, b) => {
+      // Already linked first so staff can see and undo what is in force,
+      // then the likeliest matches, then the rest newest-first.
+      if (a.linked !== b.linked) return a.linked ? -1 : 1;
+      if (b.score !== a.score) return b.score - a.score;
+      return new Date(b.startDate || 0) - new Date(a.startDate || 0);
+    });
+}
+
+/**
+ * Record exactly which projects this client may watch. The whole list is
+ * replaced, so removing a project is the same operation as adding one, and
+ * an empty list is a valid answer meaning "no projects".
+ *
+ * Every id is checked against THIS company before it is stored. An id for
+ * another tenant's project is not an error to argue about — it is dropped,
+ * and the reply says what was actually saved.
+ */
+async function setLinkedProjects(companyId, accountId, projectIds, actorAuth, deps) {
+  assertCanReview(actorAuth);
+  const account = await deps.customerAccountRepo.findByIdForCompany(companyId, accountId);
+  if (!account) throw portalError('Customer account not found.', 'NOT_FOUND', 404);
+  if (!Array.isArray(projectIds)) {
+    throw portalError('projectIds must be a list.', 'VALIDATION_ERROR');
+  }
+  if (projectIds.length > 100) {
+    throw portalError('That is more projects than one client account can hold.', 'VALIDATION_ERROR');
+  }
+
+  const unique = [...new Set(projectIds.map(String))];
+  const found = await deps.projectRepo.listByIdsForCompany(companyId, unique);
+  const valid = found.map((p) => String(p.id || p._id));
+
+  const updated = await deps.customerAccountRepo.updateFields(accountId, { linkedProjectIds: valid });
+  const contract = updated.contractId ? await deps.contractRepo.findById(companyId, updated.contractId) : null;
+  return {
+    account: publicAccount(updated, contract),
+    ignored: unique.filter((id) => !valid.includes(id)),
+  };
+}
+
 module.exports = {
   normalizePhone,
+  listProjectCandidates,
+  setLinkedProjects,
+  matchScore,
+  tokens,
   registerCustomer,
   listCustomerAccounts,
   approveCustomerAccount,

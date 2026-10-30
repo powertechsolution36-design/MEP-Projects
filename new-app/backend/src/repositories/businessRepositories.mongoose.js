@@ -29,6 +29,7 @@ const {
   CustomerAccount,
   CustomerSession,
   ServiceCallAttachment,
+  ProjectPhoto,
 } = require('../models');
 const { Counter } = require('../models/Counter');
 
@@ -215,6 +216,19 @@ const projectRepo = {
   async listByCompany(companyId) {
     const docs = await Project.find({ companyId }).lean();
     return docs.map((d) => ({ ...d, id: String(d._id) }));
+  },
+  /**
+   * The customer portal's only way to reach a project (owner decision,
+   * 30 Oct 2026). Both halves of the filter matter: `_id: $in` is the
+   * client's explicit grant, `companyId` is the tenant. Ids that are not
+   * valid ObjectIds are dropped rather than thrown on, so one stale entry
+   * in an account's list cannot break the whole page.
+   */
+  async listByIdsForCompany(companyId, ids) {
+    const clean = (Array.isArray(ids) ? ids : []).filter((id) => mongoose.isValidObjectId(id));
+    if (clean.length === 0) return [];
+    const docs = await Project.find({ _id: { $in: clean }, companyId }).lean();
+    return docs.map(toPlainLean);
   },
   /**
    * Generic plain-field/whole-array merge -- projectService.js reads the
@@ -1266,8 +1280,49 @@ const attachmentRepo = {
   },
 };
 
+/**
+ * Photographs of work done on a project (owner decision, 30 Oct 2026).
+ * Listings NEVER carry the bytes — only the one authorized read does.
+ */
+const projectPhotoRepo = {
+  async create(data) {
+    const doc = await ProjectPhoto.create(data);
+    const out = toPlainLean(doc.toObject());
+    delete out.data;
+    return out;
+  },
+  async listForProject(companyId, projectId) {
+    if (!mongoose.isValidObjectId(projectId)) return [];
+    const docs = await ProjectPhoto.find({ companyId, projectId })
+      .select('-data').sort({ updateIndex: 1, createdAt: 1 }).lean();
+    return docs.map(toPlainLean);
+  },
+  async countForUpdate(companyId, projectId, updateIndex) {
+    if (!mongoose.isValidObjectId(projectId)) return 0;
+    return ProjectPhoto.countDocuments({ companyId, projectId, updateIndex });
+  },
+  async countForProject(companyId, projectId) {
+    if (!mongoose.isValidObjectId(projectId)) return 0;
+    return ProjectPhoto.countDocuments({ companyId, projectId });
+  },
+  /** The bytes, for a request that has already been authorized. */
+  async findById(companyId, id) {
+    if (!mongoose.isValidObjectId(id)) return null;
+    return toPlainLean(await ProjectPhoto.findOne({ _id: id, companyId }).lean());
+  },
+  async deleteById(companyId, id) {
+    if (!mongoose.isValidObjectId(id)) return false;
+    const res = await ProjectPhoto.deleteOne({ _id: id, companyId });
+    return res.deletedCount > 0;
+  },
+  async deleteManyByCompany(companyId, session) {
+    await ProjectPhoto.deleteMany({ companyId }, { session });
+  },
+};
+
 module.exports = {
   enquiryRepo,
+  projectPhotoRepo,
   salesOrderRepo,
   projectRepo,
   paymentRepo,

@@ -1,6 +1,7 @@
 'use strict';
 
 const { ServiceError } = require('../errors');
+const ProjectPhoto = require('../models/ProjectPhoto');
 const { getEffectiveDivisions } = require('./subscriptionService');
 const { SIGN_RESPONSIBILITIES, PROJECT_STAGES_BY_DIVISION } = require('../models/shared/enums');
 const { DIVISION_PM_ROLE } = require('./salesOrderCascade');
@@ -484,6 +485,16 @@ async function setStage(projectId, input, actorAuth, deps) {
 
   const old = project.stage;
   const patch = { stage };
+  // Owner decision (30 Oct 2026): a real stage change is recorded with its
+  // date, so the client portal can show when each stage was reached instead
+  // of only where the project stands now. A resave of the same stage adds
+  // nothing — the guard matches the one the notifications below already use.
+  if (old !== stage) {
+    patch.stageHistory = [
+      ...(project.stageHistory || []),
+      { stage, enteredAt: todayDate(), enteredByUserId: actorAuth.userId || null },
+    ];
+  }
   let completionRan = false;
   let pend = 0;
   let notAppr = 0;
@@ -1069,7 +1080,7 @@ async function addExecutionUpdate(projectId, input, actorAuth, deps) {
   const project = await deps.projectRepo.findById(actorAuth.companyId, projectId);
   if (!project) throw new ServiceError('Project not found.', 'NOT_FOUND', 404);
   assertIsPmOrAssignedEngineer(actorAuth, project, 'add an execution update');
-  const { actionDone, nextAction, nextActionDate } = input || {};
+  const { actionDone, nextAction, nextActionDate, shareWithCustomer, customerNote } = input || {};
   if (!actionDone) {
     throw new ServiceError('Action Done is required.', 'VALIDATION_ERROR', 400); // PWA FACT: `if(!gv("up_done")){toast(...)}`
   }
@@ -1079,9 +1090,179 @@ async function addExecutionUpdate(projectId, input, actorAuth, deps) {
     nextAction: nextAction || '',
     nextActionDate: nextActionDate || null,
     enteredByUserId: actorAuth.userId,
+    // Owner decision (30 Oct 2026). Opt in, never inferred: an update is
+    // internal unless whoever wrote it said otherwise.
+    sharedWithCustomer: shareWithCustomer === true,
+    customerNote: shareWithCustomer === true ? String(customerNote || '').trim() : '',
   };
   const executionUpdates = [...(project.executionUpdates || []), update];
   return deps.projectRepo.update(actorAuth.companyId, projectId, { executionUpdates }, undefined, { expectedRevision: project.revision });
+}
+
+/**
+ * Share an execution update with the client, or take it back (owner
+ * decision, 30 Oct 2026).
+ *
+ * Un-sharing matters as much as sharing: something posted in haste has to be
+ * retractable, and the client's feed is built from this flag alone, so
+ * clearing it removes the entry at once.
+ */
+async function setExecutionUpdateShared(projectId, updateIndex, input, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  const project = await deps.projectRepo.findById(actorAuth.companyId, projectId);
+  if (!project) throw new ServiceError('Project not found.', 'NOT_FOUND', 404);
+  assertIsPmOrAssignedEngineer(actorAuth, project, 'share an execution update with the client');
+
+  const updates = [...(project.executionUpdates || [])];
+  const i = Number(updateIndex);
+  if (!Number.isInteger(i) || i < 0 || i >= updates.length) {
+    throw new ServiceError('That execution update does not exist.', 'NOT_FOUND', 404);
+  }
+
+  const { shared, customerNote } = input || {};
+  if (typeof shared !== 'boolean') {
+    throw new ServiceError('shared must be true or false.', 'VALIDATION_ERROR', 400);
+  }
+
+  updates[i] = {
+    ...updates[i],
+    sharedWithCustomer: shared,
+    // Dropping the client wording along with the flag keeps the record
+    // honest: an unshared update carries no client-facing text.
+    customerNote: shared
+      ? String(customerNote === undefined ? updates[i].customerNote || '' : customerNote).trim()
+      : '',
+  };
+
+  return deps.projectRepo.update(
+    actorAuth.companyId,
+    projectId,
+    { executionUpdates: updates },
+    undefined,
+    { expectedRevision: project.revision }
+  );
+}
+
+
+/* ================= PROJECT PHOTOGRAPHS ================= */
+
+/**
+ * Photographs of the work done, attached to one execution update (owner
+ * decision, 30 Oct 2026).
+ *
+ * A photograph belongs to an update, not to the project at large, so the
+ * update's `sharedWithCustomer` is the ONLY thing deciding whether a client
+ * can see it. There is no second flag to fall out of step with the words
+ * beside the picture.
+ *
+ * The bytes go to their own collection (see ProjectPhoto.js) — never onto
+ * the project document, which is read on every list, export and report.
+ */
+async function addUpdatePhotos(projectId, updateIndex, input, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  const project = await deps.projectRepo.findById(actorAuth.companyId, projectId);
+  if (!project) throw new ServiceError('Project not found.', 'NOT_FOUND', 404);
+  assertIsPmOrAssignedEngineer(actorAuth, project, 'add a project photograph');
+
+  const i = Number(updateIndex);
+  const updates = project.executionUpdates || [];
+  if (!Number.isInteger(i) || i < 0 || i >= updates.length) {
+    throw new ServiceError('That execution update does not exist.', 'NOT_FOUND', 404);
+  }
+
+  const images = Array.isArray(input && input.photos) ? input.photos : [];
+  if (images.length === 0) throw new ServiceError('Choose at least one photograph.', 'VALIDATION_ERROR', 400);
+
+  // Counted before anything is written, so a batch that would overflow is
+  // refused whole rather than half-stored.
+  const already = await deps.projectPhotoRepo.countForUpdate(actorAuth.companyId, projectId, i);
+  if (already + images.length > ProjectPhoto.MAX_PER_UPDATE) {
+    throw new ServiceError(
+      `An update can carry ${ProjectPhoto.MAX_PER_UPDATE} photographs; this one already has ${already}.`,
+      'TOO_MANY_IMAGES', 400
+    );
+  }
+  const onProject = await deps.projectPhotoRepo.countForProject(actorAuth.companyId, projectId);
+  if (onProject + images.length > ProjectPhoto.MAX_PER_PROJECT) {
+    throw new ServiceError(
+      `This project has reached its limit of ${ProjectPhoto.MAX_PER_PROJECT} photographs.`,
+      'TOO_MANY_IMAGES', 400
+    );
+  }
+
+  // Decode and validate EVERY image before storing ANY of them.
+  const decoded = images.map((img, n) => {
+    try {
+      return ProjectPhoto.decodePhoto(img, n);
+    } catch (err) {
+      throw new ServiceError(err.message, err.code || 'INVALID_IMAGE', 400);
+    }
+  });
+  const captions = images.map((img) => String((img && img.caption) || '').trim().slice(0, 200));
+
+  const saved = [];
+  for (let n = 0; n < decoded.length; n += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    saved.push(await deps.projectPhotoRepo.create({
+      companyId: actorAuth.companyId,
+      projectId,
+      updateIndex: i,
+      uploadedByUserId: actorAuth.userId || null,
+      caption: captions[n],
+      ...decoded[n],
+    }));
+  }
+  return saved.map(publicPhoto);
+}
+
+/** What a listing says about a photograph. Never the bytes. */
+function publicPhoto(p) {
+  return {
+    id: String(p.id || p._id),
+    updateIndex: p.updateIndex,
+    caption: p.caption || '',
+    contentType: p.contentType,
+    bytes: p.bytes,
+    createdAt: p.createdAt || null,
+  };
+}
+
+/** Every photograph on a project, for the staff screen. */
+async function listProjectPhotos(projectId, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  const project = await deps.projectRepo.findById(actorAuth.companyId, projectId);
+  if (!project) throw new ServiceError('Project not found.', 'NOT_FOUND', 404);
+  const rows = await deps.projectPhotoRepo.listForProject(actorAuth.companyId, projectId);
+  return rows.map(publicPhoto);
+}
+
+/**
+ * The bytes, for a staff request. Authorized by company AND by the
+ * photograph actually belonging to the project named in the URL — so a
+ * photo id from another project cannot be read through this one.
+ */
+async function getProjectPhoto(projectId, photoId, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  const file = await deps.projectPhotoRepo.findById(actorAuth.companyId, photoId);
+  if (!file || String(file.projectId) !== String(projectId)) {
+    throw new ServiceError('Photograph not found.', 'NOT_FOUND', 404);
+  }
+  return file;
+}
+
+/** Remove one photograph. The same people who may add one may take it away. */
+async function removeProjectPhoto(projectId, photoId, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  const project = await deps.projectRepo.findById(actorAuth.companyId, projectId);
+  if (!project) throw new ServiceError('Project not found.', 'NOT_FOUND', 404);
+  assertIsPmOrAssignedEngineer(actorAuth, project, 'remove a project photograph');
+
+  const file = await deps.projectPhotoRepo.findById(actorAuth.companyId, photoId);
+  if (!file || String(file.projectId) !== String(projectId)) {
+    throw new ServiceError('Photograph not found.', 'NOT_FOUND', 404);
+  }
+  await deps.projectPhotoRepo.deleteById(actorAuth.companyId, photoId);
+  return { removed: true, id: String(photoId) };
 }
 
 /* ================= DELIVERY CHALLANS ================= */
@@ -1541,6 +1722,11 @@ module.exports = {
   removeChecklistItem: retryOnConflict(removeChecklistItem),
   applyChecklistTemplate: retryOnConflict(applyChecklistTemplate),
   addExecutionUpdate: retryOnConflict(addExecutionUpdate),
+  setExecutionUpdateShared: retryOnConflict(setExecutionUpdateShared),
+  addUpdatePhotos,
+  listProjectPhotos,
+  getProjectPhoto,
+  removeProjectPhoto,
   addDeliveryChallan: retryOnConflict(addDeliveryChallan),
   editDeliveryChallanItem: retryOnConflict(editDeliveryChallanItem),
   removeDeliveryChallanItem: retryOnConflict(removeDeliveryChallanItem),

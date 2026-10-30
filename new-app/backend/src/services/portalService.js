@@ -3,6 +3,7 @@
 const { ServiceError } = require('../errors');
 const { registerComplaint } = require('./serviceCallService');
 const Attachment = require('../models/ServiceCallAttachment');
+const { PROJECT_STAGES_BY_DIVISION } = require('../models/shared/enums');
 
 /**
  * Customer portal — what a client may see and do (owner decision,
@@ -255,8 +256,216 @@ async function listAttachmentsForStaff(companyId, serviceCallId, deps) {
   return files.map((a) => ({ id: String(a.id), filename: a.filename, contentType: a.contentType, bytes: a.bytes, createdAt: a.createdAt }));
 }
 
+
+/* ================================================================== *
+ * PROJECTS — "what stage is my project at" (owner decision, 30 Oct 2026)
+ *
+ * The client is shown their own execution projects: the stage reached, when
+ * each earlier stage was reached, and whatever the project manager has
+ * chosen to tell them. The three rules this is built on:
+ *
+ *   1. ACCESS IS A STORED FACT. A client sees a project because a member of
+ *      staff put its id in `account.linkedProjectIds`, and for no other
+ *      reason. Nothing here matches on `project.customer`, which is free
+ *      text retyped per document and would hand a stranger someone else's
+ *      site on one careless spelling. The company on the session is checked
+ *      as well, in the query, so a link alone is never enough.
+ *
+ *   2. THE PAYLOAD IS AN ALLOWLIST, NOT A REDACTION. `customerProjectView`
+ *      names every field that leaves this module. A project document also
+ *      carries totals, margins, the vendor, assigned engineers, delivery
+ *      challans and internal next actions — none of which can appear here by
+ *      forgetting to remove them, because nothing is copied wholesale.
+ *
+ *   3. AN UPDATE IS PRIVATE UNTIL SAID OTHERWISE. The feed is built from
+ *      `sharedWithCustomer` alone, which defaults to false, so every update
+ *      written before this feature existed stays internal.
+ * ================================================================== */
+
+/**
+ * The client's view of progress through their division's stages.
+ *
+ * `reached` comes from the stage's position: a project moves forward through
+ * an ordered list, so everything up to the current stage has been passed.
+ * `at` is only ever a date somebody actually recorded — projects that
+ * predate stage history show their timeline with no dates rather than dates
+ * this application invented.
+ */
+function buildStageTimeline(project) {
+  const stages = PROJECT_STAGES_BY_DIVISION[project.division] || [];
+  const currentIndex = stages.indexOf(project.stage);
+  const firstSeen = new Map();
+  for (const entry of project.stageHistory || []) {
+    if (entry && entry.stage && entry.enteredAt && !firstSeen.has(entry.stage)) {
+      firstSeen.set(entry.stage, entry.enteredAt);
+    }
+  }
+  return stages.map((stage, i) => ({
+    stage,
+    reached: currentIndex >= 0 && i <= currentIndex,
+    current: i === currentIndex,
+    at: firstSeen.get(stage) || null,
+  }));
+}
+
+/** Whole percent, from position in the stage list. 100 only when done. */
+function stageProgressPercent(project, timeline) {
+  if (project.status === 'Completed') return 100;
+  const total = timeline.length;
+  if (total === 0) return 0;
+  const reached = timeline.filter((t) => t.reached).length;
+  if (reached === 0) return 0;
+  // Stages reached out of stages there are. Standing on the last stage of
+  // the division's list is finished work, even when `status` has already
+  // moved on to 'In Service'.
+  return Math.round((reached / total) * 100);
+}
+
+/**
+ * The updates the project manager chose to publish, newest first.
+ *
+ * `i` is the update's position in the project's append-only array. It is
+ * kept because a photograph records the update it belongs to by that index;
+ * it is stripped again before the payload leaves `customerProjectView`.
+ */
+function sharedUpdates(project) {
+  return (project.executionUpdates || [])
+    .map((u, i) => ({ u, i }))
+    .filter(({ u }) => u && u.sharedWithCustomer === true)
+    .map(({ u, i }) => ({
+      i,
+      date: u.date || null,
+      // The PM's client wording when there is one, else what they recorded.
+      note: String(u.customerNote || u.actionDone || '').trim(),
+    }))
+    .filter((u) => u.note)
+    .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+}
+
+/**
+ * A photograph of the work, as the client is given it: an id to fetch the
+ * bytes with and the words staff typed. Nothing about who uploaded it, and
+ * no bytes — those come from the one authorized route.
+ */
+function customerPhoto(p) {
+  return { id: String(p.id || p._id), caption: p.caption || '' };
+}
+
+/**
+ * EVERY field a client is given about a project. Adding to this list is a
+ * deliberate act; nothing arrives here by inheritance.
+ */
+function customerProjectView(project, { withUpdates = false } = {}) {
+  const timeline = buildStageTimeline(project);
+  const updates = sharedUpdates(project);
+  const view = {
+    id: String(project.id || project._id),
+    name: project.name || '',
+    division: project.division || '',
+    siteType: project.siteType || '',
+    capacity: project.capacity || '',
+    stage: project.stage || '',
+    status: project.status || '',
+    startDate: project.startDate || null,
+    // Set when the project is completed; a target date is not promised to a
+    // client from a checklist that staff may still be editing.
+    completedDate: project.status === 'Completed' ? project.endDate || null : null,
+    stages: timeline,
+    progressPercent: stageProgressPercent(project, timeline),
+    updateCount: updates.length,
+    lastUpdateAt: updates.length ? updates[0].date : null,
+  };
+  // `i` is bookkeeping for matching photographs; it never leaves here.
+  if (withUpdates) view.updates = updates.map(({ i, ...rest }) => rest);
+  return view;
+}
+
+async function listMyProjects(auth, deps) {
+  const projects = await deps.projectRepo.listByIdsForCompany(auth.companyId, auth.linkedProjectIds || []);
+  return projects
+    .map((p) => customerProjectView(p))
+    .sort((a, b) => {
+      // Live work first, then the most recently started.
+      const done = (v) => (v.status === 'Completed' ? 1 : 0);
+      if (done(a) !== done(b)) return done(a) - done(b);
+      return new Date(b.startDate || 0) - new Date(a.startDate || 0);
+    });
+}
+
+/**
+ * One project by id. The id is checked against the client's own list before
+ * the database is asked, so guessing an id reveals nothing — the answer for
+ * a project that exists but is not theirs is the same as for one that does
+ * not exist at all.
+ */
+async function getMyProject(auth, projectId, deps) {
+  const allowed = (auth.linkedProjectIds || []).map(String);
+  if (!allowed.includes(String(projectId))) {
+    throw portalError('Project not found.', 'NOT_FOUND', 404);
+  }
+  const [project] = await deps.projectRepo.listByIdsForCompany(auth.companyId, [projectId]);
+  if (!project) throw portalError('Project not found.', 'NOT_FOUND', 404);
+
+  const view = customerProjectView(project, { withUpdates: true });
+
+  // Photographs, hung on the update they belong to. An update that is not
+  // shared is not in `shared`, so its photographs are never looked up — the
+  // words and the pictures are governed by the one flag.
+  const shared = sharedUpdates(project);
+  if (shared.length && deps.projectPhotoRepo) {
+    const visible = new Set(shared.map((u) => u.i));
+    const all = await deps.projectPhotoRepo.listForProject(auth.companyId, project.id || project._id);
+    const byUpdate = new Map();
+    for (const ph of all) {
+      if (!visible.has(ph.updateIndex)) continue;
+      if (!byUpdate.has(ph.updateIndex)) byUpdate.set(ph.updateIndex, []);
+      byUpdate.get(ph.updateIndex).push(customerPhoto(ph));
+    }
+    view.updates = shared.map((u) => ({
+      date: u.date,
+      note: u.note,
+      photos: byUpdate.get(u.i) || [],
+    }));
+  } else {
+    view.updates = view.updates.map((u) => ({ ...u, photos: [] }));
+  }
+  return view;
+}
+
+/**
+ * One photograph's bytes for a client. Three things must all hold: the
+ * project is one of theirs, the photograph belongs to that project, and the
+ * update it hangs on is shared. Knowing an id is worth nothing on its own,
+ * and un-sharing an update closes its photographs in the same moment.
+ */
+async function getMyProjectPhoto(auth, projectId, photoId, deps) {
+  const allowed = (auth.linkedProjectIds || []).map(String);
+  if (!allowed.includes(String(projectId))) throw portalError('Photograph not found.', 'NOT_FOUND', 404);
+
+  const [project] = await deps.projectRepo.listByIdsForCompany(auth.companyId, [projectId]);
+  if (!project) throw portalError('Photograph not found.', 'NOT_FOUND', 404);
+
+  const file = await deps.projectPhotoRepo.findById(auth.companyId, photoId);
+  if (!file || String(file.projectId) !== String(projectId)) {
+    throw portalError('Photograph not found.', 'NOT_FOUND', 404);
+  }
+  const update = (project.executionUpdates || [])[file.updateIndex];
+  if (!update || update.sharedWithCustomer !== true) {
+    throw portalError('Photograph not found.', 'NOT_FOUND', 404);
+  }
+  return file;
+}
+
 module.exports = {
   getPortalProfile,
+  listMyProjects,
+  getMyProject,
+  getMyProjectPhoto,
+  customerPhoto,
+  customerProjectView,
+  buildStageTimeline,
+  stageProgressPercent,
+  sharedUpdates,
   listMyComplaints,
   getMyComplaint,
   createMyComplaint,

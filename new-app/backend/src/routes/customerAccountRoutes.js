@@ -6,6 +6,7 @@ const { createAuthMiddleware } = require('../middleware/authMiddleware');
 const { requireCompanyContext } = require('../middleware/tenantGuard');
 const {
   listCustomerAccounts, approveCustomerAccount, setCustomerAccountStatus,
+  listProjectCandidates, setLinkedProjects,
 } = require('../services/portalAuthService');
 const { getAttachmentForStaff, listAttachmentsForStaff } = require('../services/portalService');
 
@@ -51,6 +52,32 @@ function createCustomerAccountRouter(deps) {
         req.auth.companyId, req.params.accountId, String(req.body && req.body.status), req.body, req.auth, deps
       );
       return res.json({ account });
+    } catch (err) {
+      return sendError(res, err, 'customerAccountRoutes');
+    }
+  });
+
+  /**
+   * Which projects this client could be watching, likeliest first (owner
+   * decision, 30 Oct 2026). A suggestion only — nothing is granted until
+   * the PUT below is called.
+   */
+  router.get('/:accountId/project-candidates', async (req, res) => {
+    try {
+      const projects = await listProjectCandidates(req.auth.companyId, req.params.accountId, req.auth, deps);
+      return res.json({ projects });
+    } catch (err) {
+      return sendError(res, err, 'customerAccountRoutes');
+    }
+  });
+
+  /** Replace the set of projects this client may watch. */
+  router.put('/:accountId/projects', async (req, res) => {
+    try {
+      const result = await setLinkedProjects(
+        req.auth.companyId, req.params.accountId, (req.body && req.body.projectIds) || [], req.auth, deps
+      );
+      return res.json(result);
     } catch (err) {
       return sendError(res, err, 'customerAccountRoutes');
     }

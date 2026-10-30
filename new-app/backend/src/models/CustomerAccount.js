@@ -40,6 +40,22 @@ const customerAccountSchema = new Schema(
     // could not be matched to exactly one contract; staff set it on approval.
     contractId: { type: Schema.Types.ObjectId, ref: 'Contract', default: null },
 
+    // The execution projects this client may watch (owner decision,
+    // 30 Oct 2026).
+    //
+    // WHY an explicit list and not a match on `project.customer`:
+    //   A project hangs off a SalesOrder, and `customer` there is free text
+    //   typed per document — "Gastro Hub", "Gastrohub Pimple", "Dr Nemade".
+    //   Resolving a client to their projects by that text at request time
+    //   would mean one careless spelling shows a stranger someone else's
+    //   site. So access is a stored fact a member of staff put here, and the
+    //   portal reads nothing else. An empty list shows the client nothing,
+    //   which is the correct failure direction.
+    //
+    //   `companyId` is still re-checked on every read: a link is necessary
+    //   for access, never sufficient.
+    linkedProjectIds: { type: [{ type: Schema.Types.ObjectId, ref: 'Project' }], default: [] },
+
     // Digits only, country code included (see portalAuthService.normalizePhone).
     phone: { type: String, required: true },
     name: { type: String, required: true, trim: true },
