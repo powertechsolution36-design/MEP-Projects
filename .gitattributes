@@ -1,0 +1,5 @@
+# Shell scripts must keep Unix line endings. Building a release with
+# `git archive` on Windows (core.autocrlf=true) otherwise rewrites them with
+# CRLF, and deployment/deploy-new-app.sh then dies on the VPS with
+#   deploy-new-app.sh: line 25: $'\r': command not found
+*.sh text eol=lf

@@ -210,6 +210,32 @@ export default function ContractDetail() {
   const waLink = whatsappUrl(c.phone, letterMessage);
   const sender = canSendToClients(role);
 
+  /* The schedule and the history are two different things, so they are two
+     different lists. A visit counts as completed only because a completion
+     date is stored against it — never because its month has passed. */
+  const pendingVisits = (c.scheduledVisits || [])
+    .map((v, i) => ({ ...v, i }))
+    .filter((v) => !v.completedDate);
+
+  const completedVisits = [
+    ...(c.renewals || []).flatMap((r) => (r.visits || [])
+      .map((v, i) => ({ ...v, i, current: false,
+        period: `${r.startDate ? fmtDate(r.startDate) : '?'} \u2013 ${r.endDate ? fmtDate(r.endDate) : '?'}` }))
+      .filter((v) => v.completedDate)),
+    ...(c.scheduledVisits || [])
+      .map((v, i) => ({ ...v, i, current: true, period: 'This period' }))
+      .filter((v) => v.completedDate),
+  ].sort((a, b) => new Date(a.completedDate) - new Date(b.completedDate));
+
+  /* Owner request (29 Oct 2026): one history. A completed AMC visit belongs
+     beside the service calls, not in a schedule of work still to do — so the
+     completed visits are folded into Service history and the schedule panel
+     shows only what is still outstanding. Newest first. */
+  const historyRows = [
+    ...calls.map((r) => ({ kind: 'call', key: `c-${r.id}`, date: r.appointmentDate || r.registeredDate, r })),
+    ...completedVisits.map((v) => ({ kind: 'visit', key: `v-${v.period}-${v.i}`, date: v.completedDate, v })),
+  ].sort((x, y) => new Date(y.date) - new Date(x.date));
+
   /* Owner request (29 Oct 2026): correct the client's AMC details in place.
      Only the fields below are sent; the visit schedule is never regenerated,
      so recorded completions survive an edit. */
@@ -354,7 +380,7 @@ export default function ContractDetail() {
           <h3 style={{ marginTop: 0 }}>Edit client AMC details</h3>
           <p className="muted">
             The visit schedule and every recorded completion are left exactly as they are.
-            Correct a visit date below, under “Scheduled AMC visits”.
+            Correct a visit date in the two visit lists below.
           </p>
           <div className="filter-grid">
             <label className="filter-field">Customer
@@ -467,55 +493,93 @@ export default function ContractDetail() {
 
       {/* ---- History ---- */}
       <div className="panel">
-        <h3>Service history ({calls.length})</h3>
-        {calls.length === 0 ? (
-          <p className="muted">No service calls yet.</p>
+        <h3>Service history ({historyRows.length})</h3>
+        {historyRows.length === 0 ? (
+          <p className="muted">Nothing recorded for this client yet.</p>
         ) : (
           <div className="table-wrap">
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Call</th><th>Date</th><th>Type</th><th>Cover</th><th>Engineer</th><th>Status</th><th>Parts</th><th>Gas</th>
+                  <th>Call</th><th>Date</th><th>Type</th><th>Cover</th><th>Engineer</th><th>Status</th><th>Parts</th><th>Gas</th><th />
                 </tr>
               </thead>
               <tbody>
-                {calls.map((r) => (
-                  <tr key={r.id}>
-                    <td><Link to={`/service-calls/${r.id}`}>PSC-{r.complaintNumber}</Link></td>
-                    <td>{fmtDate(r.appointmentDate || r.registeredDate)}</td>
-                    <td>{r.type === 'PM' ? 'AMC visit' : 'Complaint'}</td>
-                    <td><span className={`status-badge ${coverageClass(r.coverage)}`}>{r.coverage}</span></td>
-                    <td>{r.engineer || '—'}</td>
-                    <td><span className={`status-badge ${callStatusClass(r.status)}`}>{r.status}</span></td>
-                    <td>{r.parts.length ? r.parts.map((p) => `${p.part} (${p.action})`).join(', ') : '—'}</td>
-                    <td>{r.gasFilled ? `${r.gasType || 'Yes'}${r.gasQtyKg ? ` · ${r.gasQtyKg} kg` : ''}` : '—'}</td>
+                {historyRows.map((row) => (row.kind === 'call' ? (
+                  <tr key={row.key}>
+                    <td><Link to={`/service-calls/${row.r.id}`}>PSC-{row.r.complaintNumber}</Link></td>
+                    <td>{fmtDate(row.r.appointmentDate || row.r.registeredDate)}</td>
+                    <td>{row.r.type === 'PM' ? 'AMC visit' : 'Complaint'}</td>
+                    <td><span className={`status-badge ${coverageClass(row.r.coverage)}`}>{row.r.coverage}</span></td>
+                    <td>{row.r.engineer || '—'}</td>
+                    <td><span className={`status-badge ${callStatusClass(row.r.status)}`}>{row.r.status}</span></td>
+                    <td>{row.r.parts.length ? row.r.parts.map((x) => `${x.part} (${x.action})`).join(', ') : '—'}</td>
+                    <td>{row.r.gasFilled ? `${row.r.gasType || 'Yes'}${row.r.gasQtyKg ? ` · ${row.r.gasQtyKg} kg` : ''}` : '—'}</td>
+                    <td />
                   </tr>
-                ))}
+                ) : (
+                  /* A completed AMC visit from the contract's own schedule —
+                     the service tracker's history. It has no call number,
+                     engineer or parts, so those columns stay blank rather than
+                     being filled with something invented. */
+                  <tr key={row.key}>
+                    <td className="muted">PM {row.v.i + 1}</td>
+                    <td><strong>{fmtDate(row.v.completedDate)}</strong></td>
+                    <td>AMC PM visit</td>
+                    <td><span className={`status-badge ${coverageClass(c.category)}`}>{c.category}</span></td>
+                    <td>—</td>
+                    <td><span className="status-badge status-won">Completed</span></td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td>
+                      {row.v.current && MANAGE_ROLES.includes(role) ? (
+                        <span className="visit-edit">
+                          <input
+                            type="date"
+                            aria-label={`Completed date for visit ${row.v.i + 1}`}
+                            value={visitDraft[row.v.i] !== undefined ? visitDraft[row.v.i] : fmtDate(row.v.completedDate)}
+                            onChange={(ev) => setVisitDraft((pv) => ({ ...pv, [row.v.i]: ev.target.value }))}
+                          />
+                          <button type="button" className="btn sm sec" disabled={busyVisit === row.v.i}
+                            onClick={() => saveVisit(row.v.i)}>{busyVisit === row.v.i ? '…' : 'Save'}</button>
+                          <button type="button" className="btn sm ghost" disabled={busyVisit === row.v.i}
+                            onClick={() => saveVisit(row.v.i, '')}>Clear</button>
+                        </span>
+                      ) : null}
+                    </td>
+                  </tr>
+                )))}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
-      {/* ---- This period's scheduled visits ---- */}
+      {/* ---- Upcoming / pending PM schedule ----
+           Deliberately separate from the completed list below: a visit that
+           has been done is history, and must never read as something still
+           owed to the client. */}
       <div className="panel">
-        <h3>Scheduled AMC visits — this period</h3>
-        {(!c.scheduledVisits || c.scheduledVisits.length === 0) ? (
-          <p className="muted">No scheduled visits.</p>
+        <h3>Upcoming PM visits</h3>
+        {pendingVisits.length === 0 ? (
+          <p className="muted">
+            {(c.scheduledVisits || []).length === 0
+              ? 'No visit schedule on this contract.'
+              : 'Every scheduled visit for this period has been completed.'}
+          </p>
         ) : (
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th>#</th><th>Month</th><th>Status</th><th>Completed</th></tr></thead>
+              <thead><tr><th>#</th><th>Scheduled month</th><th>Status</th><th>Record completion</th></tr></thead>
               <tbody>
-                {c.scheduledVisits.map((v, i) => {
-                  const done = !!v.completedDate;
-                  const due = !done && v.month <= tm;
-                  const overdue = due && v.month < tm;
-                  const label = done ? 'Completed' : overdue ? 'Overdue' : due ? 'Due' : 'Upcoming';
-                  const cls = done ? 'status-won' : overdue ? 'status-lost' : due ? 'status-pending' : 'status-open';
+                {pendingVisits.map((v) => {
+                  const due = v.month <= tm;
+                  const overdue = v.month < tm;
+                  const label = overdue ? 'Overdue' : due ? 'Due' : 'Upcoming';
+                  const cls = overdue ? 'status-lost' : due ? 'status-pending' : 'status-open';
                   return (
-                    <tr key={i}>
-                      <td>{i + 1}</td>
+                    <tr key={v.i}>
+                      <td>{v.i + 1}</td>
                       <td>{v.month}</td>
                       <td><span className={`status-badge ${cls}`}>{label}</span></td>
                       <td>
@@ -523,18 +587,14 @@ export default function ContractDetail() {
                           <span className="visit-edit">
                             <input
                               type="date"
-                              aria-label={`Completed date for visit ${i + 1}`}
-                              value={visitDraft[i] !== undefined ? visitDraft[i] : (v.completedDate ? fmtDate(v.completedDate) : '')}
-                              onChange={(ev) => setVisitDraft((p) => ({ ...p, [i]: ev.target.value }))}
+                              aria-label={`Completed date for visit ${v.i + 1}`}
+                              value={visitDraft[v.i] !== undefined ? visitDraft[v.i] : ''}
+                              onChange={(ev) => setVisitDraft((p) => ({ ...p, [v.i]: ev.target.value }))}
                             />
-                            <button type="button" className="btn sm sec" disabled={busyVisit === i}
-                              onClick={() => saveVisit(i)}>{busyVisit === i ? '…' : 'Save'}</button>
-                            {v.completedDate && (
-                              <button type="button" className="btn sm ghost" disabled={busyVisit === i}
-                                onClick={() => saveVisit(i, '')}>Clear</button>
-                            )}
+                            <button type="button" className="btn sm sec" disabled={busyVisit === v.i}
+                              onClick={() => saveVisit(v.i)}>{busyVisit === v.i ? '\u2026' : 'Save'}</button>
                           </span>
-                        ) : (v.completedDate ? fmtDate(v.completedDate) : '—')}
+                        ) : '\u2014'}
                       </td>
                     </tr>
                   );
