@@ -406,7 +406,7 @@ module.exports.deleteCompany = deleteCompany;
  * payload never wipes the sub-fields it omits.
  */
 const PROFILE_STRING_FIELDS = Object.freeze([
-  'displayName', 'subtitle', 'tagline', 'phone', 'email', 'website',
+  'displayName', 'brandName', 'subtitle', 'tagline', 'phone', 'email', 'website',
   'gstNumber', 'logoBase64', 'quotationPrefix',
   // Owner request (22 Oct 2026): the company WhatsApp number every client
   // message is sent from (service reports, AMC letters, quotations).

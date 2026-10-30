@@ -84,6 +84,17 @@ const companySchema = new Schema(
     // PWA FACT fields above and are reused, not duplicated. Nothing here is
     // hardcoded to any one tenant.
     displayName: { type: String, default: '' },
+    /*
+     * The short trading name, for running text (owner request, 30 Oct 2026).
+     *
+     * The quotation's opening paragraph reads "Powertech is ready to fulfill
+     * your specific project's needs", not "MEP Powertech Pvt. Ltd. is ready
+     * to…". The legal name belongs on the letterhead; the brand belongs in a
+     * sentence. Left blank, the document falls back to the display name with
+     * its legal suffix trimmed, so nothing has to be filled in for a
+     * reasonable result.
+     */
+    brandName: { type: String, default: '', trim: true },
     subtitle: { type: String, default: '' },
     website: { type: String, default: '' },
     // Owner request (22 Oct 2026): the company WhatsApp number client messages

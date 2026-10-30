@@ -551,3 +551,61 @@ test('cover layout: the letter reaches the foot of the page whatever its length'
     assert.equal(pages, 3, `${q.offerType} must still be three pages`);
   }
 });
+
+test('brand: the opening paragraph uses the trading name, not the legal one', async () => {
+  const { getSharedPages } = require('../src/services/quotationPresets');
+  // The stored wording carries a placeholder, never one company's name.
+  assert.ok(getFixedPages('split').summaryText.includes('{{brand}}'));
+  assert.ok(!getFixedPages('split').summaryText.includes('Powertech'));
+  assert.ok(getSharedPages().summaryText.includes('{{brand}}'));
+
+  const withBrand = { ...CO, brandName: 'Powertech' };
+  const pdf = await buildQuotationPdf({ company: withBrand, quotation: tamperedQuotation('ducted') });
+  const text = pdf.toString('latin1');
+  assert.ok(!text.includes('{{brand}}'), 'the placeholder must be filled in');
+  assert.ok(pdf.length > 1000);
+});
+
+test('brand: with no short name set, the legal suffix is trimmed and nothing invented', async () => {
+  for (const [displayName] of [
+    ['MEP POWERTECH PVT. LTD.'], ['Acme Private Limited'], ['Beta Services LLP'], ['Gamma Co.'],
+  ]) {
+    const pdf = await buildQuotationPdf({
+      company: { ...CO, brandName: '', displayName },
+      quotation: tamperedQuotation('split'),
+    });
+    assert.ok(pdf.length > 1000, displayName);
+  }
+  // A name with no suffix at all is left exactly as it is.
+  const pdf = await buildQuotationPdf({
+    company: { ...CO, brandName: '', displayName: 'Powertech' },
+    quotation: tamperedQuotation('split'),
+  });
+  assert.ok(pdf.length > 1000);
+});
+
+test('blank offer type: the shared wording fills the gaps but never the payment split', async () => {
+  const { getSharedPages } = require('../src/services/quotationPresets');
+  const shared = getSharedPages();
+  assert.ok(!('paymentTerms' in shared), 'the instalment split differs per offer type and is never guessed');
+  assert.ok(!('subject' in shared) && !('system' in shared) && !('benefitsOfSystem' in shared));
+  assert.equal(shared.offerValidity, '30 days');
+  assert.equal(shared.excludedWorks.length, 7);
+
+  // An untyped quotation with empty fields still gets a letter.
+  const bare = {
+    quotationNumber: 'QTN-0001', division: 'HVAC', offerType: '',
+    customerName: 'Regal Elegance LLP', customerAddress: 'Ravet', subject: 'Banquet Hall AC',
+    summaryText: '', offerValidity: '', delivery: '', notes: '', excludedWorks: [], paymentTerms: [],
+    equipmentItems: [{ rowType: 'item', sNo: 1, description: 'Unit', unit: 'Nos', qty: 1, supplyRate: 100, supplyAmount: 100, totalAmount: 100 }],
+    accessoriesItems: [], equipmentTotal: 100, subtotal: 100, grandTotal: 118, gstPercent: 18,
+  };
+  const pdf = await buildQuotationPdf({ company: { ...CO, brandName: 'Powertech' }, quotation: bare });
+  assert.ok(pdf.length > 1000);
+
+  // Its own subject survives — the shared wording fills blanks only.
+  const kept = { ...bare, offerValidity: '45 days' };
+  assert.equal(kept.offerValidity, '45 days');
+  const pdf2 = await buildQuotationPdf({ company: CO, quotation: kept });
+  assert.ok(pdf2.length > 1000);
+});

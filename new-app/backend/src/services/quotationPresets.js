@@ -76,9 +76,9 @@ const AC_EXCLUDED_WORKS = [
  * quotation's page 1 had a blank where the workbooks have this.
  */
 const OPENING_PARAGRAPH = [
-  '"{{company_name}}" is ready to fulfill your specific project\u2019s needs. Whether you\u2019re looking for a few helpful tips or need an experienced professional to fully manage a project — we\u2019ve got the tools and experience to guarantee success.',
+  '"{{brand}}" is ready to fulfill your specific project\u2019s needs. Whether you\u2019re looking for a few helpful tips or need an experienced professional to fully manage a project — we\u2019ve got the tools and experience to guarantee success.',
   '',
-  'When you\u2019re looking for top quality work, {{company_name}} is here to help. Our team of professionals is available to provide a wide range of customizable options, all guaranteed to meet and exceed expectations. Contact our office today to learn more about this and our other available services.',
+  'When you\u2019re looking for top quality work, {{brand}} is here to help. Our team of professionals is available to provide a wide range of customizable options, all guaranteed to meet and exceed expectations. Contact our office today to learn more about this and our other available services.',
 ].join('\n');
 
 const AC_DELIVERY = '1 Week from the date of commercial clear order and payment for Equipment.';
@@ -336,6 +336,30 @@ const FIXED_PAGE_FIELDS = Object.freeze([
   'offerValidity', 'delivery', 'notes', 'excludedWorks', 'paymentTerms',
 ]);
 
+/**
+ * The parts of the cover and the terms page that are the SAME in every
+ * workbook (owner decision, 30 Oct 2026).
+ *
+ * A quotation with no offer type — one started from blank — was rendering a
+ * near-empty page 1: a name, a subject and a signature. That is worse than
+ * a cover that differs slightly from the eventual offer type, because it is
+ * not a letter at all.
+ *
+ * So these fill the BLANKS on such a quotation, and only the blanks:
+ * anything the quotation carries itself is left exactly as it is. Payment
+ * terms are deliberately absent — the instalment split differs per offer
+ * type, and guessing it would quote the client the wrong money.
+ */
+function getSharedPages() {
+  return {
+    summaryText: OPENING_PARAGRAPH,
+    offerValidity: '30 days',
+    delivery: AC_DELIVERY,
+    notes: FINAL_BILLING,
+    excludedWorks: [...AC_EXCLUDED_WORKS],
+  };
+}
+
 function getFixedPages(code) {
   const p = getPreset(code);
   if (!p) return null;
@@ -347,4 +371,4 @@ function getFixedPages(code) {
   return out;
 }
 
-module.exports = { listPresets, getPreset, getFixedPages, FIXED_PAGE_FIELDS, PRESET_CODES };
+module.exports = { listPresets, getPreset, getFixedPages, getSharedPages, FIXED_PAGE_FIELDS, PRESET_CODES };

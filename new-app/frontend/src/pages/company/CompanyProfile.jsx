@@ -22,7 +22,7 @@ export default function CompanyProfile() {
 
   // Form state
   const [form, setForm] = useState({
-    displayName: '', subtitle: '', tagline: '',
+    displayName: '', brandName: '', subtitle: '', tagline: '',
     phone: '', email: '', website: '', gstNumber: '', whatsappNumber: '',
     logoBase64: '',
     bankDetails: { bankName: '', accountNumber: '', ifscCode: '', branch: '', accountType: 'Current' },
@@ -39,6 +39,7 @@ export default function CompanyProfile() {
       setCompany(c);
       setForm({
         displayName: c.displayName || '',
+        brandName: c.brandName || '',
         subtitle: c.subtitle || '',
         tagline: c.tagline || '',
         phone: c.phone || '',
@@ -128,6 +129,7 @@ export default function CompanyProfile() {
             <div className="detail-grid">
               <div><strong>Company Name</strong><br/>{company?.name || '—'}</div>
               <div><strong>Display Name</strong><br/>{company?.displayName || '—'}</div>
+              <div><strong>Short name (in sentences)</strong><br/>{company?.brandName || '—'}</div>
               <div><strong>Subtitle</strong><br/>{company?.subtitle || '—'}</div>
               <div><strong>Tagline</strong><br/>{company?.tagline || '—'}</div>
               <div><strong>Phone</strong><br/>{company?.phone || '—'}</div>
@@ -176,6 +178,15 @@ export default function CompanyProfile() {
               <label className="filter-field">
                 Display Name
                 <input value={form.displayName} onChange={e => setField('displayName', e.target.value)} />
+              </label>
+              <label className="filter-field">
+                Short name (used in sentences)
+                <input value={form.brandName} onChange={e => setField('brandName', e.target.value)}
+                  placeholder="e.g. Powertech" />
+                <small className="muted">
+                  How the company is named inside a quotation&rsquo;s opening paragraph — the trading name, not
+                  the legal one. Left blank, the display name is used with its legal suffix trimmed.
+                </small>
               </label>
               <label className="filter-field">
                 Subtitle

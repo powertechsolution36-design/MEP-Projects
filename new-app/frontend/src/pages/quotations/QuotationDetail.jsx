@@ -68,6 +68,15 @@ export default function QuotationDetail() {
   // Owner decision (22 Oct 2026): client messages go from the company WhatsApp.
   const [companyWa, setCompanyWa] = useState('');
   const [companyName, setCompanyName] = useState('');
+  // Owner decision (30 Oct 2026): the offer type can be set after creation.
+  // A quotation made before offer types existed, or started from blank, has
+  // none — and without one it gets no standard cover or terms.
+  useEffect(() => {
+    api.get('/api/quotation-templates/presets')
+      .then((d) => setPresets(d.presets || []))
+      .catch(() => setPresets([]));
+  }, []);
+
   useEffect(() => {
     api.get('/api/companies/my-profile')
       .then((d) => {
@@ -86,6 +95,7 @@ export default function QuotationDetail() {
   const [payTerms, setPayTerms] = useState([]);
   const [exclWorks, setExclWorks] = useState([]);
   const [payTermTemplates, setPayTermTemplates] = useState([]);
+  const [presets, setPresets] = useState([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -113,6 +123,7 @@ export default function QuotationDetail() {
       customerName: q.customerName || '', customerAddress: q.customerAddress || '',
       customerPhone: q.customerPhone || '', customerEmail: q.customerEmail || '',
       customerGst: q.customerGst || '', subject: q.subject || '',
+      offerType: q.offerType || '',
       system: q.system || '', capacity: q.capacity || '',
       siteDescription: q.siteDescription || '', summaryText: q.summaryText || '',
       technicalDescription: q.technicalDescription || '', designApproval: q.designApproval || '',
@@ -301,6 +312,14 @@ export default function QuotationDetail() {
               <label className="filter-field">Customer Phone <input value={form.customerPhone} onChange={e => setField('customerPhone', e.target.value)} /></label>
               <label className="filter-field">Customer Email <input type="email" value={form.customerEmail} onChange={e => setField('customerEmail', e.target.value)} /></label>
               <label className="filter-field">Customer GST <input value={form.customerGst} onChange={e => setField('customerGst', e.target.value)} /></label>
+              <label className="filter-field">
+                Offer type
+                <select value={form.offerType || ''} onChange={e => setField('offerType', e.target.value)}>
+                  <option value="">— None (this quotation keeps its own wording) —</option>
+                  {presets.filter(p => !q.division || p.division === q.division)
+                    .map(p => <option key={p.code} value={p.code}>{p.name}</option>)}
+                </select>
+              </label>
               {fixedByType && (
                 <p className="muted" style={{ gridColumn: '1 / -1', margin: 0, fontSize: 13 }}>
                   The cover letter and the commercial terms are fixed for this offer type and print exactly as your

@@ -33,7 +33,7 @@
 
 const path = require('path');
 const PDFDocument = require('pdfkit');
-const { getFixedPages } = require('./quotationPresets');
+const { getFixedPages, getSharedPages } = require('./quotationPresets');
 
 /*
  * Fonts, chosen to match the company's own quotation workbooks (owner
@@ -65,6 +65,7 @@ const C = {
   yellow: '#ffff00', // TOTAL rows
   green: '#92d050', // GRAND TOTAL WITH GST
   bandGreen: '#ccffcc', // COMMERCIAL TERMS / BANK DETAILS / EXCLUDED WORKS
+  brand: '#c00000', // the trading name where it appears in running text
 };
 
 /** Decode a `data:image/png|jpeg;base64,...` URI to a Buffer; anything else -> null. */
@@ -136,7 +137,24 @@ function buildQuotationPdf({ company, quotation }) {
      * the parts that genuinely differ per job.
      */
     const locked = getFixedPages(stored.offerType);
-    const q = locked ? { ...stored, ...locked } : stored;
+    /*
+     * No offer type — a quotation started from blank, or made before offer
+     * types existed. It keeps everything it carries; the standing wording
+     * every workbook shares fills only what it leaves blank, so page 1 is a
+     * letter rather than a name and a signature. Payment terms are never
+     * supplied this way: the split differs per offer type.
+     */
+    const fillBlanks = (base, extra) => {
+      const out = { ...base };
+      for (const [k, v] of Object.entries(extra)) {
+        const cur = out[k];
+        const empty = cur === undefined || cur === null || cur === ''
+          || (Array.isArray(cur) && cur.filter((x) => String(x || '').trim()).length === 0);
+        if (empty) out[k] = v;
+      }
+      return out;
+    };
+    const q = locked ? { ...stored, ...locked } : fillBlanks(stored, getSharedPages());
     const isSolar = q.division === 'Solar';
     const eqItems = Array.isArray(q.equipmentItems) ? q.equipmentItems : [];
     const accItems = Array.isArray(q.accessoriesItems) ? q.accessoriesItems : [];
@@ -242,9 +260,16 @@ function buildQuotationPdf({ company, quotation }) {
       doc.y = headBottom;
     }
 
-    /** Closes the outer box on the page that is finishing. */
+    /**
+     * Closes the outer box on the page that is finishing.
+     *
+     * Owner request (30 Oct 2026): the box runs to the foot of the page, not
+     * to the last line of text. In the workbooks the frame is the page, and
+     * stopping it where the content happens to end left page 1 looking like
+     * a half-finished letter.
+     */
     function closeBox() {
-      const bottom = Math.min(doc.y, pageBottom());
+      const bottom = pageBottom();
       line(L, boxTop, L, bottom);
       line(RIGHT, boxTop, RIGHT, bottom);
       line(L, boxTop, RIGHT, boxTop);
@@ -256,6 +281,14 @@ function buildQuotationPdf({ company, quotation }) {
       doc.addPage();
       letterhead();
     }
+
+    /*
+     * The covering letter's vertical rhythm (owner request, 30 Oct 2026).
+     * Page 1 carries little text and a lot of page, so its blocks are set
+     * further apart than the dense pricing and terms pages. The sheet does
+     * the same thing with tall empty rows between each section.
+     */
+    const COVER_GAP = 18;
 
     const room = (h) => doc.y + h <= pageBottom() - 6;
     function ensure(h) {
@@ -296,23 +329,77 @@ function buildQuotationPdf({ company, quotation }) {
       doc.y = y + h;
     }
 
-    /** Free paragraph inside the box. */
-    function paragraph(value, { size = 9, bold = false, gapBefore = 6 } = {}) {
+    /**
+     * Free paragraph inside the box.
+     *
+     * `emphasise` picks one word out of the running text in bold red — the
+     * trading name in the opening paragraph (owner request, 30 Oct 2026).
+     * Drawn as a run of `continued` pieces so the words keep flowing and
+     * wrapping as one paragraph; the height is measured from the plain text,
+     * which wraps identically because only the colour and weight change.
+     */
+    function paragraph(value, { size = 9, bold = false, gapBefore = 6, emphasise = '' } = {}) {
       const v = str(value).trim();
       if (!v) return;
       const h = doc.font(bold ? 'B' : 'R').fontSize(size).heightOfString(v, { width: W - 16 });
       ensure(h + gapBefore + 4);
       const y = doc.y + gapBefore;
-      doc.font(bold ? 'B' : 'R').fontSize(size).fillColor(C.ink).text(v, L + 8, y, { width: W - 16 });
-      doc.y = y + h + 2;
+
+      const mark = str(emphasise).trim();
+      if (!mark || !v.includes(mark)) {
+        doc.font(bold ? 'B' : 'R').fontSize(size).fillColor(C.ink).text(v, L + 8, y, { width: W - 16 });
+        doc.y = y + h + 2;
+        return;
+      }
+
+      /*
+       * One run chain PER LINE. A chain cannot cross an explicit newline:
+       * pdfkit lays the next run out from the wrong place and the words
+       * print on top of each other. The opening paragraph is two paragraphs
+       * in one cell of the sheet, so this matters.
+       */
+      let cy = y;
+      v.split('\n').forEach((ln) => {
+        if (ln.trim() === '') { cy += size * 0.8; return; }
+        const lh = doc.font(bold ? 'B' : 'R').fontSize(size).heightOfString(ln, { width: W - 16 });
+        const runs = ln.split(mark)
+          .flatMap((part, i) => (i === 0 ? [{ t: part }] : [{ t: mark, on: true }, { t: part }]))
+          .filter((pc) => pc.t !== '');
+        if (runs.length <= 1) {
+          doc.font(bold ? 'B' : 'R').fontSize(size).fillColor(C.ink).text(ln, L + 8, cy, { width: W - 16 });
+        } else {
+          // Only the first run may carry x and y; a later run with
+          // coordinates starts a new block instead of continuing the line.
+          runs.forEach((pc, i) => {
+            doc.font(pc.on || bold ? 'B' : 'R').fontSize(size).fillColor(pc.on ? C.brand : C.ink);
+            const opts = { width: W - 16, continued: i < runs.length - 1 };
+            if (i === 0) doc.text(pc.t, L + 8, cy, opts);
+            else doc.text(pc.t, opts);
+          });
+        }
+        cy += lh;
+      });
+      doc.fillColor(C.ink);
+      doc.y = Math.max(y + h, cy) + 2;
     }
 
     /** "Yours truly / For <company> / signature / name / Mob:" block. */
-    function signatureBlock({ withApprovals = false } = {}) {
+    function signatureBlock({ withApprovals = false, atBottom = false } = {}) {
       const sig = imageBuffer(person.signatureBase64);
       const stamp = imageBuffer(person.stampBase64);
       const needed = 50 + (sig || stamp ? 44 : 0);
       ensure(needed);
+      /*
+       * Owner request (30 Oct 2026): on the covering letter this block sits
+       * at the foot of the page, where the workbook puts it (its rows 38-44
+       * of 44), instead of tucking up under the last line. Only ever pushed
+       * DOWN — if the content already reaches that far the block stays
+       * where it is.
+       */
+      if (atBottom) {
+        const target = pageBottom() - needed - 10;
+        if (target > doc.y) doc.y = target;
+      }
       let y = doc.y + 10;
       doc.font('R').fontSize(9).fillColor(C.ink).text('Yours truly,', L + 8, y, { width: W * 0.5 });
       y = doc.y + 1;
@@ -445,30 +532,74 @@ function buildQuotationPdf({ company, quotation }) {
     letterhead();
     titleBand('Summary');
 
-    labelled('Quote To -', q.customerName);
-    if (hasText(q.customerAddress)) paragraph(q.customerAddress, { gapBefore: 1 });
+    /*
+     * THE COVERING LETTER IS LAID OUT, NOT POURED (owner request, 30 Oct 2026).
+     *
+     * This page carries little text and a whole sheet of paper. Drawn
+     * top-down with fixed gaps it ended a third of the way down and left
+     * the rest blank, which reads as an unfinished letter rather than a
+     * company's standard cover.
+     *
+     * So the blocks are collected first, measured, and only then drawn: the
+     * space left over between the title band and the signature is shared out
+     * between them. A Split offer with three lines and a Solar offer with
+     * twenty both fill the page, and neither needs a hand-tuned constant.
+     *
+     * `tight` marks a block that belongs to the one above it — an address
+     * under a name, the figures under their heading. Those keep their small
+     * gap and never take a share.
+     */
+    const cover = [];
+    const coverLabel = (label, value, opts = {}) => {
+      if (!hasText(value) && !opts.always) return;
+      cover.push({ kind: 'labelled', label, value, opts });
+    };
+    const coverPara = (value, opts = {}) => {
+      if (!hasText(value)) return;
+      cover.push({ kind: 'para', value, opts });
+    };
+
+    coverLabel('Quote To -', q.customerName, { always: true });
+    coverPara(q.customerAddress, { tight: true });
     const custLine = [
       hasText(q.customerPhone) ? `Phone: ${str(q.customerPhone)}` : '',
       hasText(q.customerEmail) ? `Email: ${str(q.customerEmail)}` : '',
       hasText(q.customerGst) ? `GST: ${str(q.customerGst)}` : '',
     ].filter(Boolean).join('   ');
-    if (custLine) paragraph(custLine, { gapBefore: 1, size: 8.5 });
+    coverPara(custLine, { tight: true, size: 8.5 });
+
     // The Solar sheet writes the size on the Subject and System lines.
     const sizeSuffix = isSolar && Number(q.solarKw) > 0 ? `  ${Number(q.solarKw)} KW` : '';
-    if (hasText(q.subject)) labelled('Subject -', str(q.subject) + sizeSuffix);
+    coverLabel('Subject -', hasText(q.subject) ? str(q.subject) + sizeSuffix : '');
 
-    // The opening paragraph names the company; the placeholder is filled
-    // the same way the AMC document templates fill theirs.
-    const summary = str(q.summaryText).replace(/\{\{company_name\}\}/g, str(co.displayName || co.name));
-    if (hasText(summary)) paragraph(summary, { gapBefore: 10 });
-    if (hasText(q.siteDescription)) paragraph(q.siteDescription, { gapBefore: 8 });
+    /*
+     * The opening paragraph names the company by its TRADING name, not its
+     * legal one (owner request, 30 Oct 2026): "Powertech is ready to
+     * fulfill…", not "MEP Powertech Pvt. Ltd. is ready to…". The legal name
+     * belongs on the letterhead.
+     *
+     * Company Profile's brandName when it is set; otherwise the display name
+     * with its legal suffix trimmed, which gives a sensible answer for a
+     * company that has never filled the field in. Suffixes are only ever
+     * REMOVED — no word is invented.
+     */
+    const brand = str(co.brandName).trim()
+      || str(co.displayName || co.name)
+        .replace(/[\s,.]*\b(p(?:vt|rivate)?\.?\s*l(?:td|imited)\.?|ltd\.?|limited|llp|inc\.?|corp\.?|co\.?)\s*\.?$/i, '')
+        .trim()
+      || str(co.displayName || co.name);
+
+    const summary = str(q.summaryText).replace(/\{\{brand\}\}/g, brand);
+    coverPara(summary, { emphasise: brand });
+    coverPara(q.siteDescription);
 
     if (hasText(q.technicalDescription) || hasText(q.system) || hasText(q.capacity) || hasText(q.benefitsOfSystem)) {
-      paragraph('As per the site conditions and design parameters we have arrived at the following engineering -', { gapBefore: 10 });
+      coverPara('As per the site conditions and design parameters we have arrived at the following engineering -');
     }
-    if (hasText(q.system)) labelled('System -', str(q.system) + sizeSuffix);
-    if (hasText(q.benefitsOfSystem)) labelled('Benefits of System -', q.benefitsOfSystem, { gap: 110 });
-    if (hasText(q.capacity)) labelled('Capacity -', q.capacity);
+    coverLabel('System -', hasText(q.system) ? str(q.system) + sizeSuffix : '');
+    coverLabel('Benefits of System -', q.benefitsOfSystem, { gap: 110 });
+    coverLabel('Capacity -', q.capacity);
+
     /*
      * The Solar cover's figures (owner decision, 30 Oct 2026).
      *
@@ -476,7 +607,7 @@ function buildQuotationPdf({ company, quotation }) {
      * reaching the PDF. They are computed here from the two stored numbers,
      * using the sheet's own arithmetic:
      *
-     *   rooftop area        = kW x 2 x 45            (=E40*2*45)
+     *   rooftop area         = kW x 2 x 45           (=E40*2*45)
      *   per month generation = kW x 4 x 30 x tariff  (=E40*4*30*E41)
      *   per year generation  = per month x 12        (=E42*12)
      *   units in a year      = yearly amount / tariff(=E43/13, generalised)
@@ -499,22 +630,77 @@ function buildQuotationPdf({ company, quotation }) {
       // paise, which an area in square feet and a count of units must not.
       const whole = (d) => Math.round(d).toLocaleString('en-IN');
 
-      paragraph(`A total of ${whole(area)} Sq.ft of area for rooftop installation will be required.`, { gapBefore: 8 });
-      paragraph(`Annual average system generation in the first year will be ${whole(unitsYear)} units.`, { gapBefore: 2 });
-      paragraph([
+      coverPara(`A total of ${whole(area)} Sq.ft of area for rooftop installation will be required.`);
+      coverPara(`Annual average system generation in the first year will be ${whole(unitsYear)} units.`, { tight: true });
+      coverPara([
         `Designed System: ${one(kw)} KW`,
         `MSEDCL Tariff: Rs ${one(tariff)}`,
         `Per month generation: Rs ${whole(perMonth)}`,
         `Generation Amount in a Year: Rs ${whole(perYear)}`,
         `Pay Back Period: ${one(payback)} Years`,
-      ].join('\n'), { gapBefore: 6 });
-      paragraph('*Approximate calculations', { gapBefore: 2, size: 8.5 });
+      ].join('\n'));
+      coverPara('*Approximate calculations', { tight: true, size: 8.5 });
     }
 
-    if (hasText(q.technicalDescription)) paragraph(q.technicalDescription, { gapBefore: 8 });
-    if (hasText(q.designApproval)) paragraph(q.designApproval, { gapBefore: 8 });
+    coverPara(q.technicalDescription);
+    coverPara(q.designApproval);
 
-    signatureBlock({ withApprovals: true });
+    /* --- measure, share out the slack, then draw --- */
+    const coverSize = (b) => b.opts.size ?? (b.kind === 'labelled' ? 9.5 : 9);
+    const coverHeight = (b, scale = 1) => {
+      const size = coverSize(b) * scale;
+      if (b.kind === 'labelled') {
+        const gap = b.opts.gap ?? 78;
+        return 2 + Math.max(13, doc.font('R').fontSize(size).heightOfString(str(b.value), { width: W - gap - 16 }) + 3);
+      }
+      return doc.font('R').fontSize(size).heightOfString(str(b.value).trim(), { width: W - 16 }) + 2;
+    };
+
+    const TIGHT = 1;
+    const MAX_SHARE = 68;   // beyond this, gaps read as a broken layout
+    const sigBlockHeight = 50 + (imageBuffer(person.signatureBase64) || imageBuffer(person.stampBase64) ? 44 : 0);
+    const coverTop = doc.y;
+    const coverFloor = pageBottom() - sigBlockHeight - 10;
+    const available = coverFloor - coverTop;
+    const shares = cover.filter((b, i) => i > 0 && !b.opts.tight).length;
+    const naturalAt = (scale) => cover.reduce(
+      (sum, b, i) => sum + coverHeight(b, scale) + (i > 0 && b.opts.tight ? TIGHT : 0), 0
+    );
+
+    /*
+     * Two ways to fill the page, used in this order.
+     *
+     * Gaps alone cannot do it: a three-line Split cover would need 70pt
+     * between every line, which reads as a layout that has come apart. So
+     * the type grows first — a short letter set larger is a letter, a short
+     * letter set small with chasms between the lines is a mistake — and the
+     * gaps then share out whatever is left.
+     *
+     * The scale never shrinks below 1: a long Solar cover keeps its size and
+     * simply uses tighter gaps.
+     */
+    let coverScale = 1;
+    for (const trial of [1.25, 1.18, 1.12, 1.06]) {
+      // Leave room for at least a small gap between each block.
+      if (naturalAt(trial) + shares * 10 <= available) { coverScale = trial; break; }
+    }
+
+    const share = shares > 0
+      ? Math.max(8, Math.min(MAX_SHARE, (available - naturalAt(coverScale)) / shares))
+      : 0;
+
+    cover.forEach((b, i) => {
+      const gapBefore = i === 0 ? 2 : (b.opts.tight ? TIGHT : share);
+      const size = coverSize(b) * coverScale;
+      if (b.kind === 'labelled') {
+        doc.y += gapBefore - 2;
+        labelled(b.label, b.value, { ...b.opts, size });
+      } else {
+        paragraph(b.value, { ...b.opts, size, gapBefore });
+      }
+    });
+
+    signatureBlock({ withApprovals: true, atBottom: true });
 
     /* ================= PAGE 2 — PRICING ================= */
     newPage();
