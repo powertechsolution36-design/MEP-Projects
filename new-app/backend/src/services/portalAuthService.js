@@ -276,9 +276,29 @@ async function listCustomerAccounts(companyId, filters, actorAuth, deps) {
  * contract when the phone number matched none or several — but it is read
  * from THIS company, so an account can never be pointed at another tenant.
  */
+/**
+ * The account a reviewer may act on.
+ *
+ * Normally their own company's. But a registration whose number matched no
+ * contract belongs to NOBODY yet — that is the whole point of it — so a
+ * company-scoped lookup never finds it and it could be seen but neither
+ * approved nor rejected (owner report, 31 Oct 2026). Any reviewer may claim
+ * an unassigned one; approving it attaches it to their company.
+ *
+ * An account that belongs to ANOTHER company is still not found here, which
+ * is the line that matters.
+ */
+async function findReviewableAccount(companyId, accountId, deps) {
+  const own = await deps.customerAccountRepo.findByIdForCompany(companyId, accountId);
+  if (own) return own;
+  const unassigned = await deps.customerAccountRepo.findById(accountId);
+  if (unassigned && !unassigned.companyId) return unassigned;
+  return null;
+}
+
 async function approveCustomerAccount(companyId, accountId, input, actorAuth, deps) {
   assertCanReview(actorAuth);
-  const account = await deps.customerAccountRepo.findByIdForCompany(companyId, accountId);
+  const account = await findReviewableAccount(companyId, accountId, deps);
   if (!account) throw portalError('Customer account not found.', 'NOT_FOUND', 404);
 
   const wantedContractId = (input && input.contractId) || account.contractId;
@@ -318,7 +338,7 @@ async function setCustomerAccountStatus(companyId, accountId, status, input, act
   if (!['Rejected', 'Disabled', 'Pending'].includes(status)) {
     throw portalError('Unknown account status.', 'INVALID_STATUS');
   }
-  const account = await deps.customerAccountRepo.findByIdForCompany(companyId, accountId);
+  const account = await findReviewableAccount(companyId, accountId, deps);
   if (!account) throw portalError('Customer account not found.', 'NOT_FOUND', 404);
 
   const updated = await deps.customerAccountRepo.updateFields(accountId, {

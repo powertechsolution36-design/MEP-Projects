@@ -713,3 +713,86 @@ test('registration: staff are notified, and told when it matched nothing', async
     assert.match(notes[0].text, /matched to their service record/);
   } finally { h.server.close(); }
 });
+
+test('registration: an unmatched one can actually be approved and rejected, not just seen', async () => {
+  const h = await harness();
+  try {
+    const mgr = await h.staffToken('mgr');
+
+    // A number on no contract at all.
+    await h.call('POST', '/api/portal/auth/register', {
+      body: { name: 'New Number', phone: '9777000222', password: CUSTOMER_PW },
+    });
+    const stored = h.state.customerAccounts.find((a) => a.phone === normalizePhone('9777000222'));
+    assert.equal(stored.companyId, null, 'it belongs to nobody yet');
+
+    // It is listed...
+    const list = await h.call('GET', '/api/customer-accounts', { token: mgr });
+    assert.ok((list.json.accounts || []).some((a) => String(a.id) === String(stored.id)));
+
+    // ...and it can be approved, which claims it for the reviewer's company.
+    const ok = await h.call('POST', `/api/customer-accounts/${stored.id}/approve`, {
+      token: mgr, body: { contractId: 'ctrA1' },
+    });
+    assert.equal(ok.status, 200, 'approving an unmatched registration must work');
+    assert.equal(ok.json.account.status, 'Active');
+    const after = h.state.customerAccounts.find((a) => String(a.id) === String(stored.id));
+    assert.equal(String(after.companyId), 'coA', 'approving attaches it to the reviewer\'s company');
+    assert.equal(String(after.contractId), 'ctrA1');
+
+    // And they can now sign in with the number they actually used.
+    const login = await h.call('POST', '/api/portal/auth/login', {
+      body: { phone: '9777000222', password: CUSTOMER_PW },
+    });
+    assert.equal(login.status, 200);
+  } finally { h.server.close(); }
+});
+
+test('registration: an unmatched one can be rejected too', async () => {
+  const h = await harness();
+  try {
+    const mgr = await h.staffToken('mgr');
+    await h.call('POST', '/api/portal/auth/register', {
+      body: { name: 'Not Ours', phone: '9777000333', password: CUSTOMER_PW },
+    });
+    const stored = h.state.customerAccounts.find((a) => a.phone === normalizePhone('9777000333'));
+
+    const rej = await h.call('POST', `/api/customer-accounts/${stored.id}/status`, {
+      token: mgr, body: { status: 'Rejected' },
+    });
+    assert.equal(rej.status, 200, 'rejecting an unmatched registration must work');
+    assert.equal(rej.json.account.status, 'Rejected');
+
+    // Once decided it leaves the waiting list.
+    const list = await h.call('GET', '/api/customer-accounts', { token: mgr });
+    assert.ok(!(list.json.accounts || []).some((a) => String(a.id) === String(stored.id) && a.status === 'Pending'));
+  } finally { h.server.close(); }
+});
+
+test('registration: claiming an unassigned account never reaches another company\'s', async () => {
+  const h = await harness();
+  try {
+    const mgr = await h.staffToken('mgr');
+    const mgrB = await h.staffToken('mgrb');
+
+    // A registration that DID match — it belongs to company A.
+    await h.call('POST', '/api/portal/auth/register', {
+      body: { name: 'Mr Poonawalla', phone: '9422011111', password: CUSTOMER_PW },
+    });
+    const owned = h.state.customerAccounts.find((a) => a.phone === normalizePhone('9422011111'));
+    assert.equal(String(owned.companyId), 'coA');
+
+    // Company B must not be able to approve or reject it.
+    assert.equal((await h.call('POST', `/api/customer-accounts/${owned.id}/approve`, {
+      token: mgrB, body: { contractId: 'ctrB1' },
+    })).status, 404);
+    assert.equal((await h.call('POST', `/api/customer-accounts/${owned.id}/status`, {
+      token: mgrB, body: { status: 'Rejected' },
+    })).status, 404);
+
+    // Company A still can.
+    assert.equal((await h.call('POST', `/api/customer-accounts/${owned.id}/approve`, {
+      token: mgr, body: { contractId: 'ctrA1' },
+    })).status, 200);
+  } finally { h.server.close(); }
+});
