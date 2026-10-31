@@ -395,7 +395,22 @@ async function group6f(browser) {
   const p0 = ((await api(finT, 'GET', '/api/payments')).json?.payments || []).find((x) => x.projectOrReference === ref);
   rec('payments: + New Manual Payment creates a manual record (POST /api/payments)', !!p0 && Number(p0.amount) === 10000 && p0.status === 'Pending', (p0 ? p0.status : 'not found') + noAlerts(s));
   const row = () => s.page.locator('tr', { hasText: ref }).first();
-  await row().locator('button:has-text("Record Receipt")').click();
+  /*
+   * Owner decision (30 Oct 2026): Record Receipt, Follow-up, Edit Received
+   * and Edit Milestone moved out of the row and into the strip that opens
+   * under it, so they are reachable without sliding the table sideways.
+   * `detail()` opens the row if it is closed and returns that strip.
+   * Delete and Mark Received stayed on the row itself.
+   */
+  const detail = async () => {
+    const r = row();
+    if (await r.locator('.pay-toggle[aria-expanded="false"]').count() > 0) {
+      await r.locator('.pay-toggle').click();
+      await s.page.waitForTimeout(150);
+    }
+    return r.locator('xpath=following-sibling::tr[1]');
+  };
+  await (await detail()).locator('button:has-text("Record Receipt")').click();
   m = s.page.locator('.modal');
   await field(m, 'Amount *').fill('4000');
   await field(m, 'Reference').fill('UTR123');
@@ -414,7 +429,7 @@ async function group6f(browser) {
   p = await getP(p0?.id);
   rec('payments: Edit receipt changes the amount (PATCH /:id/part-payments/:partId)', Number(p?.partPayments?.[0]?.amount) === 5000, `${p?.partPayments?.[0]?.amount}${noAlerts(s)}`);
   // Follow-up
-  await row().locator('button:has-text("Follow-up")').click();
+  await (await detail()).locator('button:has-text("Follow-up")').click();
   m = s.page.locator('.modal');
   await field(m, 'Next Call Date').fill(plusDays(3));
   await field(m, 'Discussion Notes').fill('Promised by Friday');
@@ -423,7 +438,7 @@ async function group6f(browser) {
   p = await getP(p0?.id);
   rec('payments: Follow-up saves next call and notes (POST /:id/follow-up)', String(p?.nextCallDate || '').startsWith(plusDays(3)) && (p?.discussionNotes || '').includes('Promised by Friday'), `${p?.nextCallDate}${noAlerts(s)}`);
   // Edit milestone record
-  await row().locator('button:has-text("Edit Milestone")').click();
+  await (await detail()).locator('button:has-text("Edit Milestone")').click();
   m = s.page.locator('.modal');
   await field(m, 'Remark / Milestone').fill('Retention 10%');
   await m.locator('button:has-text("Save")').click();

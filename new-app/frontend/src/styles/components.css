@@ -1849,6 +1849,76 @@
 .pay-sticky-actions tbody tr:hover td:last-child { background: var(--surface-hover); }
 .pay-sticky-actions tbody tr.row-raised td:last-child { background: inherit; }
 
+/* ── Pending Payments: open a row to act on it (owner decision, 30 Oct 2026)
+   The per-row detail and its buttons used to sit off the right edge behind a
+   horizontal scroll. They now open under the row. */
+.pay-toggle-col { width: 32px; padding-right: 0 !important; text-align: center; }
+/* A long project name used to widen the whole table and push the pinned
+   column over its neighbour. It wraps instead. */
+.pay-sticky-actions th:nth-child(2),
+.pay-sticky-actions td:nth-child(2) {
+  max-width: 240px;
+  /* .data-table sets nowrap; without this the name overruns the next
+     column instead of wrapping inside its own. */
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+.pay-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+.pay-toggle:hover { background: var(--surface-hover); color: var(--text); }
+.pay-toggle:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.pay-sticky-actions tbody tr.is-open { background: var(--surface-hover); }
+.pay-sticky-actions tbody tr.is-open td:last-child { background: var(--surface-hover); }
+
+/* The detail row spans the table, so it must not be caught by the pinned
+   last-column rule above. */
+.pay-sticky-actions tbody tr.pay-detail td {
+  position: static;
+  box-shadow: none;
+  padding: 0;
+  background: var(--surface-hover);
+}
+.pay-detail-inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  padding: var(--s-4) var(--s-5) var(--s-5) calc(32px + var(--s-5));
+  border-bottom: 1px solid var(--border-subtle);
+}
+.pay-detail-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-5) var(--s-7);
+  margin: 0;
+}
+.pay-detail-facts > div { min-width: 0; }
+.pay-detail-facts dt {
+  font-size: var(--fs-xs);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.pay-detail-facts dd { margin: var(--s-1) 0 0; font-size: var(--fs-sm); }
+.pay-detail-actions { gap: var(--s-3); }
+
+@media (max-width: 720px) {
+  .pay-detail-inner { padding-left: var(--s-4); }
+  .pay-detail-facts { gap: var(--s-4); }
+}
+
 /* ── AMC / Warranty client list (owner decision, 29 Oct 2026) ───────
    The screen is a client list now, so the only chrome it needs is a row
    of cover filters. Scoped to this screen by its own classes. */

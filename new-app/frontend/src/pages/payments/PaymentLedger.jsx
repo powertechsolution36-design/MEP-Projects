@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { Fragment, useState, useEffect, useCallback } from 'react';
 import { api, getStoredToken, assertDownloadOk } from '../../api/client';
 import { API_BASE_URL } from '../../config';
 import { money, fmtDate } from '../../utils/format';
@@ -40,6 +40,27 @@ export default function PaymentLedger() {
   // Edit Part Payment modal
   const [editTarget, setEditTarget] = useState(null);
   const [editForm, setEditForm] = useState({});
+
+  /*
+   * Open rows (owner decision, 30 Oct 2026).
+   *
+   * This table carried thirteen columns, so Record Receipt, Follow-up and
+   * Edit Milestone sat off the right edge behind a horizontal scroll and had
+   * to be slid into view for every single row. The columns that are read one
+   * row at a time — phone, who raised it, the remark, the last call and what
+   * was discussed — now live in a strip that opens under the row, together
+   * with those buttons. What is left fits a laptop without sliding.
+   *
+   * Delete is NOT in the strip. It stays in the Actions cell where it has
+   * always been: a destructive button should cost a deliberate reach, not sit
+   * under the thumb beside Mark Received.
+   */
+  const [openRows, setOpenRows] = useState(() => new Set());
+  const toggleRow = (id) => setOpenRows((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
 
   // Follow-up modal
   const [followTarget, setFollowTarget] = useState(null);
@@ -440,23 +461,20 @@ export default function PaymentLedger() {
             </div>
           ) : (
             <div className="table-wrap">
-              {/* pay-sticky-actions: this table is wider than a laptop screen,
-                  so the action buttons used to sit off the right edge behind a
-                  horizontal scroll and were easy to miss. The last column is
-                  pinned so "Mark Received" is always reachable. */}
+              {/* pay-sticky-actions: "Mark Received" stays pinned to the right
+                  edge. The table is no longer wider than a laptop — the
+                  per-row detail moved into the strip that opens under a row
+                  (see openRows above) — but the pin costs nothing and keeps
+                  the one-click action in the same place at every width. */}
               <table className="data-table pay-sticky-actions">
                 <thead>
                   <tr>
+                    <th className="pay-toggle-col"><span className="sr-only">Open row</span></th>
                     <th>Project</th>
                     <th>Person</th>
-                    <th>Phone</th>
                     <th>Amount</th>
                     <th>Received</th>
                     <th>Balance</th>
-                    <th>Raised by PM</th>
-                    <th>Remark / Milestone</th>
-                    <th>Last Call</th>
-                    <th>Discussion</th>
                     <th>Next Call</th>
                     <th>Actions</th>
                     <th>Received?</th>
@@ -473,63 +491,113 @@ export default function PaymentLedger() {
                     // PWA FACT (index.html:3725): raised rows tint red,
                     // part-paid rows tint green.
                     const rowClass = r ? 'row-bad' : rec > 0 ? 'row-ok' : undefined;
+                    const isOpen = openRows.has(p.id);
+                    const parts = (p.partPayments || []).length;
                     return (
-                      <tr key={p.id} className={rowClass}>
-                        <td>
-                          <strong>{p.projectOrReference}</strong>
-                          {p.orderNumber && <div className="cell-sub">SO-{p.orderNumber}</div>}
-                        </td>
-                        <td>{p.personName || '-'}</td>
-                        <td>{p.phone || '-'}</td>
-                        <td><strong>{money(p.amount)}</strong></td>
-                        <td className={rec ? 'fg-ok' : undefined}>
-                          {rec ? (
-                            <>
-                              <strong>{money(rec)}</strong>
-                              <div>
-                                <button className="link-button" onClick={() => setHistoryTarget(p)}>
-                                  ✎ edit {(p.partPayments || []).length} entr{(p.partPayments || []).length === 1 ? 'y' : 'ies'}
-                                </button>
+                      <Fragment key={p.id}>
+                        <tr
+                          className={`${rowClass || ''}${isOpen ? ' is-open' : ''}`.trim() || undefined}
+                          onClick={(e) => {
+                            // A click on a real control does its own job.
+                            if (e.target.closest('button, a, input, select, textarea')) return;
+                            toggleRow(p.id);
+                          }}
+                        >
+                          <td className="pay-toggle-col">
+                            <button
+                              type="button"
+                              className="pay-toggle"
+                              aria-expanded={isOpen}
+                              aria-label={`${isOpen ? 'Close' : 'Open'} details for ${p.projectOrReference}`}
+                              onClick={() => toggleRow(p.id)}
+                            >
+                              <span aria-hidden="true">{isOpen ? '▾' : '▸'}</span>
+                            </button>
+                          </td>
+                          <td>
+                            <strong>{p.projectOrReference}</strong>
+                            {p.orderNumber && <div className="cell-sub">SO-{p.orderNumber}</div>}
+                          </td>
+                          <td>{p.personName || '-'}</td>
+                          <td><strong>{money(p.amount)}</strong></td>
+                          <td className={rec ? 'fg-ok' : undefined}>
+                            {rec ? (
+                              <>
+                                <strong>{money(rec)}</strong>
+                                <div>
+                                  <button className="link-button" onClick={() => setHistoryTarget(p)}>
+                                    ✎ edit {parts} entr{parts === 1 ? 'y' : 'ies'}
+                                  </button>
+                                </div>
+                              </>
+                            ) : '—'}
+                          </td>
+                          <td className="due">{money(balance(p))}</td>
+                          <td className={callDue ? 'due' : undefined}>{nextCall || '-'}</td>
+                          {/* Delete has not moved: same cell, same column. */}
+                          <td className="nowrap">
+                            {!p.salesOrderId
+                              ? <button className="btn danger sm" onClick={() => handleDeleteRecord(p.id)}>Delete</button>
+                              : <span className="muted">—</span>}
+                          </td>
+                          {/* Pinned to the right edge. */}
+                          <td className="nowrap">
+                            {balance(p) > 0
+                              ? <button className="btn grn sm" onClick={() => handleMarkFullyReceived(p)}>✓ Mark Received</button>
+                              : <span className="status-badge status-received">Received</span>}
+                          </td>
+                        </tr>
+
+                        {isOpen && (
+                          <tr className="pay-detail">
+                            <td colSpan={9}>
+                              <div className="pay-detail-inner">
+                                <dl className="pay-detail-facts">
+                                  <div>
+                                    <dt>Phone</dt>
+                                    <dd>{p.phone ? <a href={`tel:${p.phone}`}>{p.phone}</a> : '-'}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>Raised by PM</dt>
+                                    <dd>
+                                      {r ? (
+                                        <>
+                                          <span className={`status-badge ${r.priority === 'Urgent' ? 'status-lost' : 'status-open'}`}>
+                                            {r.priority === 'Urgent' ? '⚠ ' : ''}Raised {fmtDate(r.raisedDate)}
+                                          </span>
+                                          <div className="cell-sub">{r.raisedByName || r.raisedByRole || '-'} · by {fmtDate(r.collectByDate) || '-'}</div>
+                                        </>
+                                      ) : <span className="muted">—</span>}
+                                    </dd>
+                                  </div>
+                                  <div>
+                                    <dt>Remark / Milestone</dt>
+                                    <dd>{p.remark || '-'}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>Last Call</dt>
+                                    <dd>{fmtDate(p.lastCallDate) || '-'}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>Discussion</dt>
+                                    <dd>{p.discussionNotes || '-'}</dd>
+                                  </div>
+                                </dl>
+                                <div className="btn-row pay-detail-actions">
+                                  <button className="btn sec sm" onClick={() => openAddPayment(p)}>Record Receipt</button>
+                                  <button className="btn sec sm" onClick={() => openFollowUp(p)}>Follow-up</button>
+                                  {parts > 0 && (
+                                    <button className="btn sec sm" onClick={() => setHistoryTarget(p)}>
+                                      ✎ Edit Received ({parts})
+                                    </button>
+                                  )}
+                                  <button className="btn sec sm" onClick={() => openEditMilestone(p)}>Edit Milestone</button>
+                                </div>
                               </div>
-                            </>
-                          ) : '—'}
-                        </td>
-                        <td className="due">{money(balance(p))}</td>
-                        <td>
-                          {r ? (
-                            <>
-                              <span className={`status-badge ${r.priority === 'Urgent' ? 'status-lost' : 'status-open'}`}>
-                                {r.priority === 'Urgent' ? '⚠ ' : ''}Raised {fmtDate(r.raisedDate)}
-                              </span>
-                              <div className="cell-sub">{r.raisedByName || r.raisedByRole || '-'} · by {fmtDate(r.collectByDate) || '-'}</div>
-                            </>
-                          ) : <span className="muted">—</span>}
-                        </td>
-                        <td>{p.remark || '-'}</td>
-                        <td>{fmtDate(p.lastCallDate) || '-'}</td>
-                        <td>{p.discussionNotes || '-'}</td>
-                        <td className={callDue ? 'due' : undefined}>{nextCall || '-'}</td>
-                        <td className="nowrap">
-                          <div className="btn-row">
-                            <button className="btn sec sm" onClick={() => openAddPayment(p)}>Record Receipt</button>
-                            <button className="btn sec sm" onClick={() => openFollowUp(p)}>Follow-up</button>
-                            {(p.partPayments || []).length > 0 && (
-                              <button className="btn sec sm" onClick={() => setHistoryTarget(p)}>
-                                ✎ Edit Received ({(p.partPayments || []).length})
-                              </button>
-                            )}
-                            <button className="btn sec sm" onClick={() => openEditMilestone(p)}>Edit Milestone</button>
-                            {!p.salesOrderId && <button className="btn danger sm" onClick={() => handleDeleteRecord(p.id)}>Delete</button>}
-                          </div>
-                        </td>
-                        {/* Pinned to the right edge so it is reachable without
-                            scrolling this very wide table sideways. */}
-                        <td className="nowrap">
-                          {balance(p) > 0
-                            ? <button className="btn grn sm" onClick={() => handleMarkFullyReceived(p)}>✓ Mark Received</button>
-                            : <span className="status-badge status-received">Received</span>}
-                        </td>
-                      </tr>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
                     );
                   })}
                   {/* PWA FACT (index.html:3734): billed / received / balance totals. */}
@@ -538,7 +606,7 @@ export default function PaymentLedger() {
                     <td>{money(pendBilled)}</td>
                     <td className="fg-ok">{money(pendReceived)}</td>
                     <td className="fg-bad">{money(pendBalance)}</td>
-                    <td colSpan={7}></td>
+                    <td colSpan={3}></td>
                   </tr>
                 </tbody>
               </table>
