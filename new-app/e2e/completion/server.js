@@ -5,6 +5,16 @@ const express = require(path.join(B, 'node_modules', 'express'));
 const { createDevApp, createDevRepositories, seedDevData } = require(path.join(B, 'src/devServer'));
 const { seedBusinessData } = require('./fixture');
 const dist = path.resolve(__dirname, '../../frontend/dist');
+// Owner decision (31 Oct 2026): the customer app can notify the client, and
+// that is only switched on when a VAPID key pair is configured. A throwaway
+// pair is generated here so the e2e run exercises the switched-on path; the
+// real server reads its pair from the environment and never invents one.
+if (!process.env.WEB_PUSH_PUBLIC_KEY || !process.env.WEB_PUSH_PRIVATE_KEY) {
+  const keys = require(path.join(B, 'node_modules', 'web-push')).generateVAPIDKeys();
+  process.env.WEB_PUSH_PUBLIC_KEY = keys.publicKey;
+  process.env.WEB_PUSH_PRIVATE_KEY = keys.privateKey;
+}
+
 (async () => {
   const deps = createDevRepositories();
   await seedDevData(deps);

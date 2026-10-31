@@ -60,6 +60,13 @@ const {
   customerAccountRepo,
   customerSessionRepo,
   attachmentRepo,
+  // FIX (31 Oct 2026): these three were written and wired into the dev
+  // server but never into this one, so project photographs and portal
+  // invite links answered 500 in production. The customer app's push
+  // subscriptions join them here rather than repeat the mistake.
+  projectPhotoRepo,
+  portalInviteRepo,
+  portalPushRepo,
 } = require('./repositories/businessRepositories.mongoose');
 
 /**
@@ -135,6 +142,9 @@ function createApp(overrideConfig) {
     customerAccountRepo,
     customerSessionRepo,
     attachmentRepo,
+    projectPhotoRepo,
+    portalInviteRepo,
+    portalPushRepo,
   };
 
   // Owner decision (21 Oct 2026): every notification is also pushed to the

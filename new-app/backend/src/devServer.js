@@ -200,6 +200,7 @@ function createDevRepositories() {
     attachmentRepo: store.attachmentRepo,
     projectPhotoRepo: store.projectPhotoRepo,
     portalInviteRepo: store.portalInviteRepo,
+    portalPushRepo: store.portalPushRepo,
     dailyTaskRepo: {
       async deleteManyByCompany(companyId) {
         for (let i = dailyTasks.length - 1; i >= 0; i -= 1) {

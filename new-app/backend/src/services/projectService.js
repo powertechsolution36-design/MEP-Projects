@@ -4,6 +4,9 @@ const { ServiceError } = require('../errors');
 const ProjectPhoto = require('../models/ProjectPhoto');
 const { getEffectiveDivisions } = require('./subscriptionService');
 const { SIGN_RESPONSIBILITIES, PROJECT_STAGES_BY_DIVISION } = require('../models/shared/enums');
+// Owner decision (31 Oct 2026): a published update reaches the client's own
+// app. Never blocks, never fails the work — see portalPushService.
+const portalPush = require('./portalPushService');
 const { DIVISION_PM_ROLE } = require('./salesOrderCascade');
 // FIX-6-07: reuse the already-reconciled `paySum()` port (verified against
 // PWA `paySum`/`projPayInfo`) instead of re-deriving milestone-vs-Payment
@@ -1134,13 +1137,25 @@ async function setExecutionUpdateShared(projectId, updateIndex, input, actorAuth
       : '',
   };
 
-  return deps.projectRepo.update(
+  const saved = await deps.projectRepo.update(
     actorAuth.companyId,
     projectId,
     { executionUpdates: updates },
     undefined,
     { expectedRevision: project.revision }
   );
+
+  // Only on the way out, and only when there is something to read. Taking an
+  // update back is silent: nobody is notified that news has been withdrawn.
+  if (shared && updates[i].customerNote) {
+    await portalPush.notifyClient('project_update', {
+      companyId: actorAuth.companyId,
+      projectId: String(projectId),
+      text: updates[i].customerNote,
+    }, deps);
+  }
+
+  return saved;
 }
 
 

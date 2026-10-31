@@ -227,6 +227,10 @@ test('audit-correction scope guard: only authorized routes and services exist', 
     'notificationService.js',
     'paymentService.js',
     'portalAuthService.js',
+    // UPDATE (owner request, 31 Oct 2026): the customer app — notifications
+    // to a client's own phone when their complaint moves. Web Push, with its
+    // own key pair and its own table; off until a key pair is configured.
+    'portalPushService.js',
     'portalService.js',
     'projectService.js',
     // UPDATE (owner request, 21 Oct 2026): phone push notifications.

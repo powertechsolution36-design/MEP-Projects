@@ -1837,6 +1837,21 @@
    One column by default; two from 880px (below). */
 .portal-grid { display: flex; flex-direction: column; gap: var(--s-6); }
 .portal-stack { display: flex; flex-direction: column; gap: var(--s-6); }
+.portal-side  { display: flex; flex-direction: column; gap: var(--s-6); min-width: 0; }
+
+/* ---- The app card (31 Oct 2026) --------------------------------- */
+.portal-app-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  flex-wrap: wrap;
+}
+.portal-app-row-icon { color: var(--p-muted); flex: none; display: flex; }
+.portal-app-row-body { display: flex; flex-direction: column; gap: var(--s-1); flex: 1 1 180px; min-width: 0; }
+.portal-app-row-title { font-weight: var(--fw-semi); }
+.portal-app-row-sub { font-size: var(--fs-md); color: var(--p-muted); }
+.portal-steps-plain { display: flex; flex-direction: column; gap: var(--s-4); }
+.portal-inline-icon { display: inline-flex; vertical-align: -4px; color: var(--p-muted); }
 
 /* ---- Wider screens ----------------------------------------------
    Not a phone page stretched: the dashboard becomes two columns with

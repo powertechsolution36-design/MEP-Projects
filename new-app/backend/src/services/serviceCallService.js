@@ -2,6 +2,9 @@
 
 const crypto = require('crypto');
 const { ServiceError } = require('../errors');
+// Owner decision (31 Oct 2026): the client's own app is told when their
+// complaint moves. Never blocks, never fails the work — see portalPushService.
+const portalPush = require('./portalPushService');
 const contractService = require('./contractService');
 
 /**
@@ -702,6 +705,27 @@ async function assignEngineer(id, input, actorAuth, deps) {
     return patched;
   });
 
+  // The client's app, after the work is safely saved. Deliberately not
+  // awaited inside the transaction: a push service having a bad day must
+  // never roll back an assignment.
+  if (engineerId || appointmentDate) {
+    const appointmentText = appointmentDate
+      ? `${dayKeyUTC(appointmentDate)}${appointmentTime ? ` at ${appointmentTime}` : ''}`
+      : '';
+    await portalPush.notifyClient(
+      appointmentDate ? 'visit_arranged' : 'engineer_assigned',
+      {
+        companyId: actorAuth.companyId,
+        contractId: serviceCall.contractId,
+        complaintId: String(id),
+        complaintNumber: serviceCall.complaintNumber,
+        engineerName,
+        appointmentText,
+      },
+      deps
+    );
+  }
+
   return updated;
 }
 
@@ -895,6 +919,15 @@ async function completeServiceCall(id, input, actorAuth, deps) {
     sc.type === 'PM'
       ? msgPMdone(sc.complaintNumber, dayKeyUTC(sc.appointmentDate), sc.appointmentTime, company)
       : msgDone(sc.complaintNumber, company);
+
+  if (result.completedNow) {
+    await portalPush.notifyClient('work_completed', {
+      companyId: actorAuth.companyId,
+      contractId: sc.contractId,
+      complaintId: String(sc.id),
+      complaintNumber: sc.complaintNumber,
+    }, deps);
+  }
 
   return { serviceCall: sc, completedNow: result.completedNow, customerMessage, reportToken: sc.reportToken || null };
 }

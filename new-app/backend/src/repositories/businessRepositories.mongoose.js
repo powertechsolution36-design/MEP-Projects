@@ -31,6 +31,7 @@ const {
   ServiceCallAttachment,
   ProjectPhoto,
   PortalInvite,
+  PortalPushSubscription,
 } = require('../models');
 const { Counter } = require('../models/Counter');
 
@@ -1316,6 +1317,47 @@ const portalInviteRepo = {
 };
 
 /**
+ * A client's phone, registered for notifications from the customer app
+ * (owner decision, 31 Oct 2026). The endpoint is the identity: one row per
+ * browser, replaced rather than duplicated when the same browser subscribes
+ * again.
+ */
+const portalPushRepo = {
+  async upsert(data) {
+    const { endpoint, ...rest } = data;
+    const doc = await PortalPushSubscription.findOneAndUpdate(
+      { endpoint },
+      { $set: { ...rest, endpoint } },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    ).lean();
+    return toPlainLean(doc);
+  },
+  async listForContract(companyId, contractId) {
+    if (!mongoose.isValidObjectId(contractId)) return [];
+    const docs = await PortalPushSubscription.find({ companyId, contractId }).lean();
+    return docs.map(toPlainLean);
+  },
+  async removeByEndpoint(endpoint) {
+    const res = await PortalPushSubscription.deleteOne({ endpoint: String(endpoint) });
+    return res.deletedCount > 0;
+  },
+  /** Scoped to one account, so an endpoint alone is never enough. */
+  async removeForAccount(customerAccountId, endpoint) {
+    if (!mongoose.isValidObjectId(customerAccountId)) return false;
+    const res = await PortalPushSubscription.deleteOne({ customerAccountId, endpoint: String(endpoint) });
+    return res.deletedCount > 0;
+  },
+  async removeAllForAccount(customerAccountId) {
+    if (!mongoose.isValidObjectId(customerAccountId)) return 0;
+    const res = await PortalPushSubscription.deleteMany({ customerAccountId });
+    return res.deletedCount || 0;
+  },
+  async deleteManyByCompany(companyId, session) {
+    await PortalPushSubscription.deleteMany({ companyId }, { session });
+  },
+};
+
+/**
  * Photographs of work done on a project (owner decision, 30 Oct 2026).
  * Listings NEVER carry the bytes — only the one authorized read does.
  */
@@ -1359,6 +1401,7 @@ module.exports = {
   enquiryRepo,
   projectPhotoRepo,
   portalInviteRepo,
+  portalPushRepo,
   salesOrderRepo,
   projectRepo,
   paymentRepo,

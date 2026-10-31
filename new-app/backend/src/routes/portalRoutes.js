@@ -10,6 +10,8 @@ const {
   getPortalProfile, listMyComplaints, getMyComplaint, createMyComplaint, getMyAttachment,
   listMyProjects, getMyProject, getMyProjectPhoto,
 } = require('../services/portalService');
+// Owner decision (31 Oct 2026): the customer app can notify the client.
+const portalPush = require('../services/portalPushService');
 
 /**
  * The customer portal's own API (owner decision, 27 Oct 2026).
@@ -76,6 +78,37 @@ function createPortalRouter(deps) {
   router.get('/me', portalAuth, async (req, res) => {
     try {
       return res.json(await getPortalProfile(req.portal, deps));
+    } catch (err) {
+      return sendError(res, err, 'portalRoutes');
+    }
+  });
+
+  /* ---- Notifications to the customer app (31 Oct 2026) ----
+   * The key is public by definition — it is what the browser encrypts to —
+   * but it is still only handed to a signed-in client, so an unconfigured
+   * installation gives a stranger nothing at all. `enabled: false` is a
+   * normal answer, not an error: the app simply hides the switch.
+   */
+  router.get('/push/key', portalAuth, async (req, res) => {
+    try {
+      const key = portalPush.publicKey();
+      return res.json({ enabled: Boolean(key), publicKey: key });
+    } catch (err) {
+      return sendError(res, err, 'portalRoutes');
+    }
+  });
+
+  router.post('/push/subscribe', portalAuth, async (req, res) => {
+    try {
+      return res.json(await portalPush.subscribe(req.portal, req.body, deps));
+    } catch (err) {
+      return sendError(res, err, 'portalRoutes');
+    }
+  });
+
+  router.post('/push/unsubscribe', portalAuth, async (req, res) => {
+    try {
+      return res.json(await portalPush.unsubscribe(req.portal, req.body, deps));
     } catch (err) {
       return sendError(res, err, 'portalRoutes');
     }

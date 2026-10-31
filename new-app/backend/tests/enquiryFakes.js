@@ -54,6 +54,7 @@ function createEnquiryFakeStore(seed = {}) {
     attachments: seed.attachments || [],
     projectPhotos: seed.projectPhotos || [],
     portalInvites: seed.portalInvites || [],
+    portalPushSubscriptions: seed.portalPushSubscriptions || [],
   };
 
   function snapshot() {
@@ -1158,6 +1159,50 @@ function createEnquiryFakeStore(seed = {}) {
   };
 
   /** Owner decision (31 Oct 2026) — a client's own link to the portal. */
+  const portalPushRepo = {
+    async upsert(data) {
+      const i = state.portalPushSubscriptions.findIndex((s) => String(s.endpoint) === String(data.endpoint));
+      const doc = { id: i >= 0 ? state.portalPushSubscriptions[i].id : nextId('pps'), createdAt: new Date(), ...data };
+      if (i >= 0) state.portalPushSubscriptions[i] = doc;
+      else state.portalPushSubscriptions.push(doc);
+      return cloneDeep(doc);
+    },
+    async listForContract(companyId, contractId) {
+      return state.portalPushSubscriptions
+        .filter((s) => sameCompany(s, companyId) && String(s.contractId) === String(contractId))
+        .map((s) => cloneDeep(s));
+    },
+    async removeByEndpoint(endpoint) {
+      const i = state.portalPushSubscriptions.findIndex((s) => String(s.endpoint) === String(endpoint));
+      if (i < 0) return false;
+      state.portalPushSubscriptions.splice(i, 1);
+      return true;
+    },
+    async removeForAccount(customerAccountId, endpoint) {
+      const i = state.portalPushSubscriptions.findIndex(
+        (s) => String(s.customerAccountId) === String(customerAccountId) && String(s.endpoint) === String(endpoint)
+      );
+      if (i < 0) return false;
+      state.portalPushSubscriptions.splice(i, 1);
+      return true;
+    },
+    async removeAllForAccount(customerAccountId) {
+      let n = 0;
+      for (let i = state.portalPushSubscriptions.length - 1; i >= 0; i -= 1) {
+        if (String(state.portalPushSubscriptions[i].customerAccountId) === String(customerAccountId)) {
+          state.portalPushSubscriptions.splice(i, 1);
+          n += 1;
+        }
+      }
+      return n;
+    },
+    async deleteManyByCompany(companyId) {
+      for (let i = state.portalPushSubscriptions.length - 1; i >= 0; i -= 1) {
+        if (sameCompany(state.portalPushSubscriptions[i], companyId)) state.portalPushSubscriptions.splice(i, 1);
+      }
+    },
+  };
+
   const portalInviteRepo = {
     async create(data) {
       const doc = { id: nextId('inv'), createdAt: new Date(), ...data };
@@ -1239,6 +1284,7 @@ function createEnquiryFakeStore(seed = {}) {
     state,
     projectPhotoRepo,
     portalInviteRepo,
+    portalPushRepo,
     pushDeviceRepo,
     enquiryRepo,
     salesOrderRepo,

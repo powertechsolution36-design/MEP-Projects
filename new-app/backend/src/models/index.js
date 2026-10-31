@@ -47,4 +47,5 @@ module.exports = {
   ServiceCallAttachment: require('./ServiceCallAttachment'),
   ProjectPhoto: require('./ProjectPhoto'),
   PortalInvite: require('./PortalInvite'),
+  PortalPushSubscription: require('./PortalPushSubscription'),
 };

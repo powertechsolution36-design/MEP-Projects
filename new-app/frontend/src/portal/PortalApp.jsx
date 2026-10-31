@@ -3,6 +3,10 @@ import { Routes, Route, Navigate, useNavigate, useParams, useLocation, Link } fr
 import { portalApi, setPortalToken, getPortalToken, fetchAttachmentUrl } from './portalApi';
 import { ANDROID_APK_URL, IOS_APP_URL } from '../config';
 import { appDownloadOptions } from '../utils/appLinks';
+import {
+  attachPortalAppChrome, registerPortalServiceWorker, isInstalled, isApple,
+  pushSupported, notificationPermission, currentPushSubscription, enablePush, disablePush,
+} from './pwa';
 
 /**
  * The customer portal (owner decision, 27 Oct 2026).
@@ -107,6 +111,9 @@ const IconCheck = () => icon('M4.5 12.5l5 5 10-11');
 const IconUser = () => icon('M4.5 20a7.5 7.5 0 0 1 15 0', <circle cx="12" cy="7.5" r="3.8" />);
 const IconClock = () => icon('M12 7v5.2l3.2 2', <circle cx="12" cy="12" r="9" />);
 const IconSite = () => icon('M3 20h18M6 20V9l6-4 6 4v11M10 20v-5h4v5');
+const IconPhone = () => icon('M7 2.5h10v19H7z', <path d="M10.5 18.6h3" />);
+const IconBell = () => icon('M18 16V11a6 6 0 1 0-12 0v5l-1.6 2.4h15.2zM10 21h4');
+const IconShare = () => icon('M12 16V4m0 0L8 8m4-4 4 4M5 14v5.5h14V14');
 
 /* ------------------------------------------------------------------ *
  * Shell
@@ -685,6 +692,155 @@ function PortalProjectDetail() {
   );
 }
 
+/**
+ * The customer app (owner decision, 31 Oct 2026).
+ *
+ * The portal IS the app: added to the home screen it opens full screen, with
+ * its own icon, and keeps working on a bad signal. This card is the only
+ * place that says so, and it says it differently on each platform because
+ * installing genuinely is different on each:
+ *
+ *   · Android / desktop Chrome — the browser offers it; we ask on its behalf.
+ *   · iPhone / iPad — Safari has no such offer, so the client is told the
+ *     three taps, in Apple's own words ("Share", "Add to Home Screen").
+ *   · already installed — nothing to say about installing; the switch for
+ *     notifications is what is left.
+ *
+ * Nothing here is shown when the browser cannot do it. A card offering
+ * something that will not work is worse than no card.
+ */
+function PortalAppCard() {
+  const [installEvent, setInstallEvent] = useState(null);
+  const [installed, setInstalled] = useState(() => isInstalled());
+  const [pushState, setPushState] = useState('loading'); // loading|off|on|denied|unavailable
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
+
+  useEffect(() => {
+    const onPrompt = (e) => { e.preventDefault(); setInstallEvent(e); };
+    const onInstalled = () => { setInstalled(true); setInstallEvent(null); };
+    window.addEventListener('beforeinstallprompt', onPrompt);
+    window.addEventListener('appinstalled', onInstalled);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onPrompt);
+      window.removeEventListener('appinstalled', onInstalled);
+    };
+  }, []);
+
+  // What the browser and the server between them actually allow today.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      if (!pushSupported()) { if (alive) setPushState('unavailable'); return; }
+      const key = await portalApi.get('/api/portal/push/key').catch(() => null);
+      if (!alive) return;
+      if (!key || !key.enabled) { setPushState('unavailable'); return; }
+      if (notificationPermission() === 'denied') { setPushState('denied'); return; }
+      const sub = await currentPushSubscription();
+      if (alive) setPushState(sub ? 'on' : 'off');
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  async function install() {
+    if (!installEvent) return;
+    setBusy(true);
+    try {
+      installEvent.prompt();
+      const choice = await installEvent.userChoice;
+      if (choice && choice.outcome === 'accepted') setInstalled(true);
+      setInstallEvent(null);
+    } finally { setBusy(false); }
+  }
+
+  async function toggleNotifications() {
+    setBusy(true); setNote('');
+    try {
+      if (pushState === 'on') {
+        await disablePush();
+        setPushState('off');
+        return;
+      }
+      const res = await enablePush();
+      if (res.ok) { setPushState('on'); return; }
+      if (res.reason === 'denied') {
+        setPushState('denied');
+      } else if (res.reason === 'unsupported' || res.reason === 'not-configured') {
+        setPushState('unavailable');
+      } else {
+        setNote('Not switched on. You can try again whenever you like.');
+      }
+    } catch {
+      setNote('That did not work. Please try again.');
+    } finally { setBusy(false); }
+  }
+
+  const canOfferInstall = Boolean(installEvent) && !installed;
+  const appleSteps = !installed && isApple();
+  const showPush = pushState !== 'unavailable';
+  if (!canOfferInstall && !appleSteps && !showPush) return null;
+
+  return (
+    <section className="portal-card portal-app" aria-labelledby="portal-app-h">
+      <h2 id="portal-app-h" className="portal-card-h"><IconPhone />The app on your phone</h2>
+
+      {canOfferInstall && (
+        <>
+          <p className="portal-lede">
+            Add this to your home screen and it opens like any other app — full screen,
+            with its own icon, and it still opens where the signal is poor.
+          </p>
+          <button className="btn pri portal-btn portal-btn-block" type="button" onClick={install} disabled={busy}>
+            Install the app
+          </button>
+        </>
+      )}
+
+      {appleSteps && !canOfferInstall && (
+        <div className="portal-steps-plain">
+          <p className="portal-lede">To keep this on your home screen, three taps in Safari:</p>
+          <ol className="portal-list">
+            <li>Tap <strong>Share</strong> <span className="portal-inline-icon" aria-hidden="true"><IconShare /></span> at the bottom of the screen.</li>
+            <li>Scroll down and tap <strong>Add to Home Screen</strong>.</li>
+            <li>Tap <strong>Add</strong>.</li>
+          </ol>
+        </div>
+      )}
+
+      {installed && !showPush && (
+        <p className="portal-lede">The app is on your home screen. Open it from there next time.</p>
+      )}
+
+      {showPush && (
+        <div className="portal-app-row">
+          <span className="portal-app-row-icon" aria-hidden="true"><IconBell /></span>
+          <span className="portal-app-row-body">
+            <span className="portal-app-row-title">Tell me when my complaint moves</span>
+            <span className="portal-app-row-sub">
+              {pushState === 'denied'
+                ? 'Notifications are blocked for this site in your phone’s settings. Allow them there and come back.'
+                : 'An engineer assigned, a visit arranged, the service report ready.'}
+            </span>
+          </span>
+          {pushState !== 'denied' && (
+            <button
+              className={`btn ${pushState === 'on' ? 'sec' : 'pri'} portal-btn`}
+              type="button"
+              onClick={toggleNotifications}
+              disabled={busy || pushState === 'loading'}
+              aria-pressed={pushState === 'on'}
+            >
+              {pushState === 'on' ? 'On' : 'Turn on'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {note && <p className="portal-aside">{note}</p>}
+    </section>
+  );
+}
+
 function PortalDashboard() {
   const { profile, signOut } = usePortal();
   const [complaints, setComplaints] = useState(null);
@@ -709,6 +865,9 @@ function PortalDashboard() {
   return (
     <PortalShell profile={profile} onLogout={signOut}>
       <div className="portal-grid">
+        {/* One column on a phone, the left-hand column on a wide screen:
+            the cover card and the app card belong together. */}
+        <div className="portal-side">
         <section className="portal-card portal-cover" aria-labelledby="portal-cover-h">
           <span className="portal-cover-mark" aria-hidden="true"><IconShield /></span>
           <h2 id="portal-cover-h">Your service</h2>
@@ -735,6 +894,9 @@ function PortalDashboard() {
             Tell us what is wrong and attach a photograph. We will assign an engineer.
           </p>
         </section>
+
+        <PortalAppCard />
+        </div>
 
         <div className="portal-stack">
           {error && <div className="portal-card"><Notice>{error}</Notice></div>}
@@ -1215,6 +1377,17 @@ export default function PortalApp() {
 
   useEffect(() => { load(); }, [load]);
 
+  /**
+   * The customer app. Mounted here and nowhere else: the manifest, the icon
+   * and the service worker belong to /portal, and the staff application must
+   * never advertise itself as the client's app or be controlled by a worker.
+   */
+  useEffect(() => {
+    const detach = attachPortalAppChrome();
+    registerPortalServiceWorker();
+    return detach;
+  }, []);
+
   useEffect(() => {
     const onOut = () => setProfile(null);
     window.addEventListener('mep:portal-unauthorized', onOut);
@@ -1228,6 +1401,9 @@ export default function PortalApp() {
   }, []);
 
   const signOut = useCallback(async () => {
+    // Notifications go with the session: a phone that has been signed out of
+    // must not keep buzzing about somebody's service calls.
+    try { await disablePush(); } catch { /* the sign-out matters more */ }
     try { await portalApi.post('/api/portal/auth/logout'); } catch { /* the token is going anyway */ }
     setPortalToken(null);
     setProfile(null);
