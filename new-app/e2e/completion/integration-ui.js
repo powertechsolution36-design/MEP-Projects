@@ -445,6 +445,48 @@ async function group6f(browser) {
   await settle(s);
   p = await getP(p0?.id);
   rec('payments: Edit Milestone saves the record (PATCH /:id/milestone)', p?.remark === 'Retention 10%', `${p?.remark}${noAlerts(s)}`);
+
+  /*
+   * Owner request (31 Oct 2026): the remark and the last discussion are read
+   * before ringing somebody, so they are on the row — not behind the toggle,
+   * and on a phone not behind a sideways slide either. Both were just saved
+   * above, so this reads them back off the closed row.
+   */
+  {
+    const r = row();
+    if (await r.locator('.pay-toggle[aria-expanded="true"]').count() > 0) {
+      await r.locator('.pay-toggle').click();
+      await s.page.waitForTimeout(150);
+    }
+    const onRow = (await r.innerText()).replace(/\s+/g, ' ');
+    rec('payments: the remark and the discussion are on the row, with the row closed',
+      onRow.includes('Retention 10%') && onRow.includes('Promised by Friday'), onRow.slice(0, 200));
+
+    const fits = async (width) => {
+      await s.page.setViewportSize({ width, height: 900 });
+      await s.page.waitForTimeout(400);
+      return s.page.evaluate(() => {
+        const t = document.querySelector('.pay-sticky-actions');
+        const wrap = t && t.closest('.table-wrap');
+        return {
+          table: t ? t.scrollWidth - t.clientWidth : -1,
+          wrap: wrap ? wrap.scrollWidth - wrap.clientWidth : -1,
+          page: document.body.scrollWidth - document.documentElement.clientWidth,
+        };
+      });
+    };
+    const laptop = await fits(1366);
+    rec('payments: nothing slides sideways on a laptop', laptop.wrap <= 0 && laptop.page <= 0, JSON.stringify(laptop));
+
+    const phone = await fits(390);
+    rec('payments: nothing slides sideways on a phone', phone.wrap <= 0 && phone.page <= 0, JSON.stringify(phone));
+    const phoneRow = (await row().innerText()).replace(/\s+/g, ' ');
+    rec('payments: and the remark is still readable on the phone, with the row closed',
+      phoneRow.includes('Retention 10%') && phoneRow.includes('Promised by Friday'), phoneRow.slice(0, 200));
+    if (process.env.SHOTS) await s.page.screenshot({ path: `${process.env.SHOTS}/6f-phone-cards.png`, fullPage: true });
+    await s.page.setViewportSize({ width: 1366, height: 900 });
+    await s.page.waitForTimeout(300);
+  }
   // History -> Del removes the receipt
   await row().locator('button.link-button').first().click(); // "✎ edit 1 entry" opens the payment history
   await s.page.locator('.modal button:has-text("Del")').first().click();

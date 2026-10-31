@@ -476,6 +476,10 @@ export default function PaymentLedger() {
                     <th>Received</th>
                     <th>Balance</th>
                     <th>Next Call</th>
+                    {/* Owner request (31 Oct 2026): the remark and the last
+                        discussion are what the caller reads before dialling,
+                        so they are on the row itself, not behind a toggle. */}
+                    <th className="pay-note-col">Milestone / Discussion</th>
                     <th>Actions</th>
                     <th>Received?</th>
                   </tr>
@@ -503,7 +507,7 @@ export default function PaymentLedger() {
                             toggleRow(p.id);
                           }}
                         >
-                          <td className="pay-toggle-col">
+                          <td className="pay-toggle-col" data-label="Details">
                             <button
                               type="button"
                               className="pay-toggle"
@@ -514,13 +518,13 @@ export default function PaymentLedger() {
                               <span aria-hidden="true">{isOpen ? '▾' : '▸'}</span>
                             </button>
                           </td>
-                          <td>
+                          <td data-label="Project">
                             <strong>{p.projectOrReference}</strong>
                             {p.orderNumber && <div className="cell-sub">SO-{p.orderNumber}</div>}
                           </td>
-                          <td>{p.personName || '-'}</td>
-                          <td><strong>{money(p.amount)}</strong></td>
-                          <td className={rec ? 'fg-ok' : undefined}>
+                          <td data-label="Person">{p.personName || '-'}</td>
+                          <td data-label="Amount"><strong>{money(p.amount)}</strong></td>
+                          <td data-label="Received" className={rec ? 'fg-ok' : undefined}>
                             {rec ? (
                               <>
                                 <strong>{money(rec)}</strong>
@@ -532,16 +536,38 @@ export default function PaymentLedger() {
                               </>
                             ) : '—'}
                           </td>
-                          <td className="due">{money(balance(p))}</td>
-                          <td className={callDue ? 'due' : undefined}>{nextCall || '-'}</td>
+                          <td data-label="Balance" className="due">{money(balance(p))}</td>
+                          <td data-label="Next call" className={callDue ? 'due' : undefined}>{nextCall || '-'}</td>
+                          {/* The remark and the last discussion, in the row.
+                              Either may be empty; an em dash only when both
+                              are, so the cell never shows two of them. */}
+                          <td data-label="Milestone / discussion" className="pay-note-col">
+                            {p.remark || p.discussionNotes ? (
+                              <>
+                                {p.remark && <div className="pay-note">{p.remark}</div>}
+                                {p.discussionNotes && (
+                                  <div className="cell-sub pay-note">
+                                    {fmtDate(p.lastCallDate) ? `${fmtDate(p.lastCallDate)}: ` : ''}
+                                    {p.discussionNotes}
+                                  </div>
+                                )}
+                              </>
+                            ) : <span className="muted">—</span>}
+                          </td>
                           {/* Delete has not moved: same cell, same column. */}
-                          <td className="nowrap">
+                          <td
+                            data-label="Delete"
+                            /* A row from a sales order cannot be deleted here.
+                               On a phone that cell is a line saying nothing,
+                               so it is dropped from the card. */
+                            className={`nowrap${p.salesOrderId ? ' pay-cell-idle' : ''}`}
+                          >
                             {!p.salesOrderId
                               ? <button className="btn danger sm" onClick={() => handleDeleteRecord(p.id)}>Delete</button>
                               : <span className="muted">—</span>}
                           </td>
                           {/* Pinned to the right edge. */}
-                          <td className="nowrap">
+                          <td data-label="Received?" className="nowrap">
                             {balance(p) > 0
                               ? <button className="btn grn sm" onClick={() => handleMarkFullyReceived(p)}>✓ Mark Received</button>
                               : <span className="status-badge status-received">Received</span>}
@@ -550,7 +576,7 @@ export default function PaymentLedger() {
 
                         {isOpen && (
                           <tr className="pay-detail">
-                            <td colSpan={9}>
+                            <td colSpan={10}>
                               <div className="pay-detail-inner">
                                 <dl className="pay-detail-facts">
                                   <div>
@@ -570,17 +596,12 @@ export default function PaymentLedger() {
                                       ) : <span className="muted">—</span>}
                                     </dd>
                                   </div>
-                                  <div>
-                                    <dt>Remark / Milestone</dt>
-                                    <dd>{p.remark || '-'}</dd>
-                                  </div>
+                                  {/* Remark and discussion are on the row
+                                      itself since 31 Oct 2026, so the strip
+                                      does not repeat them. */}
                                   <div>
                                     <dt>Last Call</dt>
                                     <dd>{fmtDate(p.lastCallDate) || '-'}</dd>
-                                  </div>
-                                  <div>
-                                    <dt>Discussion</dt>
-                                    <dd>{p.discussionNotes || '-'}</dd>
                                   </div>
                                 </dl>
                                 <div className="btn-row pay-detail-actions">
@@ -601,12 +622,12 @@ export default function PaymentLedger() {
                     );
                   })}
                   {/* PWA FACT (index.html:3734): billed / received / balance totals. */}
-                  <tr className="strong">
+                  <tr className="strong pay-total">
                     <td colSpan={3}>TOTAL</td>
-                    <td>{money(pendBilled)}</td>
-                    <td className="fg-ok">{money(pendReceived)}</td>
-                    <td className="fg-bad">{money(pendBalance)}</td>
-                    <td colSpan={3}></td>
+                    <td data-label="Billed">{money(pendBilled)}</td>
+                    <td data-label="Received" className="fg-ok">{money(pendReceived)}</td>
+                    <td data-label="Balance" className="fg-bad">{money(pendBalance)}</td>
+                    <td colSpan={4}></td>
                   </tr>
                 </tbody>
               </table>

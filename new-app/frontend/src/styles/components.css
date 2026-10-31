@@ -1922,7 +1922,7 @@
    column over its neighbour. It wraps instead. */
 .pay-sticky-actions th:nth-child(2),
 .pay-sticky-actions td:nth-child(2) {
-  max-width: 240px;
+  max-width: 200px;
   /* .data-table sets nowrap; without this the name overruns the next
      column instead of wrapping inside its own. */
   white-space: normal;
@@ -1979,9 +1979,134 @@
 .pay-detail-facts dd { margin: var(--s-1) 0 0; font-size: var(--fs-sm); }
 .pay-detail-actions { gap: var(--s-3); }
 
+/* ── Pending Payments: the remark and the discussion, on the row
+   (owner request, 31 Oct 2026) ────────────────────────────────────
+   They were in the strip, which meant opening a row to read the one thing
+   you need before ringing somebody. They are a column now. It is the only
+   free-text column, so it is the one that wraps and is capped — everything
+   else stays on one line. */
+.pay-note-col {
+  max-width: 180px;
+  min-width: 130px;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+/* .cell-sub is nowrap everywhere else in the app, which is right for a
+   reference number under a name. The discussion is a sentence. */
+.pay-note-col .cell-sub { white-space: normal; }
+/* Ten columns on a 1366px laptop is tight: a little less air between them
+   is what keeps the whole row on screen, and it is this table only. */
+@media (min-width: 861px) and (max-width: 1500px) {
+  .pay-sticky-actions th,
+  .pay-sticky-actions td { padding-left: var(--s-4); padding-right: var(--s-4); }
+}
+.pay-note {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 @media (max-width: 720px) {
   .pay-detail-inner { padding-left: var(--s-4); }
   .pay-detail-facts { gap: var(--s-4); }
+}
+
+/* ── Pending Payments on a phone (owner request, 31 Oct 2026) ──────
+   Twelve columns on a 390px screen meant opening a row AND then sliding
+   it sideways to read a remark. Below 860px the table becomes one card
+   per payment: every field on its own line, labelled, nothing pinned and
+   nothing to slide. Same markup, same data — only the layout changes.
+   The pattern (and the data-label trick) is the one the user table
+   already uses. */
+@media (max-width: 860px) {
+  .pay-sticky-actions,
+  .pay-sticky-actions tbody { display: block; width: 100%; }
+  .pay-sticky-actions thead { display: none; }
+
+  /* Nothing is pinned when nothing scrolls sideways. */
+  .pay-sticky-actions th:last-child,
+  .pay-sticky-actions td:last-child {
+    position: static;
+    box-shadow: none;
+  }
+
+  .pay-sticky-actions tbody tr {
+    display: block;
+    margin-bottom: var(--s-4);
+    padding: 0 var(--s-4);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--r-md);
+    background: var(--surface);
+  }
+  .pay-sticky-actions tbody tr.is-open { border-color: var(--primary); }
+
+  /* A cap that keeps a long project name from widening the table has no
+     job in a card, where nothing is in columns with anything else. */
+  .pay-sticky-actions th:nth-child(2),
+  .pay-sticky-actions td:nth-child(2) { max-width: none; }
+
+  .pay-sticky-actions tbody td {
+    display: grid;
+    grid-template-columns: minmax(5.5rem, 33%) minmax(0, 1fr);
+    align-items: start;
+    gap: var(--s-3);
+    width: 100%;
+    padding: var(--s-3) 0;
+    border-bottom: 1px solid var(--border-subtle);
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: left;
+  }
+  /* The label is the first column of the cell; everything the cell holds —
+     a figure, a sub-line, a button — belongs in the second, or a sub-line
+     wraps underneath the label instead of under its own value. */
+  .pay-sticky-actions tbody td > * { grid-column: 2; }
+  .pay-sticky-actions tbody td::before {
+    content: attr(data-label);
+    color: var(--text-muted);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semi);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-caps);
+  }
+  .pay-sticky-actions tbody td:last-child { border-bottom: 0; }
+  /* A cell with no label is a spacer in the table layout; it has no place
+     in a card. */
+  .pay-sticky-actions tbody td:not([data-label]):empty { display: none; }
+  /* Nor does a cell whose only content is "nothing to do here". */
+  .pay-sticky-actions tbody td.pay-cell-idle { display: none; }
+
+  /* The note is the point of the card: it is shown whole, not clamped to
+     three lines. Back to an ordinary block too — a -webkit-box reports a
+     max-content width that pushes the card wider than the screen. */
+  .pay-note-col { max-width: none; min-width: 0; }
+  .pay-note { display: block; overflow: visible; }
+
+  /* The toggle keeps its label beside it rather than floating alone. */
+  .pay-sticky-actions tbody td.pay-toggle-col { width: auto; text-align: left; }
+  .pay-toggle { justify-self: start; }
+
+  /* The strip that opens under a row spans the card, not a column. */
+  .pay-sticky-actions tbody tr.pay-detail { padding: 0; border: 0; margin-bottom: var(--s-4); }
+  .pay-sticky-actions tbody tr.pay-detail td {
+    display: block;
+    padding: 0;
+    border-bottom: 0;
+  }
+  .pay-sticky-actions tbody tr.pay-detail td::before { content: none; }
+
+  .pay-sticky-actions tbody tr.pay-total td[colspan] { display: none; }
+  .pay-sticky-actions tbody tr.pay-total::before {
+    content: 'Total';
+    display: block;
+    padding: var(--s-3) 0 0;
+    color: var(--text-muted);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semi);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-caps);
+  }
 }
 
 /* ── AMC / Warranty client list (owner decision, 29 Oct 2026) ───────
