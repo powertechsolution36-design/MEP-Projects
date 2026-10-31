@@ -57,17 +57,28 @@ function fmtLong(value) {
  * number is dialled as an Indian number. Anything else is shown as stored
  * rather than reformatted into something that might not dial.
  */
-function fmtPhone(value) {
+function localDigits(value) {
   const d = String(value || '').replace(/\D/g, '');
-  if (d.length === 10) return `${d.slice(0, 5)} ${d.slice(5)}`;
-  if (d.length === 12 && d.startsWith('91')) return `+91 ${d.slice(2, 7)} ${d.slice(7)}`;
-  return String(value || '');
+  if (/^91\d{10}$/.test(d)) return d.slice(2);
+  if (/^0\d{10}$/.test(d)) return d.slice(1);
+  return d;
 }
 
+/** Shown the way the owner writes it: the ten digits, nothing else. */
+function fmtPhone(value) {
+  return localDigits(value);
+}
+
+/**
+ * Dialled as a full international number. A phone rejects a number that
+ * carries a country code without the +, which is what went wrong on
+ * 31 Oct 2026, so the + is always put back here rather than hoped for in
+ * the stored value.
+ */
 function telHref(value) {
-  const d = String(value || '').replace(/\D/g, '');
+  const d = localDigits(value);
   if (!d) return '';
-  return `tel:+${d.length === 10 ? `91${d}` : d}`;
+  return `tel:${d.length === 10 ? `+91${d}` : d}`;
 }
 
 /**
@@ -709,6 +720,34 @@ function PortalProjectDetail() {
  * Nothing here is shown when the browser cannot do it. A card offering
  * something that will not work is worse than no card.
  */
+/**
+ * Cover that has run out (owner request, 31 Oct 2026).
+ *
+ * A client whose AMC or warranty has ended cannot raise a complaint. They are
+ * told why and given the number to ring, rather than a button that fails when
+ * they press it. The server refuses it too — this is the courtesy, not the
+ * rule.
+ */
+function CoverEnded({ endDate, number }) {
+  return (
+    <section className="portal-card portal-ended" aria-labelledby="portal-ended-h">
+      <h2 id="portal-ended-h" className="portal-card-h">Your contract has ended</h2>
+      <p className="portal-lede">
+        {endDate
+          ? <>Your cover ran until {fmtLong(endDate)}, so a complaint cannot be raised here.</>
+          : <>Your cover has ended, so a complaint cannot be raised here.</>}
+        {' '}Call us to renew it and we will take care of the rest.
+      </p>
+      {number && (
+        <p className="portal-promise-call">
+          Help: <a className="portal-promise-num" href={telHref(number)}>{fmtPhone(number)}</a>
+        </p>
+      )}
+      <p className="portal-aside">Your past visits and service reports stay here either way.</p>
+    </section>
+  );
+}
+
 function PortalAppCard() {
   const [installEvent, setInstallEvent] = useState(null);
   const [installed, setInstalled] = useState(() => isInstalled());
@@ -887,13 +926,30 @@ function PortalDashboard() {
             </div>
           </dl>
 
-          <Link className="btn pri portal-btn portal-btn-block portal-cta" to="/portal/complaints/new">
-            <IconPlus />Raise a complaint
-          </Link>
-          <p className="portal-cta-note">
-            Tell us what is wrong and attach a photograph. We will assign an engineer.
-          </p>
+          {client.canRaiseComplaint === false
+            ? (
+              <p className="portal-cta-note">
+                This cover has ended. See below for how to renew it.
+              </p>
+            )
+            : (
+              <>
+                <Link className="btn pri portal-btn portal-btn-block portal-cta" to="/portal/complaints/new">
+                  <IconPlus />Raise a complaint
+                </Link>
+                <p className="portal-cta-note">
+                  Tell us what is wrong and attach a photograph. We will assign an engineer.
+                </p>
+              </>
+            )}
         </section>
+
+        {client.canRaiseComplaint === false && (
+          <CoverEnded
+            endDate={client.endDate}
+            number={profile?.company?.serviceNumber || profile?.company?.whatsappNumber}
+          />
+        )}
 
         <PortalAppCard />
         </div>
@@ -1004,6 +1060,20 @@ function PortalComplaintNew() {
       setError(err.message || 'Could not send your complaint. Please try again.');
       setBusy(false);
     }
+  }
+
+  // Reached by its own URL, or still open when the cover lapsed: the form is
+  // not drawn at all rather than shown and then refused.
+  if (profile?.client?.canRaiseComplaint === false) {
+    return (
+      <PortalShell profile={profile} onLogout={signOut} narrow>
+        <Link className="portal-back" to="/portal"><IconBack />Back</Link>
+        <CoverEnded
+          endDate={profile?.client?.endDate}
+          number={profile?.company?.serviceNumber || profile?.company?.whatsappNumber}
+        />
+      </PortalShell>
+    );
   }
 
   return (
@@ -1165,14 +1235,11 @@ function ResponsePromise({ number }) {
       <p className="portal-promise-lead">
         Your call will be attended within {RESPONSE_HOURS} hours.
       </p>
-      {number
-        ? (
-          <p className="portal-promise-call">
-            If it cannot wait that long, call us on{' '}
-            <a className="portal-promise-num" href={telHref(number)}>{fmtPhone(number)}</a>.
-          </p>
-        )
-        : <p className="portal-promise-call">If it cannot wait that long, please call our service number.</p>}
+      {number && (
+        <p className="portal-promise-call">
+          Help: <a className="portal-promise-num" href={telHref(number)}>{fmtPhone(number)}</a>
+        </p>
+      )}
     </section>
   );
 }

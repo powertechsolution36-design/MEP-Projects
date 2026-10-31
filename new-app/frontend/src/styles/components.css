@@ -1339,6 +1339,13 @@
   color: var(--info-700);
 }
 .portal-promise-call { margin: 0; color: var(--text-secondary); }
+
+/* ---- Cover that has run out (31 Oct 2026) ---------------------- */
+.portal-ended {
+  background: var(--warn-50);
+  border-color: var(--warn-100);
+}
+.portal-ended .portal-card-h { color: var(--warn-700); }
 .portal-promise-num { font-weight: var(--fw-semi); white-space: nowrap; }
 
 /* ---- Icons ------------------------------------------------------ */

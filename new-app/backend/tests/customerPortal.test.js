@@ -390,7 +390,8 @@ test('portal: the profile carries a service number, falling back when none is se
     const coA = h.state.companies.find((c) => c.id === 'coA');
     coA.whatsappNumber = '917447333377';
     const fellBack = (await h.call('GET', '/api/portal/me', { token: client.token })).json;
-    assert.equal(fellBack.company.serviceNumber, '917447333377', 'the WhatsApp number stands in until a service number is set');
+    assert.equal(fellBack.company.serviceNumber, '7447333377',
+      'the WhatsApp number stands in until a service number is set, as the ten digits a phone dials');
 
     coA.serviceNumber = '7447333377';
     const own = (await h.call('GET', '/api/portal/me', { token: client.token })).json;
@@ -399,6 +400,117 @@ test('portal: the profile carries a service number, falling back when none is se
 });
 
 /* ---------------- raising a complaint ---------------- */
+
+test('portal: cover that has run out cannot be used to raise a complaint', async () => {
+  const h = await harness();
+  try {
+    const client = await h.activeClient();
+
+    // Still running: the client may raise one, and is told so.
+    const before = (await h.call('GET', '/api/portal/me', { token: client.token })).json;
+    assert.equal(before.client.coverStatus !== 'Expired', true);
+    assert.equal(before.client.canRaiseComplaint, true);
+    const ok = await h.call('POST', '/api/portal/complaints', { token: client.token, body: { complaintDescription: 'Not cooling' } });
+    assert.equal(ok.status, 201, JSON.stringify(ok.json));
+
+    // The contract ends.
+    const contract = h.state.contracts.find((c) => c.id === 'ctrA1');
+    contract.endDate = new Date('2026-09-30');
+
+    const after = (await h.call('GET', '/api/portal/me', { token: client.token })).json;
+    assert.equal(after.client.coverStatus, 'Expired');
+    assert.equal(after.client.canRaiseComplaint, false, 'the app is told not to offer it');
+
+    const refused = await h.call('POST', '/api/portal/complaints', { token: client.token, body: { complaintDescription: 'Not cooling' } });
+    assert.equal(refused.status, 403, 'and the server refuses it whatever the app draws');
+    assert.equal(refused.json.code, 'COVER_EXPIRED');
+    assert.match(refused.json.error, /renew/i, 'the client is told what to do about it');
+
+    // Nothing was created by the refusal.
+    const mine = (await h.call('GET', '/api/portal/complaints', { token: client.token })).json.complaints;
+    assert.equal(mine.length, 1, 'only the one raised while the cover was running');
+  } finally { h.server.close(); }
+});
+
+test('portal: a contract with no end date is a gap in our records, not an expiry', async () => {
+  const h = await harness();
+  try {
+    const client = await h.activeClient();
+    // Somebody never filled the end date in. computeContractStatus calls that
+    // 'Expired' for a staff screen deciding what is chargeable; here it must
+    // not lock the client out of raising a complaint.
+    const contract = h.state.contracts.find((c) => c.id === 'ctrA1');
+    delete contract.endDate;
+
+    const me = (await h.call('GET', '/api/portal/me', { token: client.token })).json;
+    assert.equal(me.client.coverStatus, 'Unknown');
+    assert.equal(me.client.canRaiseComplaint, true);
+
+    const raised = await h.call('POST', '/api/portal/complaints', { token: client.token, body: { complaintDescription: 'Not cooling' } });
+    assert.equal(raised.status, 201, JSON.stringify(raised.json));
+  } finally { h.server.close(); }
+});
+
+test('portal: an expired client keeps everything they already had', async () => {
+  const h = await harness();
+  try {
+    const client = await h.activeClient();
+    const made = await h.call('POST', '/api/portal/complaints', { token: client.token, body: { complaintDescription: 'Not cooling' } });
+    const id = made.json.complaint.id;
+
+    h.state.contracts.find((c) => c.id === 'ctrA1').endDate = new Date('2026-09-30');
+
+    assert.equal((await h.call('GET', '/api/portal/complaints', { token: client.token })).status, 200);
+    assert.equal((await h.call('GET', `/api/portal/complaints/${id}`, { token: client.token })).status, 200);
+    assert.equal((await h.call('GET', '/api/portal/me', { token: client.token })).status, 200,
+      'they can still sign in and read their history');
+  } finally { h.server.close(); }
+});
+
+test('portal: a number is served as the ten digits a phone can dial', async () => {
+  const h = await harness();
+  try {
+    const client = await h.activeClient();
+    const coA = h.state.companies.find((c) => c.id === 'coA');
+
+    for (const [stored, expected] of [
+      ['917447333377', '7447333377'],
+      ['+91 74473 33377', '7447333377'],
+      ['07447333377', '7447333377'],
+      ['7447333377', '7447333377'],
+    ]) {
+      coA.serviceNumber = stored;
+      // eslint-disable-next-line no-await-in-loop
+      const me = (await h.call('GET', '/api/portal/me', { token: client.token })).json;
+      assert.equal(me.company.serviceNumber, expected, `stored as ${stored}`);
+    }
+  } finally { h.server.close(); }
+});
+
+test('company profile: a number is stored as it is dialled, and a typo is refused', async () => {
+  const h = await harness();
+  try {
+    const mgr = await h.staffToken('mgr');
+    const admin = h.state.users.find((u) => u.id === 'uMgr');
+    admin.role = 'admin'; // the profile is the company admin's to edit
+
+    const token = await h.staffToken('mgr');
+    const save = async (serviceNumber) => h.call('PATCH', '/api/companies/my-profile', { token, body: { serviceNumber } });
+
+    assert.equal((await save('+91 74473 33377')).json.company.serviceNumber, '7447333377', 'the country code comes off');
+    assert.equal((await save('07447333377')).json.company.serviceNumber, '7447333377', 'and so does a trunk zero');
+    assert.equal((await save('7447333377')).json.company.serviceNumber, '7447333377');
+
+    // The shape that fails when dialled: eleven digits, neither one thing nor
+    // the other. This is exactly what was stored before 31 Oct 2026.
+    const bad = await save('91744733377');
+    assert.equal(bad.status, 400);
+    assert.match(bad.json.error, /10 digits/);
+    assert.ok(mgr, 'the manager token was used');
+  } finally { h.server.close(); }
+});
+
+
 
 test('portal: a client raises a complaint on their own contract, numbered and timed by the server', async () => {
   const h = await harness();

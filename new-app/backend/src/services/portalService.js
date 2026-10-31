@@ -2,6 +2,7 @@
 
 const { ServiceError } = require('../errors');
 const { registerComplaint } = require('./serviceCallService');
+const { computeContractStatus } = require('./contractService');
 const Attachment = require('../models/ServiceCallAttachment');
 const { PROJECT_STAGES_BY_DIVISION } = require('../models/shared/enums');
 
@@ -98,13 +99,51 @@ async function engineerNameFor(call, deps) {
  * Reads
  * ------------------------------------------------------------------ */
 
+/**
+ * A number the client's phone can actually dial (owner request, 31 Oct 2026).
+ *
+ * Stored numbers have been typed by hand over the years, so they arrive with
+ * a +, a country code, a trunk 0 or spaces. An Indian number is served as its
+ * ten digits and the app adds +91 when it dials. Anything that is not a
+ * recognisable Indian number is passed through untouched rather than
+ * reshaped into something that might not ring.
+ */
+/**
+ * Has the cover actually run out? (owner request, 31 Oct 2026)
+ *
+ * Only a contract with an end date that has passed. `computeContractStatus`
+ * calls a contract with no end date 'Expired', which is the right answer for
+ * a staff screen deciding whether work is chargeable — but here it would
+ * lock a client out because of a blank field somebody never filled in. A
+ * missing date is a gap in our records, not an expiry, and the client should
+ * not pay for it.
+ */
+function coverHasEnded(contract) {
+  if (!contract || !contract.endDate) return false;
+  return computeContractStatus(contract) === 'Expired';
+}
+
+function dialableNumber(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (/^91\d{10}$/.test(digits)) return digits.slice(2);
+  if (/^0\d{10}$/.test(digits)) return digits.slice(1);
+  return digits;
+}
+
 async function getPortalProfile(auth, deps) {
   const contract = await deps.contractRepo.findById(auth.companyId, auth.contractId);
   if (!contract) throw portalError('Your service record was not found.', 'NOT_FOUND', 404);
   const company = (await deps.companyRepo.findById(auth.companyId)) || {};
+  // Owner request (31 Oct 2026): a client whose AMC has run out cannot raise
+  // a complaint. The status is computed from the contract's own end date, the
+  // same way every staff screen computes it, so the two can never disagree.
+  const coverStatus = contract.endDate ? computeContractStatus(contract) : 'Unknown';
+
   return {
     account: { name: auth.name, phone: auth.phone },
     client: {
+      coverStatus,
+      canRaiseComplaint: !coverHasEnded(contract),
       customer: contract.customer || '',
       site: contract.site || '',
       capacity: contract.capacity || '',
@@ -116,10 +155,10 @@ async function getPortalProfile(auth, deps) {
     company: {
       name: company.displayName || company.name || '',
       phone: company.phone || '',
-      whatsappNumber: company.whatsappNumber || '',
+      whatsappNumber: dialableNumber(company.whatsappNumber),
       // The helpline a client rings while a complaint is open. Falls back to
       // the WhatsApp number so the portal is never left without a number.
-      serviceNumber: company.serviceNumber || company.whatsappNumber || company.phone || '',
+      serviceNumber: dialableNumber(company.serviceNumber || company.whatsappNumber || company.phone || ''),
       email: company.email || '',
     },
   };
@@ -160,6 +199,19 @@ async function getMyComplaint(auth, serviceCallId, deps) {
  * a complaint raised at the desk.
  */
 async function createMyComplaint(auth, input, deps) {
+  // Owner request (31 Oct 2026): cover that has run out cannot be used.
+  // Checked here, on the server, not only hidden on the screen — a button
+  // that is not drawn is not a rule.
+  const contract = await deps.contractRepo.findById(auth.companyId, auth.contractId);
+  if (!contract) throw portalError('Your service record was not found.', 'NOT_FOUND', 404);
+  if (coverHasEnded(contract)) {
+    throw portalError(
+      'Your contract has ended, so a complaint cannot be raised here. Please call us to renew it.',
+      'COVER_EXPIRED',
+      403
+    );
+  }
+
   const description = String((input && input.complaintDescription) || '').trim();
   if (description.length < 3) throw portalError('Please describe the problem.', 'DESCRIPTION_REQUIRED');
   if (description.length > 4000) throw portalError('That description is too long.', 'DESCRIPTION_TOO_LONG');
@@ -476,6 +528,8 @@ async function getMyProjectPhoto(auth, projectId, photoId, deps) {
 }
 
 module.exports = {
+  dialableNumber,
+  coverHasEnded,
   getPortalProfile,
   listMyProjects,
   getMyProject,

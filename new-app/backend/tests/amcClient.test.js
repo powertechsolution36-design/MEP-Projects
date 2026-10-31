@@ -409,13 +409,16 @@ test('the completion notification carries the call page for the phone push', asy
   assert.equal(msg.data.path, `/service-calls/${serviceCall.id}`);
 });
 
-test('company WhatsApp number — saved as digits; rubbish refused', async () => {
+// UPDATE (owner request, 31 Oct 2026): a number is now stored the way it is
+// dialled — the ten digits — because a country code without a + in front of
+// it is what a phone rejects as invalid.
+test('company WhatsApp number — saved as the ten digits dialled; rubbish refused', async () => {
   const { updateMyCompanyProfile } = require('../src/services/companyService');
   const { createDevRepositories } = require('../src/devServer');
   const s = createDevRepositories();
   s.store.state.companies.push({ id: 'co1', name: 'MEP Powertech', divisions: ['HVAC'], status: 'Active' });
   const saved = await updateMyCompanyProfile('co1', { whatsappNumber: '+91 74473 33377' }, s);
-  assert.equal(saved.whatsappNumber, '917447333377');
+  assert.equal(saved.whatsappNumber, '7447333377', 'the country code comes off');
   const plain = await updateMyCompanyProfile('co1', { whatsappNumber: '7447333377' }, s);
   assert.equal(plain.whatsappNumber, '7447333377');
   await assert.rejects(() => updateMyCompanyProfile('co1', { whatsappNumber: 'call me' }, s), (e) => e.code === 'INVALID_PROFILE');

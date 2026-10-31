@@ -142,7 +142,7 @@ async function api(method, pathname, { token, body } = {}) {
     // Owner request (31 Oct 2026): a client who has just registered is told
     // how long it will be, and who to ring if it cannot wait.
     rec('complaint: the client is told it will be attended within 48 hours',
-      detail.includes('48 hours') && /call us on/i.test(detail) && detail.includes('74473 33377'), detail.slice(-240));
+      detail.includes('48 hours') && /Help:/.test(detail) && detail.includes('7447333377'), detail.slice(-240));
     rec('complaint: while it is open, the stages are still shown',
       (await page.locator('.portal-steps').count()) === 1);
     await page.screenshot({ path: path.join(SHOTS, '5-complaint-detail.png'), fullPage: true });
@@ -344,7 +344,34 @@ async function api(method, pathname, { token, body } = {}) {
     const otherCall = list.find((c) => String(c.id) !== String(callId));
     if (otherCall) {
       const peek = await api('GET', `/api/portal/complaints/${otherCall.id}`, { token });
-      rec('client: another client’s complaint is not found, whatever the id', peek.status === 404, String(peek.status));
+      /* ---- cover that has run out (owner request, 31 Oct 2026) ---- */
+    const ended = await api('PATCH', '/api/contracts/amc_demo', {
+      token: staff, body: { endDate: '2026-09-30' },
+    });
+    rec('staff: the AMC can be ended', ended.status === 200, JSON.stringify(ended.json).slice(0, 160));
+
+    await page.goto(`${BASE}/portal`, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(900);
+    const expiredDash = await page.locator('body').innerText();
+    rec('client: an ended contract says so, and offers the number instead',
+      /contract has ended/i.test(expiredDash) && /Help:/.test(expiredDash), expiredDash.slice(0, 300));
+    rec('client: the Raise a complaint button is gone',
+      (await page.locator('a:has-text("Raise a complaint")').count()) === 0);
+    await page.screenshot({ path: path.join(SHOTS, '8-cover-ended.png'), fullPage: true });
+
+    await page.goto(`${BASE}/portal/complaints/new`, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(700);
+    const formPage = await page.locator('body').innerText();
+    rec('client: the form itself is not drawn, even at its own address',
+      /contract has ended/i.test(formPage) && (await page.locator('textarea').count()) === 0, formPage.slice(0, 200));
+
+    const refused = await api('POST', '/api/portal/complaints', {
+      token: clientToken, body: { complaintDescription: 'Trying anyway' },
+    });
+    rec('client: and the server refuses it whatever the app draws',
+      refused.status === 403 && refused.json.code === 'COVER_EXPIRED', JSON.stringify(refused.json).slice(0, 160));
+
+    rec('client: another client’s complaint is not found, whatever the id', peek.status === 404, String(peek.status));
     }
 
     rec('no page errors', errors.length === 0, errors.join(' | '));

@@ -451,9 +451,21 @@ async function updateMyCompanyProfile(companyId, body, deps) {
   }
   for (const [field, label] of [['whatsappNumber', 'WhatsApp number'], ['serviceNumber', 'Service number']]) {
     if (patch[field] === undefined) continue;
-    const digits = patch[field].replace(/[\s()+-]/g, '');
+    let digits = patch[field].replace(/[\s()+-]/g, '');
+    // Owner request (31 Oct 2026): store the number as it is dialled, not as
+    // it happens to be typed. A country code or a trunk 0 in front of a
+    // ten-digit Indian number is removed, so the app shows 7447333377 and
+    // dials +917447333377 — never the half-formed 91744733377 that a phone
+    // rejects as invalid.
+    if (/^91\d{10}$/.test(digits)) digits = digits.slice(2);
+    else if (/^0\d{10}$/.test(digits)) digits = digits.slice(1);
     if (digits && !/^\d{10,13}$/.test(digits)) {
-      throw profileError(`${label} must be 10 to 13 digits, e.g. 7447333377 or 917447333377.`);
+      throw profileError(`${label} must be 10 to 13 digits, e.g. 7447333377.`);
+    }
+    if (digits && /^\d{11}$/.test(digits)) {
+      // Eleven digits is neither a local number nor a number with its country
+      // code: it is a typo, and it is the shape that fails when dialled.
+      throw profileError(`${label} does not look right — an Indian number is 10 digits, e.g. 7447333377.`);
     }
     patch[field] = digits;
   }
