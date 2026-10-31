@@ -39,6 +39,7 @@ const fs = require('fs');
 const path = require('path');
 const mongoose = require('mongoose');
 const { getConfig } = require('../src/config/env');
+const { loadEnvFile } = require('./lib/loadEnvFile');
 
 const NEEDLE = /test/i;
 
@@ -124,9 +125,14 @@ function describe(doc, nameFields) {
 }
 
 async function main() {
+  // The server runs the application with its .env sourced into the shell by
+  // deploy.sh; a script run by hand has no such shell, so it reads the file
+  // itself. Nothing from it is ever printed.
+  loadEnvFile();
   const { mongoUri, dbName } = getConfig();
   if (!mongoUri) {
-    console.error('MONGODB_URI is not set. Run this from the application directory, where .env is.');
+    console.error('MONGODB_URI is not set, and backend/.env does not supply it.');
+    console.error('Run this from the backend directory of the installed application.');
     process.exit(1);
   }
 

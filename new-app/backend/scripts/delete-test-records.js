@@ -30,6 +30,7 @@
 const fs = require('fs');
 const mongoose = require('mongoose');
 const { getConfig } = require('../src/config/env');
+const { loadEnvFile } = require('./lib/loadEnvFile');
 
 const args = process.argv.slice(2);
 const file = args.find((a) => !a.startsWith('--'));
@@ -81,7 +82,12 @@ async function main() {
     process.exit(0);
   }
 
+  loadEnvFile();
   const { mongoUri, dbName } = getConfig();
+  if (!mongoUri) {
+    console.error('MONGODB_URI is not set, and backend/.env does not supply it.');
+    process.exit(1);
+  }
   await mongoose.connect(mongoUri, { dbName });
   const db = mongoose.connection.db;
   console.log(`Database: ${mongoose.connection.name}`);

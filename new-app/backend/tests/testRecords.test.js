@@ -18,6 +18,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { classify, mask } = require('../scripts/find-test-records');
+const { parse, loadEnvFile } = require('../scripts/lib/loadEnvFile');
 
 const CONTRACT_NAMES = ['customer', 'site', 'contactPerson'];
 const CALL_NAMES = ['customer', 'site'];
@@ -84,4 +85,52 @@ test('test records: secrets and images are never read, let alone printed', () =>
 test('test records: a phone number is masked before it is printed', () => {
   assert.equal(mask('9422011111'), '94••••11');
   assert.ok(!mask('9422011111').includes('220'), 'the middle of the number does not reach the screen');
+});
+
+/* ---- reading backend/.env when a script is run by hand ---- */
+
+test('env file: KEY=VALUE, comments, blank lines and quotes', () => {
+  const out = parse([
+    '# a comment',
+    '',
+    'MONGODB_URI=mongodb://127.0.0.1:27017/mep_new_app',
+    'QUOTED="with spaces"',
+    "SINGLE='also fine'",
+    'EMPTY=',
+    'no_equals_sign',
+    '  SPACED = padded  ',
+  ].join('\n'));
+
+  assert.equal(out.MONGODB_URI, 'mongodb://127.0.0.1:27017/mep_new_app');
+  assert.equal(out.QUOTED, 'with spaces');
+  assert.equal(out.SINGLE, 'also fine');
+  assert.equal(out.EMPTY, '');
+  assert.equal(out.SPACED, 'padded');
+  assert.ok(!('no_equals_sign' in out));
+});
+
+test('env file: a value already in the environment is never overwritten', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'envtest-'));
+  const file = path.join(dir, '.env');
+  fs.writeFileSync(file, 'MEP_TEST_ALREADY=from-file\nMEP_TEST_FRESH=from-file\n');
+
+  process.env.MEP_TEST_ALREADY = 'from-the-command-line';
+  delete process.env.MEP_TEST_FRESH;
+  try {
+    const added = loadEnvFile(file);
+    assert.equal(process.env.MEP_TEST_ALREADY, 'from-the-command-line', 'the command line wins');
+    assert.equal(process.env.MEP_TEST_FRESH, 'from-file');
+    assert.deepEqual(added, ['MEP_TEST_FRESH'], 'it reports names only, never values');
+  } finally {
+    delete process.env.MEP_TEST_ALREADY;
+    delete process.env.MEP_TEST_FRESH;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('env file: a missing file is not an error', () => {
+  assert.deepEqual(loadEnvFile('/nowhere/at/all/.env'), []);
 });
