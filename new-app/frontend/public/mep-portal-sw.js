@@ -104,8 +104,15 @@ function isHashedAsset(url) {
   return url.origin === self.location.origin && /^\/(assets|fonts|icons)\/[^/]+$/.test(url.pathname);
 }
 
+/**
+ * The app's own files — icon, manifest. They live under /portal-app/ and NOT
+ * under /portal/, because /portal/ is a screen the application renders: a
+ * real folder of that name on disk shadows the route, and nginx answers a
+ * directory with no index.html with 403 rather than falling through to the
+ * app. It did exactly that on 31 Oct 2026.
+ */
 function isPortalAsset(url) {
-  return url.origin === self.location.origin && url.pathname.startsWith('/portal/') && url.pathname !== SHELL_URL;
+  return url.origin === self.location.origin && url.pathname.startsWith('/portal-app/');
 }
 
 self.addEventListener('fetch', (event) => {
@@ -162,8 +169,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'MEP Powertech';
   const options = {
     body: data.body || 'There is an update on your service call.',
-    icon: '/portal/icon-192.png',
-    badge: '/portal/icon-192.png',
+    icon: '/portal-app/icon-192.png',
+    badge: '/portal-app/icon-192.png',
     tag: data.tag || 'mep-portal',
     renotify: true,
     data: { url: typeof data.url === 'string' && data.url.startsWith('/portal') ? data.url : SHELL_URL },

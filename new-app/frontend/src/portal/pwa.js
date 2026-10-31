@@ -14,9 +14,9 @@
 
 import { portalApi } from './portalApi';
 
-const MANIFEST_URL = '/portal/manifest.json';
+const MANIFEST_URL = '/portal-app/manifest.json';
 const SW_URL = '/mep-portal-sw.js';
-const APPLE_ICON = '/portal/apple-touch-180.png';
+const APPLE_ICON = '/portal-app/apple-touch-180.png';
 const THEME_COLOR = '#d92b2b';
 
 /** Is the portal running from the home screen rather than in a browser tab? */

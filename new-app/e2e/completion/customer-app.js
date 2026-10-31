@@ -127,14 +127,54 @@ function testServiceWorkerLogic() {
 }
 
 /* ------------------------------------------------------------------ *
+ * 1b. Nothing static may stand where a screen lives
+ * ------------------------------------------------------------------ */
+
+/**
+ * WHY THIS EXISTS. On 31 Oct 2026 the app's icons were published to
+ * `frontend/public/portal/`, which the build copies to `dist/portal/`. Nginx
+ * serves the site with `try_files $uri $uri/ /index.html`, so `/portal/`
+ * stopped falling through to the application and matched that real directory
+ * instead — a directory with no index.html and autoindex off, which nginx
+ * answers with **403 Forbidden**. The whole client portal was down.
+ *
+ * No test caught it, because the dev server used by every other suite serves
+ * static files through express.static, which falls through to the SPA when a
+ * directory has no index — the one behaviour nginx does not share. So this
+ * check is made against the built files themselves, not against a server.
+ */
+function testNoRouteShadowedByAFile() {
+  const dist = path.join(__dirname, '../../frontend/dist');
+  const appSource = fs.readFileSync(path.join(__dirname, '../../frontend/src/App.jsx'), 'utf8');
+
+  // Every top-level path the application renders, e.g. /login, /portal.
+  const routes = new Set();
+  const re = /<Route\s+path="\/([^"/*]+)/g;
+  let m = re.exec(appSource);
+  while (m) { routes.add(m[1]); m = re.exec(appSource); }
+  rec('routes: the application’s own top-level routes were found', routes.size > 0, [...routes].join(','));
+
+  if (!fs.existsSync(dist)) {
+    rec('routes: the build output is there to check', false, 'run npm run build first');
+    return;
+  }
+  const published = fs.readdirSync(dist);
+  const shadowed = published.filter((name) => routes.has(name));
+  rec('routes: no published folder stands where a screen lives',
+    shadowed.length === 0,
+    shadowed.length ? `${shadowed.join(', ')} — nginx will answer 403 for /${shadowed[0]}/ instead of opening the app` : '');
+}
+
+/* ------------------------------------------------------------------ *
  * 2. The browser
  * ------------------------------------------------------------------ */
 
 (async () => {
   await testServiceWorkerLogic();
+  testNoRouteShadowedByAFile();
 
   /* ---- the manifest, as a browser would read it ---- */
-  const mf = await api('GET', '/portal/manifest.json');
+  const mf = await api('GET', '/portal-app/manifest.json');
   const m = mf.json || {};
   rec('manifest: it is served', mf.status === 200, String(mf.status));
   rec('manifest: it is a standalone app scoped to the portal',
@@ -196,10 +236,10 @@ function testServiceWorkerLogic() {
 
     /* ---- the page says it is an app ---- */
     const manifestHref = await page.locator('link[rel=manifest]').getAttribute('href').catch(() => null);
-    rec('page: the portal declares the app manifest', manifestHref === '/portal/manifest.json', String(manifestHref));
+    rec('page: the portal declares the app manifest', manifestHref === '/portal-app/manifest.json', String(manifestHref));
     const appleIcons = await page.locator('link[rel="apple-touch-icon"]').evaluateAll((els) => els.map((e) => e.getAttribute('href')));
     rec('page: iPhone is given exactly one icon, the portal’s own',
-      appleIcons.length === 1 && appleIcons[0] === '/portal/apple-touch-180.png', JSON.stringify(appleIcons));
+      appleIcons.length === 1 && appleIcons[0] === '/portal-app/apple-touch-180.png', JSON.stringify(appleIcons));
 
     /* ---- the worker takes control ---- */
     await page.waitForFunction(() => navigator.serviceWorker && navigator.serviceWorker.controller, null, { timeout: 15000 })
