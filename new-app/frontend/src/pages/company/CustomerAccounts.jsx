@@ -28,8 +28,63 @@ const MATCH_TEXT = {
   matched: 'Matched by mobile number',
   ambiguous: 'That number is on more than one client — choose which',
   'no-match': 'No client has that number — choose one, or reject',
+  // Owner decision (31 Oct 2026): they opened the link we sent, so we know
+  // who they are whatever number they used.
+  invited: 'Registered from the link we sent them',
 };
 
+
+
+/**
+ * Projects to link at the moment of approval (owner decision, 31 Oct 2026).
+ * Folded closed, because most registrations are AMC clients with no project.
+ */
+function ApproveProjects({ accountId, chosen, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [rows, setRows] = useState(null);
+
+  async function load() {
+    setOpen(true);
+    try {
+      const r = await api.get(`/api/customer-accounts/${accountId}/project-candidates`);
+      setRows(r.projects || []);
+    } catch {
+      setRows([]);
+    }
+  }
+
+  function toggle(id) {
+    onChange(chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id]);
+  }
+
+  return (
+    <div style={{ marginTop: 8, fontSize: 13 }}>
+      {!open ? (
+        <button type="button" className="btn sec sm" onClick={load}>
+          {chosen.length ? `Projects to link: ${chosen.length}` : 'Also link projects (optional)'}
+        </button>
+      ) : (
+        <>
+          {rows === null && <span className="muted">Loading projects…</span>}
+          {rows && rows.length === 0 && <span className="muted">This company has no projects yet.</span>}
+          {rows && rows.length > 0 && (
+            <div style={{ maxHeight: 180, overflowY: 'auto', marginTop: 4 }}>
+              {rows.map((pr) => (
+                <label key={pr.id} style={{ display: 'flex', gap: 8, alignItems: 'baseline', padding: '4px 0', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={chosen.includes(pr.id)} onChange={() => toggle(pr.id)} />
+                  <span>
+                    <strong>{pr.name}</strong> <span className="muted">{pr.division} · {pr.stage}</span>
+                    {pr.score >= 50 && <span style={{ color: 'var(--ok-700)' }}> · looks like this client</span>}
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
 /**
  * Pick the projects one client may watch. Opens closed, because most of the
@@ -133,6 +188,7 @@ export default function CustomerAccounts() {
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState('');
   const [chosen, setChosen] = useState({});
+  const [approveProjects, setApproveProjects] = useState({});
 
   const load = useCallback(async () => {
     try {
@@ -196,9 +252,14 @@ export default function CustomerAccounts() {
                 ))}
               </select>
             </label>
+            {/* Owner decision (31 Oct 2026): choose the projects while
+                approving, not on a second visit — an approved client who was
+                never linked to a project sees nothing at all. */}
+            <ApproveProjects accountId={a.id} chosen={approveProjects[a.id] || []} onChange={(ids) =>
+              setApproveProjects((prev) => ({ ...prev, [a.id]: ids }))} />
             <div className="detail-actions">
               <button className="btn pri sm" disabled={busyId === a.id || !pick}
-                onClick={() => act(a.id, 'approve', { contractId: pick })}>
+                onClick={() => act(a.id, 'approve', { contractId: pick, projectIds: approveProjects[a.id] || [] })}>
                 {busyId === a.id ? 'Saving…' : 'Approve'}
               </button>
               <button className="btn danger sm" disabled={busyId === a.id}

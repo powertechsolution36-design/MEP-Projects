@@ -7,6 +7,7 @@ const { requireCompanyContext } = require('../middleware/tenantGuard');
 const {
   listCustomerAccounts, approveCustomerAccount, setCustomerAccountStatus,
   listProjectCandidates, setLinkedProjects,
+  createPortalInvite, listPortalInvites, revokePortalInvite,
 } = require('../services/portalAuthService');
 const { getAttachmentForStaff, listAttachmentsForStaff } = require('../services/portalService');
 
@@ -78,6 +79,51 @@ function createCustomerAccountRouter(deps) {
         req.auth.companyId, req.params.accountId, (req.body && req.body.projectIds) || [], req.auth, deps
       );
       return res.json(result);
+    } catch (err) {
+      return sendError(res, err, 'customerAccountRoutes');
+    }
+  });
+
+  /* ---- a client's own link to the portal (owner decision, 31 Oct 2026) ---- */
+
+  /** Mint one for an AMC client, a project, or both. */
+  router.post('/invites', async (req, res) => {
+    try {
+      const invite = await createPortalInvite(
+        req.auth.companyId,
+        { ...req.body, origin: `${req.protocol}://${req.get('host')}` },
+        req.auth,
+        deps
+      );
+      return res.status(201).json({ invite });
+    } catch (err) {
+      return sendError(res, err, 'customerAccountRoutes');
+    }
+  });
+
+  /** The links already made for one record, so they can be sent again. */
+  router.get('/invites', async (req, res) => {
+    try {
+      const invites = await listPortalInvites(
+        req.auth.companyId,
+        {
+          contractId: req.query.contractId ? String(req.query.contractId) : '',
+          projectId: req.query.projectId ? String(req.query.projectId) : '',
+          origin: `${req.protocol}://${req.get('host')}`,
+        },
+        req.auth,
+        deps
+      );
+      return res.json({ invites });
+    } catch (err) {
+      return sendError(res, err, 'customerAccountRoutes');
+    }
+  });
+
+  router.post('/invites/:inviteId/revoke', async (req, res) => {
+    try {
+      const invite = await revokePortalInvite(req.auth.companyId, req.params.inviteId, req.auth, deps);
+      return res.json({ invite });
     } catch (err) {
       return sendError(res, err, 'customerAccountRoutes');
     }

@@ -46,4 +46,5 @@ module.exports = {
   CustomerSession: require('./CustomerSession'),
   ServiceCallAttachment: require('./ServiceCallAttachment'),
   ProjectPhoto: require('./ProjectPhoto'),
+  PortalInvite: require('./PortalInvite'),
 };

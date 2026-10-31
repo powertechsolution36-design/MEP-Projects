@@ -382,6 +382,9 @@ async function deleteCompany(companyId, actorAuth, deps) {
     if (txnDeps.projectPhotoRepo && typeof txnDeps.projectPhotoRepo.deleteManyByCompany === 'function') {
       await txnDeps.projectPhotoRepo.deleteManyByCompany(companyId, session);
     }
+    if (txnDeps.portalInviteRepo && typeof txnDeps.portalInviteRepo.deleteManyByCompany === 'function') {
+      await txnDeps.portalInviteRepo.deleteManyByCompany(companyId, session);
+    }
     // NEW-APP-only record (no PWA counterpart): the company's subscription
     // must not outlive the company.
     if (txnDeps.subscriptionRepo && typeof txnDeps.subscriptionRepo.deleteByCompany === 'function') {

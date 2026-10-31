@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { money, fmtDate, today } from '../../utils/format';
 import { whatsappUrl, displayNumber, canSendToClients } from '../../utils/whatsapp';
+import PortalInvitePanel from '../../components/PortalInvitePanel';
 
 /**
  * AMC Client — one page per AMC / Warranty client (owner request, 22 Oct 2026).
@@ -559,6 +560,10 @@ export default function ContractDetail() {
            Deliberately separate from the completed list below: a visit that
            has been done is history, and must never read as something still
            owed to the client. */}
+      {/* Owner decision (31 Oct 2026): the client's own link to the portal
+          lives on their record, so it can be sent again at any time. */}
+      <PortalInvitePanel contractId={c.id} customerName={c.customer} />
+
       <div className="panel">
         <h3>Upcoming PM visits</h3>
         {pendingVisits.length === 0 ? (

@@ -30,6 +30,7 @@ const {
   CustomerSession,
   ServiceCallAttachment,
   ProjectPhoto,
+  PortalInvite,
 } = require('../models');
 const { Counter } = require('../models/Counter');
 
@@ -1280,6 +1281,40 @@ const attachmentRepo = {
   },
 };
 
+/** A client's own link to the portal (owner decision, 31 Oct 2026). */
+const portalInviteRepo = {
+  async create(data) {
+    const doc = await PortalInvite.create(data);
+    return toPlainLean(doc.toObject());
+  },
+  /** Global by design: the holder of a link names no company. */
+  async findByToken(token) {
+    if (!token) return null;
+    return toPlainLean(await PortalInvite.findOne({ token: String(token) }).lean());
+  },
+  async findByIdForCompany(companyId, id) {
+    if (!mongoose.isValidObjectId(id)) return null;
+    return toPlainLean(await PortalInvite.findOne({ _id: id, companyId }).lean());
+  },
+  async listForContract(companyId, contractId) {
+    if (!mongoose.isValidObjectId(contractId)) return [];
+    const docs = await PortalInvite.find({ companyId, contractId }).sort({ createdAt: -1 }).lean();
+    return docs.map(toPlainLean);
+  },
+  async listForProject(companyId, projectId) {
+    if (!mongoose.isValidObjectId(projectId)) return [];
+    const docs = await PortalInvite.find({ companyId, projectIds: projectId }).sort({ createdAt: -1 }).lean();
+    return docs.map(toPlainLean);
+  },
+  async updateFields(id, patch) {
+    if (!mongoose.isValidObjectId(id)) return null;
+    return toPlainLean(await PortalInvite.findOneAndUpdate({ _id: id }, { $set: patch }, { new: true }).lean());
+  },
+  async deleteManyByCompany(companyId, session) {
+    await PortalInvite.deleteMany({ companyId }, { session });
+  },
+};
+
 /**
  * Photographs of work done on a project (owner decision, 30 Oct 2026).
  * Listings NEVER carry the bytes — only the one authorized read does.
@@ -1323,6 +1358,7 @@ const projectPhotoRepo = {
 module.exports = {
   enquiryRepo,
   projectPhotoRepo,
+  portalInviteRepo,
   salesOrderRepo,
   projectRepo,
   paymentRepo,

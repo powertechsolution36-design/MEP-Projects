@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef, useId, createContext, useContext } from 'react';
 import { Routes, Route, Navigate, useNavigate, useParams, useLocation, Link } from 'react-router-dom';
 import { portalApi, setPortalToken, getPortalToken, fetchAttachmentUrl } from './portalApi';
+import { ANDROID_APK_URL, IOS_APP_URL } from '../config';
+import { appDownloadOptions } from '../utils/appLinks';
 
 /**
  * The customer portal (owner decision, 27 Oct 2026).
@@ -221,8 +223,29 @@ function PortalLogin() {
         <p className="portal-aside">
           New here? <Link to="/portal/register">Register for an account</Link>
         </p>
+        <PortalAppLinks />
       </form>
     </PortalShell>
+  );
+}
+
+
+/**
+ * The mobile app, where one has been published (owner decision, 31 Oct
+ * 2026). The URLs come from configuration, exactly as the staff login page
+ * takes them; nothing is shown when they are not set, so an unverified
+ * package is never offered.
+ */
+function PortalAppLinks() {
+  const apps = appDownloadOptions({ androidApkUrl: ANDROID_APK_URL, iosAppUrl: IOS_APP_URL });
+  if (!apps.android.available && !apps.ios.available) return null;
+  return (
+    <p className="portal-aside">
+      Or get the app:{' '}
+      {apps.android.available && <a href={apps.android.url}>Android</a>}
+      {apps.android.available && apps.ios.available && ' · '}
+      {apps.ios.available && <a href={apps.ios.url}>iPhone</a>}
+    </p>
   );
 }
 
@@ -233,6 +256,31 @@ function PortalRegister() {
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
+  /*
+   * A link we sent (owner decision, 31 Oct 2026).
+   *
+   * `?invite=…` tells the server which client is registering, so the mobile
+   * number no longer has to match the one on the contract — a new phone, a
+   * colleague's, the office line all work. It does not sign anybody in: the
+   * account still waits for staff to approve it.
+   *
+   * An unusable link (spent, switched off, mistyped) is not an error here.
+   * The page simply behaves as it does without one, and the number is
+   * matched the ordinary way.
+   */
+  const location = useLocation();
+  const inviteToken = new URLSearchParams(location.search).get('invite') || '';
+  const [invite, setInvite] = useState(null);
+
+  useEffect(() => {
+    if (!inviteToken) return undefined;
+    let alive = true;
+    portalApi.get(`/api/portal/invites/${encodeURIComponent(inviteToken)}`)
+      .then((d) => { if (alive) setInvite(d); })
+      .catch(() => { if (alive) setInvite({ usable: false }); });
+    return () => { alive = false; };
+  }, [inviteToken]);
+
   async function submit(e) {
     e.preventDefault();
     if (busy) return;
@@ -240,6 +288,7 @@ function PortalRegister() {
     try {
       await portalApi.post('/api/portal/auth/register', {
         ...form, name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim(),
+        invite: inviteToken || undefined,
       });
       setDone(true);
     } catch (err) {
@@ -269,9 +318,16 @@ function PortalRegister() {
     <PortalShell narrow>
       <form className="portal-card portal-auth" onSubmit={submit}>
         <h1>Register</h1>
-        <p className="portal-lede">
-          Use the mobile number on your service contract so we can find your record.
-        </p>
+        {invite && invite.usable ? (
+          <p className="portal-lede">
+            Registering{invite.customerName ? <> as <strong>{invite.customerName}</strong></> : ''}
+            {invite.site ? <> ({invite.site})</> : ''}. Any mobile number you can be reached on is fine.
+          </p>
+        ) : (
+          <p className="portal-lede">
+            Use the mobile number on your service contract so we can find your record.
+          </p>
+        )}
 
         {error && <Notice>{error}</Notice>}
 
@@ -280,7 +336,7 @@ function PortalRegister() {
             onChange={(e) => set('name', e.target.value)} required minLength={2} />}
         </Field>
 
-        <Field label="Mobile number" hint="The number on your service contract.">
+        <Field label="Mobile number" hint={invite && invite.usable ? 'Any number we can reach you on.' : 'The number on your service contract.'}>
           {(a) => <input {...a} className="portal-input" inputMode="tel" autoComplete="tel" value={form.phone}
             onChange={(e) => set('phone', e.target.value)} required />}
         </Field>

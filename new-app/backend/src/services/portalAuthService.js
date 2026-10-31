@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const { ServiceError } = require('../errors');
 const { hashPassword, verifyPassword } = require('../auth/passwordHasher');
 const { signAccessToken, verifyAccessToken } = require('../auth/tokenService');
@@ -108,26 +109,62 @@ async function registerCustomer(input, deps, { ip = 'unknown' } = {}) {
   // The tenant is decided here, by the data, and nowhere else. Contracts
   // keep the number as it was typed, so candidates are narrowed in the
   // repository and then compared as properly normalised values.
-  const national = phone.slice(-10);
-  const candidates = await deps.contractRepo.findCandidatesByPhoneDigits(national);
-  const matches = candidates.filter((c) => normalizePhone(c.phone) === phone);
   let companyId = null;
   let contractId = null;
+  let projectIds = [];
   let matchResult = 'no-match';
-  if (matches.length === 1) {
-    companyId = matches[0].companyId;
-    contractId = matches[0].id;
-    matchResult = 'matched';
-  } else if (matches.length > 1) {
-    // Several clients share the number — staff decide which one.
-    const sameCompany = matches.every((m) => String(m.companyId) === String(matches[0].companyId));
-    companyId = sameCompany ? matches[0].companyId : null;
-    matchResult = 'ambiguous';
+  let invite = null;
+
+  /*
+   * An invite decides the identity (owner decision, 31 Oct 2026).
+   *
+   * A client registering from a new number, a colleague's phone or the
+   * office line matches no contract, so matching on the number alone used to
+   * leave them attached to nothing. When they open the link we sent, the
+   * link says who they are and the number is beside the point.
+   *
+   * It does NOT activate them: the account still arrives Pending and still
+   * needs approving. A used invite is refused a second time rather than
+   * quietly minting a rival login for the same client.
+   */
+  const inviteToken = String((input && input.invite) || '').trim();
+  if (inviteToken && deps.portalInviteRepo) {
+    invite = await deps.portalInviteRepo.findByToken(inviteToken);
+    if (invite && !invite.revokedAt && !invite.usedByAccountId) {
+      companyId = invite.companyId;
+      contractId = invite.contractId || null;
+      projectIds = (invite.projectIds || []).map(String);
+      matchResult = 'invited';
+    } else {
+      // Spent, revoked or unknown — fall through to matching on the number,
+      // and say nothing different from any other outcome.
+      invite = null;
+    }
   }
 
-  await deps.customerAccountRepo.create({
+  if (matchResult !== 'invited') {
+    // The tenant is decided here, by the data, and nowhere else. Contracts
+    // keep the number as it was typed, so candidates are narrowed in the
+    // repository and then compared as properly normalised values.
+    const national = phone.slice(-10);
+    const candidates = await deps.contractRepo.findCandidatesByPhoneDigits(national);
+    const matches = candidates.filter((c) => normalizePhone(c.phone) === phone);
+    if (matches.length === 1) {
+      companyId = matches[0].companyId;
+      contractId = matches[0].id;
+      matchResult = 'matched';
+    } else if (matches.length > 1) {
+      // Several clients share the number — staff decide which one.
+      const sameCompany = matches.every((m) => String(m.companyId) === String(matches[0].companyId));
+      companyId = sameCompany ? matches[0].companyId : null;
+      matchResult = 'ambiguous';
+    }
+  }
+
+  const account = await deps.customerAccountRepo.create({
     companyId,
     contractId,
+    linkedProjectIds: projectIds,
     phone,
     name,
     email,
@@ -137,7 +174,39 @@ async function registerCustomer(input, deps, { ip = 'unknown' } = {}) {
     matchResult,
   });
 
+  if (invite) {
+    await deps.portalInviteRepo.updateFields(invite.id, {
+      usedByAccountId: account.id,
+      usedAt: new Date(),
+    });
+  }
+
+  /*
+   * Tell somebody (owner decision, 31 Oct 2026). Until now a registration
+   * sat in the Customer Logins screen and waited to be noticed, which for a
+   * client reads as being ignored. An unmatched one is called out, because
+   * that is the one a member of staff has to think about.
+   */
+  if (companyId && deps.notificationRepo) {
+    const where = matchResult === 'invited' ? 'from the link we sent them'
+      : matchResult === 'matched' ? 'matched to their service record'
+        : 'NOT matched to a client — check who they are';
+    await deps.notificationRepo.create({
+      companyId,
+      text: `Portal registration: ${name} (${phone}) is waiting to be activated — ${where}.`,
+      date: todayDate(),
+      targetRoles: ['admin', 'service_mgr'],
+      readByUserIds: [],
+    }).catch(() => { /* a registration must not fail because a notice did */ });
+  }
+
   return { ...GENERIC_REGISTER_REPLY };
+}
+
+/** UTC midnight, as every other service in this application dates things. */
+function todayDate() {
+  const n = new Date();
+  return new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()));
 }
 
 /* ------------------------------------------------------------------ *
@@ -174,9 +243,25 @@ function publicAccount(a, contract) {
   };
 }
 
+/**
+ * Registrations staff can act on.
+ *
+ * Owner decision (31 Oct 2026): this used to list the company's own
+ * registrations only. A client who registered from a number on no contract
+ * was stored with NO company — so they appeared on nobody's screen and
+ * waited for an approval that could never come. Those now come back too,
+ * marked, for any reviewer to claim. There is no tenant to scope them by
+ * yet; that is the point of them.
+ */
 async function listCustomerAccounts(companyId, filters, actorAuth, deps) {
   assertCanReview(actorAuth);
   const rows = await deps.customerAccountRepo.listByCompany(companyId, filters || {});
+  if (typeof deps.customerAccountRepo.listUnassigned === 'function') {
+    const orphans = await deps.customerAccountRepo.listUnassigned();
+    for (const o of orphans) {
+      if (o.status === PENDING) rows.push(o);
+    }
+  }
   const out = [];
   for (const a of rows) {
     // eslint-disable-next-line no-await-in-loop
@@ -203,14 +288,27 @@ async function approveCustomerAccount(companyId, accountId, input, actorAuth, de
   const contract = await deps.contractRepo.findById(companyId, wantedContractId);
   if (!contract) throw portalError('That AMC / Warranty client was not found.', 'NOT_FOUND', 404);
 
-  const updated = await deps.customerAccountRepo.updateFields(accountId, {
+  /*
+   * Owner decision (31 Oct 2026): say which projects they may follow in the
+   * same step as approving them. It was two screens, so an approved client
+   * routinely ended up seeing nothing. Ids are checked against THIS company,
+   * and anything else is dropped rather than argued with.
+   */
+  const patch = {
     companyId,
     contractId: contract.id,
     status: ACTIVE,
     approvedByUserId: actorAuth.userId,
     approvedAt: new Date(),
     decisionNote: String((input && input.note) || '').slice(0, 300),
-  });
+  };
+  if (Array.isArray(input && input.projectIds)) {
+    const unique = [...new Set(input.projectIds.map(String))];
+    const found = await deps.projectRepo.listByIdsForCompany(companyId, unique);
+    patch.linkedProjectIds = found.map((p) => String(p.id || p._id));
+  }
+
+  const updated = await deps.customerAccountRepo.updateFields(accountId, patch);
   return publicAccount(updated, contract);
 }
 
@@ -436,8 +534,112 @@ async function setLinkedProjects(companyId, accountId, projectIds, actorAuth, de
   };
 }
 
+
+/* ------------------------------------------------------------------ *
+ * A client's own link to the portal (owner decision, 31 Oct 2026)
+ *
+ * Minted from the client's AMC record or from their project, kept on that
+ * record so it can be sent again months later, and never expiring — the
+ * owner asked for all three. What keeps that safe is that the link only says
+ * WHO is registering. It cannot activate anybody: a registration through it
+ * still arrives Pending for a member of staff to approve.
+ * ------------------------------------------------------------------ */
+
+function publicInvite(i, origin = '') {
+  if (!i) return null;
+  const path = `/portal/register?invite=${i.token}`;
+  return {
+    id: String(i.id || i._id),
+    url: origin ? `${String(origin).replace(/\/+$/, '')}${path}` : path,
+    path,
+    customerName: i.customerName || '',
+    site: i.site || '',
+    contractId: i.contractId ? String(i.contractId) : null,
+    projectIds: (i.projectIds || []).map(String),
+    used: Boolean(i.usedByAccountId),
+    usedAt: i.usedAt || null,
+    revokedAt: i.revokedAt || null,
+    createdAt: i.createdAt || null,
+  };
+}
+
+/**
+ * Mint a link for one client. `contractId` and/or `projectIds` say what they
+ * are being invited to; at least one is required, because a link that grants
+ * nothing is a link that wastes everyone's time.
+ */
+async function createPortalInvite(companyId, input, actorAuth, deps) {
+  assertCanReview(actorAuth);
+  const contractId = (input && input.contractId) || null;
+  const wantedProjects = Array.isArray(input && input.projectIds) ? input.projectIds : [];
+
+  let contract = null;
+  if (contractId) {
+    contract = await deps.contractRepo.findById(companyId, contractId);
+    if (!contract) throw portalError('That AMC / Warranty client was not found.', 'NOT_FOUND', 404);
+  }
+
+  const found = wantedProjects.length
+    ? await deps.projectRepo.listByIdsForCompany(companyId, [...new Set(wantedProjects.map(String))])
+    : [];
+  const projectIds = found.map((p) => String(p.id || p._id));
+
+  if (!contract && projectIds.length === 0) {
+    throw portalError('Choose the AMC client or the project this link is for.', 'VALIDATION_ERROR');
+  }
+
+  const created = await deps.portalInviteRepo.create({
+    companyId,
+    token: crypto.randomBytes(24).toString('hex'),
+    contractId: contract ? contract.id : null,
+    projectIds,
+    customerName: contract ? (contract.customer || '') : (found[0] && found[0].customer) || '',
+    site: contract ? (contract.site || '') : (found[0] && found[0].name) || '',
+    createdByUserId: actorAuth.userId || null,
+  });
+  return publicInvite(created, input && input.origin);
+}
+
+async function listPortalInvites(companyId, { contractId, projectId, origin } = {}, actorAuth, deps) {
+  assertCanReview(actorAuth);
+  const rows = contractId
+    ? await deps.portalInviteRepo.listForContract(companyId, contractId)
+    : projectId
+      ? await deps.portalInviteRepo.listForProject(companyId, projectId)
+      : [];
+  return rows.map((i) => publicInvite(i, origin));
+}
+
+/** Switch a link off. The client's account, if they used it, is untouched. */
+async function revokePortalInvite(companyId, inviteId, actorAuth, deps) {
+  assertCanReview(actorAuth);
+  const found = await deps.portalInviteRepo.findByIdForCompany(companyId, inviteId);
+  if (!found) throw portalError('Link not found.', 'NOT_FOUND', 404);
+  const updated = await deps.portalInviteRepo.updateFields(found.id, { revokedAt: new Date() });
+  return publicInvite(updated);
+}
+
+/**
+ * What the register page shows someone who opened a link: the name it was
+ * made out to, and nothing else. No contract, no projects, no phone number —
+ * the holder has not proved they are anybody yet.
+ *
+ * A spent, revoked or unknown token is simply "not usable": the page then
+ * behaves exactly as it does without a link at all.
+ */
+async function describePortalInvite(token, deps) {
+  const found = deps.portalInviteRepo ? await deps.portalInviteRepo.findByToken(token) : null;
+  if (!found || found.revokedAt || found.usedByAccountId) return { usable: false };
+  return { usable: true, customerName: found.customerName || '', site: found.site || '' };
+}
+
 module.exports = {
   normalizePhone,
+  createPortalInvite,
+  listPortalInvites,
+  revokePortalInvite,
+  describePortalInvite,
+  publicInvite,
   listProjectCandidates,
   setLinkedProjects,
   matchScore,

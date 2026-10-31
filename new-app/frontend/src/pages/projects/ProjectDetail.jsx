@@ -7,6 +7,7 @@ import { fmtDate } from '../../utils/format';
 import { addDaysKey, todayKey, spreadTimelineDates } from '../../utils/timeline';
 import DeliveryChallanPanel from './DeliveryChallanPanel';
 import SignaturePad from '../../components/SignaturePad';
+import PortalInvitePanel from '../../components/PortalInvitePanel';
 
 /**
  * Project Detail — PWA `vProject(x)` exact reproduction.
@@ -886,6 +887,10 @@ export default function ProjectDetail() {
           </ul>
         )}
       </div>
+
+      {/* Owner decision (31 Oct 2026): a link the client can register with,
+          kept on the project so it can be sent again. */}
+      {isPM && <PortalInvitePanel projectId={id} customerName={proj.customer} />}
 
       {/* ======== Delivery Challans ======== */}
       {/* PWA `challanPanel(p,isPM,isEng)` (index.html:2154, 2336-2370):

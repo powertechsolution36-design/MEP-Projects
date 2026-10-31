@@ -4,7 +4,7 @@ const express = require('express');
 const { sendError } = require('../errors');
 const { createPortalAuthMiddleware } = require('../middleware/portalAuthMiddleware');
 const {
-  registerCustomer, loginCustomer, logoutCustomer,
+  registerCustomer, loginCustomer, logoutCustomer, describePortalInvite,
 } = require('../services/portalAuthService');
 const {
   getPortalProfile, listMyComplaints, getMyComplaint, createMyComplaint, getMyAttachment,
@@ -56,6 +56,20 @@ function createPortalRouter(deps) {
       return res.json(await logoutCustomer(req.portal.sessionId, deps));
     } catch (err) {
       return sendError(res, err, 'portalRoutes');
+    }
+  });
+
+  /**
+   * What a link holder is shown before they type anything: the name the link
+   * was made out to, and nothing else. They have not proved they are anyone
+   * yet, so no contract, no projects and no phone number leave here. An
+   * unusable link answers the same way an unknown one does.
+   */
+  router.get('/invites/:token', async (req, res) => {
+    try {
+      return res.json(await describePortalInvite(req.params.token, deps));
+    } catch {
+      return res.json({ usable: false });
     }
   });
 

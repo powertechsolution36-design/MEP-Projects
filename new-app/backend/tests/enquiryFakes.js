@@ -53,6 +53,7 @@ function createEnquiryFakeStore(seed = {}) {
     customerSessions: seed.customerSessions || [],
     attachments: seed.attachments || [],
     projectPhotos: seed.projectPhotos || [],
+    portalInvites: seed.portalInvites || [],
   };
 
   function snapshot() {
@@ -1156,6 +1157,44 @@ function createEnquiryFakeStore(seed = {}) {
     },
   };
 
+  /** Owner decision (31 Oct 2026) — a client's own link to the portal. */
+  const portalInviteRepo = {
+    async create(data) {
+      const doc = { id: nextId('inv'), createdAt: new Date(), ...data };
+      state.portalInvites.push(doc);
+      return cloneDeep(doc);
+    },
+    async findByToken(token) {
+      const doc = state.portalInvites.find((i) => String(i.token) === String(token));
+      return doc ? cloneDeep(doc) : null;
+    },
+    async findByIdForCompany(companyId, id) {
+      const doc = state.portalInvites.find((i) => sameCompany(i, companyId) && String(i.id) === String(id));
+      return doc ? cloneDeep(doc) : null;
+    },
+    async listForContract(companyId, contractId) {
+      return state.portalInvites
+        .filter((i) => sameCompany(i, companyId) && String(i.contractId) === String(contractId))
+        .map((i) => cloneDeep(i));
+    },
+    async listForProject(companyId, projectId) {
+      return state.portalInvites
+        .filter((i) => sameCompany(i, companyId) && (i.projectIds || []).map(String).includes(String(projectId)))
+        .map((i) => cloneDeep(i));
+    },
+    async updateFields(id, patch) {
+      const doc = state.portalInvites.find((i) => String(i.id) === String(id));
+      if (!doc) return null;
+      Object.assign(doc, patch);
+      return cloneDeep(doc);
+    },
+    async deleteManyByCompany(companyId) {
+      for (let i = state.portalInvites.length - 1; i >= 0; i -= 1) {
+        if (sameCompany(state.portalInvites[i], companyId)) state.portalInvites.splice(i, 1);
+      }
+    },
+  };
+
   /** Owner decision (30 Oct 2026) — photographs of the work on a project. */
   const projectPhotoRepo = {
     async create(data) {
@@ -1199,6 +1238,7 @@ function createEnquiryFakeStore(seed = {}) {
   return {
     state,
     projectPhotoRepo,
+    portalInviteRepo,
     pushDeviceRepo,
     enquiryRepo,
     salesOrderRepo,

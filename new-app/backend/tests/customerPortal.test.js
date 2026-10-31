@@ -576,3 +576,140 @@ test('notifier: every event has wording, and none of it is a placeholder', () =>
     assert.ok(!text.includes('undefined'), `${event} must not read "undefined"`);
   }
 });
+
+/* ---------------- a client's own link (owner decision, 31 Oct 2026) ---------------- */
+
+test('invite: a link registers the right client whatever number they use, and still needs approval', async () => {
+  const h = await harness();
+  try {
+    const mgr = await h.staffToken('mgr');
+
+    const made = await h.call('POST', '/api/customer-accounts/invites', {
+      token: mgr, body: { contractId: 'ctrA1' },
+    });
+    assert.equal(made.status, 201);
+    const token = made.json.invite.path.split('invite=')[1];
+    assert.match(made.json.invite.path, /^\/portal\/register\?invite=[0-9a-f]{48}$/);
+
+    // The page shows the name it was made out to, and nothing else.
+    const seen = await h.call('GET', `/api/portal/invites/${token}`);
+    assert.equal(seen.status, 200);
+    assert.equal(seen.json.usable, true);
+    assert.equal(seen.json.customerName, 'Intervalve Poonawalla');
+    assert.deepEqual(Object.keys(seen.json).sort(), ['customerName', 'site', 'usable']);
+
+    // A number on NO contract — this used to attach to nothing at all.
+    const reg = await h.call('POST', '/api/portal/auth/register', {
+      body: { name: 'Mr Poonawalla', phone: '9000012345', password: CUSTOMER_PW, invite: token },
+    });
+    assert.equal(reg.status, 202);
+
+    const acct = h.state.customerAccounts.find((a) => a.phone === normalizePhone('9000012345'));
+    assert.ok(acct, 'the registration was stored');
+    assert.equal(String(acct.companyId), 'coA', 'the link decided the tenant');
+    assert.equal(String(acct.contractId), 'ctrA1', 'and the client');
+    assert.equal(acct.matchResult, 'invited');
+    assert.equal(acct.status, 'Pending', 'a link identifies, it never activates');
+
+    // Which means they still cannot sign in.
+    const login = await h.call('POST', '/api/portal/auth/login', {
+      body: { phone: '9000012345', password: CUSTOMER_PW },
+    });
+    assert.equal(login.status, 403);
+  } finally { h.server.close(); }
+});
+
+test('invite: a spent link cannot make a second account, and a revoked one stops working', async () => {
+  const h = await harness();
+  try {
+    const mgr = await h.staffToken('mgr');
+    const made = await h.call('POST', '/api/customer-accounts/invites', { token: mgr, body: { contractId: 'ctrA1' } });
+    const token = made.json.invite.path.split('invite=')[1];
+
+    await h.call('POST', '/api/portal/auth/register', {
+      body: { name: 'First', phone: '9000011111', password: CUSTOMER_PW, invite: token },
+    });
+    assert.equal((await h.call('GET', `/api/portal/invites/${token}`)).json.usable, false, 'spent');
+
+    // A second person with the link gets no claim on that client.
+    await h.call('POST', '/api/portal/auth/register', {
+      body: { name: 'Stranger', phone: '9000022222', password: CUSTOMER_PW, invite: token },
+    });
+    const stranger = h.state.customerAccounts.find((a) => a.phone === normalizePhone('9000022222'));
+    assert.equal(stranger.companyId, null, 'a spent link grants nothing');
+    assert.equal(stranger.contractId, null);
+    assert.equal(stranger.matchResult, 'no-match');
+
+    // Revoking stops a link that was never used.
+    const second = await h.call('POST', '/api/customer-accounts/invites', { token: mgr, body: { contractId: 'ctrA2' } });
+    const t2 = second.json.invite.path.split('invite=')[1];
+    await h.call('POST', `/api/customer-accounts/invites/${second.json.invite.id}/revoke`, { token: mgr });
+    assert.equal((await h.call('GET', `/api/portal/invites/${t2}`)).json.usable, false, 'revoked');
+    await h.call('POST', '/api/portal/auth/register', {
+      body: { name: 'Late', phone: '9000033333', password: CUSTOMER_PW, invite: t2 },
+    });
+    const late = h.state.customerAccounts.find((a) => a.phone === normalizePhone('9000033333'));
+    assert.equal(late.companyId, null, 'a revoked link grants nothing');
+  } finally { h.server.close(); }
+});
+
+test('invite: an unknown or mistyped link is not an error, and reveals nothing', async () => {
+  const h = await harness();
+  try {
+    const bogus = await h.call('GET', '/api/portal/invites/deadbeef');
+    assert.equal(bogus.status, 200);
+    assert.deepEqual(bogus.json, { usable: false });
+
+    await h.call('POST', '/api/portal/auth/register', {
+      body: { name: 'Someone', phone: '9422011111', password: CUSTOMER_PW, invite: 'deadbeef' },
+    });
+    // Falls back to matching the number, exactly as with no link at all.
+    const acct = h.state.customerAccounts.find((a) => a.phone === normalizePhone('9422011111'));
+    assert.equal(acct.matchResult, 'matched');
+    assert.equal(String(acct.contractId), 'ctrA1');
+  } finally { h.server.close(); }
+});
+
+test('invite: another company\'s staff cannot mint one, and a link needs something to grant', async () => {
+  const h = await harness();
+  try {
+    const mgrB = await h.staffToken('mgrb');
+    const mgr = await h.staffToken('mgr');
+
+    assert.equal((await h.call('POST', '/api/customer-accounts/invites', { token: mgrB, body: { contractId: 'ctrA1' } })).status, 404);
+    assert.equal((await h.call('POST', '/api/customer-accounts/invites', { token: mgr, body: {} })).status, 400);
+    assert.equal((await h.call('POST', '/api/customer-accounts/invites', { token: mgr, body: { projectIds: ['nope'] } })).status, 400);
+  } finally { h.server.close(); }
+});
+
+test('registration: an unmatched number is visible to staff instead of waiting unseen', async () => {
+  const h = await harness();
+  try {
+    await h.call('POST', '/api/portal/auth/register', {
+      body: { name: 'Nobody Knows', phone: '9777000111', password: CUSTOMER_PW, site: 'Some site' },
+    });
+    const stored = h.state.customerAccounts.find((a) => a.phone === normalizePhone('9777000111'));
+    assert.equal(stored.companyId, null, 'it matched no contract');
+
+    const mgr = await h.staffToken('mgr');
+    const list = await h.call('GET', '/api/customer-accounts', { token: mgr });
+    const seen = (list.json.accounts || []).find((a) => a.phone === normalizePhone('9777000111'));
+    assert.ok(seen, 'a registration that matched nothing must still reach somebody');
+    assert.equal(seen.status, 'Pending');
+    assert.equal(seen.matchResult, 'no-match');
+  } finally { h.server.close(); }
+});
+
+test('registration: staff are notified, and told when it matched nothing', async () => {
+  const h = await harness();
+  try {
+    await h.call('POST', '/api/portal/auth/register', {
+      body: { name: 'Mr Poonawalla', phone: '9422011111', password: CUSTOMER_PW },
+    });
+    const notes = h.state.notifications.filter((n) => /Portal registration/.test(n.text || ''));
+    assert.equal(notes.length, 1, 'one notice per registration');
+    assert.ok(notes[0].targetRoles.includes('admin'), 'the admin is told');
+    assert.match(notes[0].text, /waiting to be activated/);
+    assert.match(notes[0].text, /matched to their service record/);
+  } finally { h.server.close(); }
+});
