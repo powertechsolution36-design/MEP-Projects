@@ -59,6 +59,12 @@ async function api(method, pathname, { token, body } = {}) {
     page.on('pageerror', (e) => errors.push(e.message));
 
     const staff = (await api('POST', '/api/auth/login', { body: { username: 'service', password: 'password123' } })).json.token;
+    // Owner request (31 Oct 2026): the service helpline a client is told to
+    // ring. Set here so the portal's promise is exercised with a real number.
+    const boss = (await api('POST', '/api/auth/login', { body: { username: 'admin', password: 'password123' } })).json.token;
+    const numSet = await api('PATCH', '/api/companies/my-profile', { token: boss, body: { serviceNumber: '7447333377' } });
+    rec('staff: a service number can be set on the company profile',
+      numSet.status === 200 && numSet.json.company.serviceNumber === '7447333377', JSON.stringify(numSet.json).slice(0, 160));
     // The demo contract (fixture.js) — its phone is what the client registers with.
     const contract = (await api('GET', '/api/contracts/amc_demo', { token: staff })).json;
     const phone = (contract.contract || contract).phone;
@@ -133,6 +139,12 @@ async function api(method, pathname, { token, body } = {}) {
       /PSC-\d+/.test(detail) && detail.includes('Registered') && detail.includes('leaking water'), detail.slice(0, 200));
     rec('complaint: the photograph is served back behind the session',
       (await page.locator('.portal-thumb img').count()) === 1);
+    // Owner request (31 Oct 2026): a client who has just registered is told
+    // how long it will be, and who to ring if it cannot wait.
+    rec('complaint: the client is told it will be attended within 48 hours',
+      detail.includes('48 hours') && /call us on/i.test(detail) && detail.includes('74473 33377'), detail.slice(-240));
+    rec('complaint: while it is open, the stages are still shown',
+      (await page.locator('.portal-steps').count()) === 1);
     await page.screenshot({ path: path.join(SHOTS, '5-complaint-detail.png'), fullPage: true });
 
     const callId = page.url().split('/').pop();
@@ -174,6 +186,14 @@ async function api(method, pathname, { token, body } = {}) {
     rec('client: sees the work once it is completed', completed.includes('Completed') && completed.includes('Cleared the drain'));
     rec('client: never sees the internal remark or the amount',
       !completed.includes('INTERNAL ONLY') && !completed.includes('1800'), completed.slice(0, 200));
+    // Owner request (31 Oct 2026): finished work is shown as the service
+    // report, and the progress trail is gone — there is nothing left to follow.
+    rec('client: the finished visit is headed as a service report',
+      /service report/i.test(completed), completed.slice(0, 240));
+    rec('client: the progress trail is gone once the work is done',
+      (await page.locator('.portal-steps').count()) === 0);
+    rec('client: and the 48-hour promise goes with it',
+      !completed.includes('48 hours'), completed.slice(0, 240));
     await page.screenshot({ path: path.join(SHOTS, '6-completed.png'), fullPage: true });
 
 

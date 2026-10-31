@@ -101,6 +101,10 @@ const companySchema = new Schema(
     // are sent from. The app shows it on every Send button so the person
     // sending uses the phone/laptop that has this number logged in.
     whatsappNumber: { type: String, default: '' },
+    // Owner request (31 Oct 2026): the service helpline a client is told to
+    // ring while a complaint is open. Separate from whatsappNumber, which is
+    // the number outgoing client messages are sent from.
+    serviceNumber: { type: String, default: '' },
     logoBase64: { type: String, default: '' },
     quotationPrefix: { type: String, trim: true, default: 'QTN' },
     bankDetails: {

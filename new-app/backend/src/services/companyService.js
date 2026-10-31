@@ -414,6 +414,9 @@ const PROFILE_STRING_FIELDS = Object.freeze([
   // Owner request (22 Oct 2026): the company WhatsApp number every client
   // message is sent from (service reports, AMC letters, quotations).
   'whatsappNumber',
+  // Owner request (31 Oct 2026): the service helpline shown to a client while
+  // a complaint is open.
+  'serviceNumber',
 ]);
 const PROFILE_BANK_FIELDS = Object.freeze(['bankName', 'accountNumber', 'ifscCode', 'branch', 'accountType']);
 const PROFILE_AUTH_PERSON_FIELDS = Object.freeze([
@@ -446,12 +449,13 @@ async function updateMyCompanyProfile(companyId, body, deps) {
     if (body[f] !== null && typeof body[f] !== 'string') throw profileError(`${f} must be text.`);
     patch[f] = body[f] == null ? '' : body[f];
   }
-  if (patch.whatsappNumber !== undefined) {
-    const digits = patch.whatsappNumber.replace(/[\s()+-]/g, '');
+  for (const [field, label] of [['whatsappNumber', 'WhatsApp number'], ['serviceNumber', 'Service number']]) {
+    if (patch[field] === undefined) continue;
+    const digits = patch[field].replace(/[\s()+-]/g, '');
     if (digits && !/^\d{10,13}$/.test(digits)) {
-      throw profileError('WhatsApp number must be 10 to 13 digits, e.g. 7447333377 or 917447333377.');
+      throw profileError(`${label} must be 10 to 13 digits, e.g. 7447333377 or 917447333377.`);
     }
-    patch.whatsappNumber = digits;
+    patch[field] = digits;
   }
   if (patch.quotationPrefix !== undefined) {
     patch.quotationPrefix = patch.quotationPrefix.trim();

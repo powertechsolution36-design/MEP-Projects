@@ -67,6 +67,22 @@ function customerView(call, engineerName, attachments = []) {
       ? (report.partsWork || []).map((p) => ({ part: p.part, action: p.action }))
       : [],
     gasFilled: call.status === 'Completed' ? Boolean(report.gasFilled) : false,
+    // Owner request (31 Oct 2026): a finished visit is shown to the client as
+    // a service report, so the report's own particulars travel with it. The
+    // exclusions above are unchanged — amount, engineer's remark, checklist
+    // and signature still never leave.
+    completedAt: call.status === 'Completed' ? (call.completedAt || null) : null,
+    gasType: call.status === 'Completed' ? (report.gasType || '') : '',
+    gasQtyKg: call.status === 'Completed' ? Number(report.gasQtyKg || 0) : 0,
+    materialUsed: call.status === 'Completed' ? (report.materialUsed || '') : '',
+    unit: call.status === 'Completed'
+      ? {
+        make: report.make || '',
+        model: report.model || '',
+        capacity: report.capacity || '',
+        type: report.type || '',
+      }
+      : { make: '', model: '', capacity: '', type: '' },
     attachments: attachments.map((a) => ({ id: String(a.id), filename: a.filename, contentType: a.contentType, bytes: a.bytes })),
   };
 }
@@ -101,6 +117,9 @@ async function getPortalProfile(auth, deps) {
       name: company.displayName || company.name || '',
       phone: company.phone || '',
       whatsappNumber: company.whatsappNumber || '',
+      // The helpline a client rings while a complaint is open. Falls back to
+      // the WhatsApp number so the portal is never left without a number.
+      serviceNumber: company.serviceNumber || company.whatsappNumber || company.phone || '',
       email: company.email || '',
     },
   };

@@ -23,7 +23,7 @@ export default function CompanyProfile() {
   // Form state
   const [form, setForm] = useState({
     displayName: '', brandName: '', subtitle: '', tagline: '',
-    phone: '', email: '', website: '', gstNumber: '', whatsappNumber: '',
+    phone: '', email: '', website: '', gstNumber: '', whatsappNumber: '', serviceNumber: '',
     logoBase64: '',
     bankDetails: { bankName: '', accountNumber: '', ifscCode: '', branch: '', accountType: 'Current' },
     authorizedPerson: { name: '', designation: '', signatureBase64: '', stampBase64: '', contactPhone: '', contactEmail: '' },
@@ -47,6 +47,7 @@ export default function CompanyProfile() {
         website: c.website || '',
         gstNumber: c.gstNumber || '',
         whatsappNumber: c.whatsappNumber || '',
+        serviceNumber: c.serviceNumber || '',
         logoBase64: c.logoBase64 || '',
         bankDetails: {
           bankName: c.bankDetails?.bankName || '',
@@ -136,6 +137,7 @@ export default function CompanyProfile() {
               <div><strong>Email</strong><br/>{company?.email || '—'}</div>
               <div><strong>Website</strong><br/>{company?.website || '—'}</div>
               <div><strong>Company WhatsApp</strong><br/>{company?.whatsappNumber || '—'}</div>
+              <div><strong>Service number</strong><br/>{company?.serviceNumber || '—'}</div>
               <div><strong>GST Number</strong><br/>{company?.gstNumber || '—'}</div>
               <div><strong>Quotation Prefix</strong><br/>{company?.quotationPrefix || 'QTN'}</div>
             </div>
@@ -218,6 +220,18 @@ export default function CompanyProfile() {
                 />
                 <span className="muted" style={{ fontSize: 12 }}>
                   Every client message is sent from this number. Send buttons remind the sender to use the phone or laptop that has it.
+                </span>
+              </label>
+              <label className="filter-field">
+                Service number
+                <input
+                  inputMode="tel"
+                  value={form.serviceNumber}
+                  onChange={e => setField('serviceNumber', e.target.value)}
+                  placeholder="e.g. 7447333377"
+                />
+                <span className="muted" style={{ fontSize: 12 }}>
+                  Shown to clients in the portal while a complaint is open, so they know who to ring.
                 </span>
               </label>
               <label className="filter-field">

@@ -1298,6 +1298,49 @@
 }
 .portal-title-row h1 { margin: 0; font-size: var(--fs-2xl); }
 
+/* ---- Service report (a finished visit) --------------------------
+   Owner decision (31 Oct 2026): once the work is done the client is shown
+   the report instead of the progress trail. It is a document, so its
+   sections are separated by rules rather than by cards — one thing to read,
+   top to bottom, printable as it stands. */
+.portal-report-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-5);
+  flex-wrap: wrap;
+}
+.portal-report-head h1 { margin: 0; font-size: var(--fs-2xl); }
+.portal-report-kicker {
+  margin: 0 0 var(--s-1);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semi);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--p-muted);
+}
+.portal-report-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding-top: var(--s-5);
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* ---- What happens next (an open complaint) ---------------------- */
+.portal-promise {
+  background: var(--info-50);
+  border-color: var(--info-100);
+}
+.portal-promise-lead {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semi);
+  color: var(--info-700);
+}
+.portal-promise-call { margin: 0; color: var(--text-secondary); }
+.portal-promise-num { font-weight: var(--fw-semi); white-space: nowrap; }
+
 /* ---- Icons ------------------------------------------------------ */
 .portal-icon {
   width: 20px;

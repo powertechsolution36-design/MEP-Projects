@@ -47,6 +47,32 @@ function fmtLong(value) {
   return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
+/**
+ * A phone number as a client reads it, and a tel: link that works from a
+ * phone. A number stored with the country code keeps it; a plain ten-digit
+ * number is dialled as an Indian number. Anything else is shown as stored
+ * rather than reformatted into something that might not dial.
+ */
+function fmtPhone(value) {
+  const d = String(value || '').replace(/\D/g, '');
+  if (d.length === 10) return `${d.slice(0, 5)} ${d.slice(5)}`;
+  if (d.length === 12 && d.startsWith('91')) return `+91 ${d.slice(2, 7)} ${d.slice(7)}`;
+  return String(value || '');
+}
+
+function telHref(value) {
+  const d = String(value || '').replace(/\D/g, '');
+  if (!d) return '';
+  return `tel:+${d.length === 10 ? `91${d}` : d}`;
+}
+
+/**
+ * Owner decision (31 Oct 2026): a client who has just registered a complaint
+ * is told how long it will be before somebody comes, and given a number to
+ * ring if it cannot wait.
+ */
+const RESPONSE_HOURS = 48;
+
 const STATUS_CLASS = {
   Registered: 'status-pending',
   Assigned: 'status-open',
@@ -107,8 +133,11 @@ function PortalShell({ children, profile, onLogout, narrow }) {
       </main>
 
       <footer className="portal-foot">
-        {profile?.company?.whatsappNumber
-          ? <>Need help? Call or message us on <a href={`tel:${profile.company.whatsappNumber}`}>{profile.company.whatsappNumber}</a>.</>
+        {profile?.company?.serviceNumber || profile?.company?.whatsappNumber
+          ? (() => {
+            const num = profile.company.serviceNumber || profile.company.whatsappNumber;
+            return <>Need help? Call or message us on <a href={telHref(num)}>{fmtPhone(num)}</a>.</>;
+          })()
           : <>Your service portal for complaints and visit history.</>}
       </footer>
     </div>
@@ -382,7 +411,9 @@ function ComplaintRow({ c }) {
       </span>
       <span className="portal-row-side">
         <span className={`status-badge ${STATUS_CLASS[c.status] || 'status-pending'}`}>{c.status}</span>
-        {c.engineerName && <span className="portal-row-meta">{c.engineerName}</span>}
+        {c.status === 'Completed'
+          ? <span className="portal-row-meta">Service report</span>
+          : c.engineerName && <span className="portal-row-meta">{c.engineerName}</span>}
       </span>
       <span className="portal-row-chevron" aria-hidden="true">{icon('M9 6l6 6-6 6')}</span>
     </Link>
@@ -959,6 +990,111 @@ function Progress({ c }) {
   );
 }
 
+/**
+ * What a client is promised while the complaint is still open, and the
+ * number to ring if it cannot wait that long. Shown at the foot of every
+ * complaint that is not yet finished — the moment it is registered most of
+ * all, which is the screen the client lands on from the form.
+ */
+function ResponsePromise({ number }) {
+  return (
+    <section className="portal-card portal-promise" aria-labelledby="portal-promise-h">
+      <h2 id="portal-promise-h" className="portal-card-h">What happens next</h2>
+      <p className="portal-promise-lead">
+        Your call will be attended within {RESPONSE_HOURS} hours.
+      </p>
+      {number
+        ? (
+          <p className="portal-promise-call">
+            If it cannot wait that long, call us on{' '}
+            <a className="portal-promise-num" href={telHref(number)}>{fmtPhone(number)}</a>.
+          </p>
+        )
+        : <p className="portal-promise-call">If it cannot wait that long, please call our service number.</p>}
+    </section>
+  );
+}
+
+/**
+ * A finished visit, shown to the client as the service report rather than as
+ * a progress trail — owner decision, 31 Oct 2026. Once the work is done the
+ * stages have nothing left to tell anybody; what the client wants on the
+ * screen is what was wrong, who came, what was done and what was used.
+ *
+ * Every line is omitted when the engineer did not record it, so the report
+ * never shows an empty row or invents a value to fill one.
+ */
+function ServiceReport({ c }) {
+  const unit = c.unit || {};
+  const unitLine = [unit.make, unit.model, unit.capacity, unit.type].filter(Boolean).join(' · ');
+  const visitWhen = c.completedAt
+    ? fmtLong(c.completedAt)
+    : (c.appointmentDate ? fmtLong(c.appointmentDate) : '');
+  const gasLine = c.gasFilled
+    ? [c.gasType, c.gasQtyKg ? `${c.gasQtyKg} kg` : ''].filter(Boolean).join(' · ') || 'Topped up'
+    : '';
+
+  const facts = [
+    ['Visit completed', visitWhen],
+    ['Engineer', c.engineerName || ''],
+    ['Site', c.site || ''],
+    ['Cover', c.coverage || ''],
+    ['Complaint received', fmtLong(c.registeredDate)],
+    ['Unit', unitLine],
+  ].filter(([, v]) => v);
+
+  return (
+    <section className="portal-card portal-report" aria-labelledby="portal-report-h">
+      <div className="portal-report-head">
+        <div>
+          <p className="portal-report-kicker">Service report</p>
+          <h1 id="portal-report-h">PSC-{c.complaintNumber}</h1>
+        </div>
+        <span className="status-badge status-won">Completed</span>
+      </div>
+
+      <dl className="portal-facts portal-facts-2">
+        {facts.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}
+      </dl>
+
+      {c.complaintDescription && (
+        <div className="portal-report-block">
+          <h2 className="portal-card-h">What you reported</h2>
+          <p className="portal-quote">{c.complaintDescription}</p>
+        </div>
+      )}
+
+      <div className="portal-report-block">
+        <h2 className="portal-card-h">What we did</h2>
+        <p className="portal-quote">{c.serviceDescription || 'The visit is complete.'}</p>
+      </div>
+
+      {c.partsWork?.length > 0 && (
+        <div className="portal-report-block">
+          <h2 className="portal-card-h">Parts</h2>
+          <ul className="portal-list">
+            {c.partsWork.map((part, i) => <li key={i}>{part.part} — {part.action}</li>)}
+          </ul>
+        </div>
+      )}
+
+      {(gasLine || c.materialUsed) && (
+        <dl className="portal-facts portal-facts-2">
+          {gasLine && <div><dt>Gas charged</dt><dd>{gasLine}</dd></div>}
+          {c.materialUsed && <div><dt>Material used</dt><dd>{c.materialUsed}</dd></div>}
+        </dl>
+      )}
+
+      {c.customerRemark && (
+        <div className="portal-report-block">
+          <h2 className="portal-card-h">What you told the engineer</h2>
+          <p className="portal-quote">{c.customerRemark}</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function PortalComplaintDetail() {
   const { profile, signOut } = usePortal();
   const { id } = useParams();
@@ -985,7 +1121,26 @@ function PortalComplaintDetail() {
       {error && <div className="portal-card"><Notice>{error}</Notice></div>}
       {!c && !error && <div className="portal-card"><Skeleton rows={4} /></div>}
 
-      {c && (
+      {/* Finished work is a report, not a progress trail: the stages are
+          dropped once there is nothing left to follow. While the complaint is
+          open it is the other way round — the stages are the whole point, and
+          the report does not exist yet. */}
+      {c && c.status === 'Completed' && (
+        <>
+          <ServiceReport c={c} />
+
+          {c.attachments?.length > 0 && (
+            <section className="portal-card" aria-labelledby="portal-photos-h">
+              <h2 id="portal-photos-h" className="portal-card-h">Photographs you sent</h2>
+              <ul className="portal-thumbs">
+                {c.attachments.map((a, i) => <AttachmentImage key={a.id} id={a.id} index={i} />)}
+              </ul>
+            </section>
+          )}
+        </>
+      )}
+
+      {c && c.status !== 'Completed' && (
         <>
           <div className="portal-card">
             {justRaised && c.status === 'Registered' && (
@@ -1026,18 +1181,7 @@ function PortalComplaintDetail() {
             </section>
           )}
 
-          {c.status === 'Completed' && (
-            <section className="portal-card" aria-labelledby="portal-did-h">
-              <h2 id="portal-did-h" className="portal-card-h">What we did</h2>
-              <p className="portal-quote">{c.serviceDescription || 'The visit is complete.'}</p>
-              {c.partsWork?.length > 0 && (
-                <ul className="portal-list">
-                  {c.partsWork.map((p, i) => <li key={i}>{p.part} — {p.action}</li>)}
-                </ul>
-              )}
-              {c.gasFilled && <p className="portal-aside">Gas was topped up during this visit.</p>}
-            </section>
-          )}
+          <ResponsePromise number={profile?.company?.serviceNumber || profile?.company?.whatsappNumber} />
         </>
       )}
     </PortalShell>

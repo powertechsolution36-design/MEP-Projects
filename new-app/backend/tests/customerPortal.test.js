@@ -314,6 +314,90 @@ test('portal: staff-only detail never reaches the client view', async () => {
   } finally { h.server.close(); }
 });
 
+test('portal: a finished visit carries the service report the client is shown', async () => {
+  const h = await harness();
+  try {
+    const mgr = await h.staffToken('mgr');
+    const created = await h.call('POST', '/api/service-calls/complaints', { token: mgr, body: { contractId: 'ctrA1', complaintDescription: 'Water leak' } });
+    const id = created.json.serviceCall.id;
+    await h.call('PUT', `/api/service-calls/${id}/assign`, { token: mgr, body: { engineerId: 'uEng', appointmentDate: '2026-11-04', appointmentTime: '16:55' } });
+    const done = await h.call('POST', `/api/service-calls/${id}/complete`, {
+      token: mgr,
+      body: {
+        signature: 'data:image/png;base64,iVBORw0KGgo=',
+        report: {
+          serviceDescription: 'Drain line cleared, leak stopped',
+          make: 'Samsung', model: 'AR18', capacity: '1.5 TR', type: 'R32',
+          materialUsed: 'Drain pipe 2 ft', customerRemark: 'Working fine now',
+          gasFilled: true, gasType: 'R32', gasQtyKg: 0.5,
+          partsWork: [{ part: 'Drain pipe', action: 'Replaced' }],
+          engineerRemark: 'INTERNAL ONLY', amount: 1800,
+          checklistResults: Object.fromEntries(['Cooling Testing', 'Gas Pressure', 'Filter Clean', 'Indoor Coil', 'Outdoor Coil', 'Body Cleaning'].map((k) => [k, 'Done'])),
+        },
+      },
+    });
+
+    assert.equal(done.status, 200, JSON.stringify(done.json));
+
+    const client = await h.activeClient();
+    const view = (await h.call('GET', `/api/portal/complaints/${id}`, { token: client.token })).json.complaint;
+
+    assert.equal(view.status, 'Completed');
+    assert.equal(view.serviceDescription, 'Drain line cleared, leak stopped');
+    assert.equal(view.materialUsed, 'Drain pipe 2 ft');
+    assert.equal(view.customerRemark, 'Working fine now');
+    assert.equal(view.gasFilled, true);
+    assert.equal(view.gasType, 'R32');
+    assert.equal(view.gasQtyKg, 0.5);
+    assert.deepEqual(view.unit, { make: 'Samsung', model: 'AR18', capacity: '1.5 TR', type: 'R32' });
+    assert.ok(view.completedAt, 'the report is dated by the server');
+    assert.deepEqual(view.partsWork, [{ part: 'Drain pipe', action: 'Replaced' }]);
+
+    // The widening must not have widened what stays inside.
+    const text = JSON.stringify(view);
+    assert.ok(!text.includes('INTERNAL ONLY'), 'the engineer’s own remark is still staff material');
+    assert.ok(!text.includes('1800'), 'and so is what was charged');
+  } finally { h.server.close(); }
+});
+
+test('portal: an unfinished visit carries no report at all', async () => {
+  const h = await harness();
+  try {
+    const mgr = await h.staffToken('mgr');
+    const created = await h.call('POST', '/api/service-calls/complaints', { token: mgr, body: { contractId: 'ctrA1', complaintDescription: 'Water leak' } });
+    const id = created.json.serviceCall.id;
+    await h.call('PUT', `/api/service-calls/${id}/assign`, { token: mgr, body: { engineerId: 'uEng', appointmentDate: '2026-11-04' } });
+
+    const client = await h.activeClient();
+    const view = (await h.call('GET', `/api/portal/complaints/${id}`, { token: client.token })).json.complaint;
+
+    assert.notEqual(view.status, 'Completed');
+    assert.equal(view.completedAt, null, 'nothing is dated until it is done');
+    assert.equal(view.materialUsed, '');
+    assert.equal(view.gasType, '');
+    assert.equal(view.gasQtyKg, 0);
+    assert.deepEqual(view.unit, { make: '', model: '', capacity: '', type: '' });
+  } finally { h.server.close(); }
+});
+
+test('portal: the profile carries a service number, falling back when none is set', async () => {
+  const h = await harness();
+  try {
+    const client = await h.activeClient();
+    const noneSet = (await h.call('GET', '/api/portal/me', { token: client.token })).json;
+    assert.equal(noneSet.company.serviceNumber, '', 'a company with no numbers at all offers none');
+
+    const coA = h.state.companies.find((c) => c.id === 'coA');
+    coA.whatsappNumber = '917447333377';
+    const fellBack = (await h.call('GET', '/api/portal/me', { token: client.token })).json;
+    assert.equal(fellBack.company.serviceNumber, '917447333377', 'the WhatsApp number stands in until a service number is set');
+
+    coA.serviceNumber = '7447333377';
+    const own = (await h.call('GET', '/api/portal/me', { token: client.token })).json;
+    assert.equal(own.company.serviceNumber, '7447333377', 'and the service number wins once it is');
+  } finally { h.server.close(); }
+});
+
 /* ---------------- raising a complaint ---------------- */
 
 test('portal: a client raises a complaint on their own contract, numbered and timed by the server', async () => {
