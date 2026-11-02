@@ -1,0 +1,23 @@
+{
+  "name": "MEP PROJECTS — MEP Powertech",
+  "short_name": "MEP PROJECTS",
+  "description": "Projects, service calls, AMC, stock and payments for the MEP Powertech team.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#d92b2b",
+  "lang": "en-IN",
+  "dir": "ltr",
+  "categories": ["business", "productivity"],
+  "icons": [
+    { "src": "/staff-app/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/staff-app/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/staff-app/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Service calls", "url": "/service-calls", "icons": [{ "src": "/staff-app/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "Payments", "url": "/payments", "icons": [{ "src": "/staff-app/icon-192.png", "sizes": "192x192", "type": "image/png" }] }
+  ]
+}

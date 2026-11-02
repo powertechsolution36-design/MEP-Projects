@@ -3,108 +3,41 @@
  *
  * The portal is the app: a client adds it to their home screen and it opens
  * full screen, with its own icon and name, and keeps working on a bad signal.
- * Everything that makes that true is here, and every piece of it is mounted
- * by the portal alone — the staff application registers no service worker,
- * gets no manifest, and is not touched by any of this.
  *
- * Nothing here throws into the app. A browser that cannot install, cannot
- * run a service worker, or has notifications switched off at the operating
- * system is a browser the portal still works in; the extra is simply absent.
+ * The install mechanics are shared with the staff application (src/pwa/
+ * installable.js) — identical on both sides since 2 Nov 2026, when the
+ * login page's dead "Download APK" button was replaced by a real one. What
+ * stays here is the portal's own: which manifest and icon are its, and the
+ * notifications, which only a client receives.
  */
 
 import { portalApi } from './portalApi';
+import { attachAppChrome, registerWorker } from '../pwa/installable';
+
+export { isInstalled, isApple, watchInstall, showInstallPrompt } from '../pwa/installable';
 
 const MANIFEST_URL = '/portal-app/manifest.json';
 const SW_URL = '/mep-portal-sw.js';
 const APPLE_ICON = '/portal-app/apple-touch-180.png';
 const THEME_COLOR = '#d92b2b';
 
-/** Is the portal running from the home screen rather than in a browser tab? */
-export function isInstalled() {
-  if (typeof window === 'undefined') return false;
-  const standalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
-  // iOS Safari does not report display-mode; it sets navigator.standalone.
-  return Boolean(standalone || window.navigator.standalone);
-}
-
-/** iPhone and iPad, where installing is done from the Share sheet by hand. */
-export function isApple() {
-  if (typeof navigator === 'undefined') return false;
-  const ua = navigator.userAgent || '';
-  const iOS = /iPad|iPhone|iPod/.test(ua);
-  // iPadOS 13+ reports itself as a Mac; a touch screen gives it away.
-  const iPadOS = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
-  return iOS || iPadOS;
-}
-
-/**
- * Put the app's own manifest, icon and colour on the page while the portal is
- * open, and take them off again when it is not. Done here rather than in
- * index.html because that file is shared with the staff application, which
- * must not advertise itself as the customer app.
- */
+/** The portal's own manifest and icon, while the portal is on screen. */
 export function attachPortalAppChrome() {
-  if (typeof document === 'undefined') return () => {};
-  const added = [];
-
-  const link = (rel, href, extra = {}) => {
-    const el = document.createElement('link');
-    el.rel = rel;
-    el.href = href;
-    Object.assign(el, extra);
-    el.dataset.portalApp = 'true';
-    document.head.appendChild(el);
-    added.push(el);
-  };
-
-  // The staff page declares its own apple-touch-icon. Two of them leave the
-  // choice to Safari, so the staff one is stood down while the portal is
-  // open and put back on the way out — index.html itself is never edited.
-  const staffAppleIcons = [...document.querySelectorAll('link[rel="apple-touch-icon"]')];
-  staffAppleIcons.forEach((el) => { el.rel = 'portal-disabled-apple-touch-icon'; });
-
-  link('manifest', MANIFEST_URL);
-  link('apple-touch-icon', APPLE_ICON);
-
-  // iOS reads these two; Android reads the manifest.
-  const meta = (name, content) => {
-    const el = document.createElement('meta');
-    el.name = name;
-    el.content = content;
-    el.dataset.portalApp = 'true';
-    document.head.appendChild(el);
-    added.push(el);
-  };
-  meta('apple-mobile-web-app-capable', 'yes');
-  meta('apple-mobile-web-app-title', 'MEP Service');
-  meta('apple-mobile-web-app-status-bar-style', 'default');
-
-  // The staff page already sets a theme colour; put it back on the way out.
-  const existingTheme = document.querySelector('meta[name="theme-color"]');
-  const previousTheme = existingTheme ? existingTheme.content : null;
-  if (existingTheme) existingTheme.content = THEME_COLOR;
-
-  return () => {
-    added.forEach((el) => { if (el.parentNode) el.parentNode.removeChild(el); });
-    staffAppleIcons.forEach((el) => { el.rel = 'apple-touch-icon'; });
-    if (existingTheme && previousTheme !== null) existingTheme.content = previousTheme;
-  };
+  return attachAppChrome({
+    manifestUrl: MANIFEST_URL,
+    appleIcon: APPLE_ICON,
+    appleTitle: 'MEP Service',
+    themeColor: THEME_COLOR,
+  });
 }
 
 /**
- * Register the service worker. Only over https (or localhost, where browsers
- * allow it for development), and only under /portal/ — its scope cannot reach
- * a staff screen even if somebody later navigates there.
+ * Scoped to /portal, so it cannot reach a staff screen. The staff worker's
+ * scope is the whole site, but a narrower scope wins, so a client who has
+ * both keeps this one for every portal page.
  */
-export async function registerPortalServiceWorker() {
-  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return null;
-  try {
-    return await navigator.serviceWorker.register(SW_URL, { scope: '/portal' });
-  } catch {
-    // An unregistered service worker costs the client nothing: the portal
-    // keeps working as an ordinary web page.
-    return null;
-  }
+export function registerPortalServiceWorker() {
+  return registerWorker(SW_URL, '/portal');
 }
 
 /* ------------------------------------------------------------------ *

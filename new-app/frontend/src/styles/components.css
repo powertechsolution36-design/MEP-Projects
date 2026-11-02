@@ -924,6 +924,19 @@
   .app-card-btn { padding: 0 var(--s-2); gap: var(--s-2); white-space: nowrap; }
 }
 @media (max-width: 340px) { .app-download-grid { grid-template-columns: 1fr; } }
+
+/* The Share-sheet steps for iPhone, where there is no install prompt to
+   show (owner request, 2 Nov 2026). */
+.app-install-steps {
+  margin: 0 0 var(--s-4);
+  padding-left: var(--s-7);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  font-size: var(--fs-md);
+  line-height: var(--lh-base);
+}
+.app-install-steps .app-download-icon { vertical-align: -3px; }
 .login-subtitle {
   margin: 0 0 var(--s-8);
   color: var(--text-muted);

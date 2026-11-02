@@ -275,18 +275,44 @@ function testNoRouteShadowedByAFile() {
     await context.setOffline(false);
 
     /* ---- the staff application is untouched ---- */
-    const staffCtx = await browser.newContext();
+    const staffCtx = await browser.newContext({ serviceWorkers: 'allow' });
     const staffPage = await staffCtx.newPage();
     await staffPage.goto(`${BASE}/login`, { waitUntil: 'networkidle' });
-    await staffPage.waitForTimeout(600);
-    const staffManifest = await staffPage.locator('link[rel=manifest]').count();
-    rec('staff: the staff app advertises no customer manifest', staffManifest === 0, String(staffManifest));
-    const staffWorkers = await staffPage.evaluate(async () => {
-      if (!navigator.serviceWorker) return 0;
+    await staffPage.waitForTimeout(1200);
+
+    /* Owner request (2 Nov 2026): the staff login page offers to install
+       MEP PROJECTS, so it declares a manifest and a worker of its OWN. The
+       rule that mattered before still holds and is what is checked here:
+       the two applications never wear each other's clothes. */
+    const staffManifest = await staffPage.locator('link[rel=manifest]').evaluateAll((els) => els.map((e) => e.getAttribute('href')));
+    rec('staff: the staff app declares its own manifest, not the customer one',
+      staffManifest.length === 1 && staffManifest[0] === '/staff-app/manifest.json', JSON.stringify(staffManifest));
+
+    const staffScopes = await staffPage.evaluate(async () => {
+      if (!navigator.serviceWorker) return [];
       const regs = await navigator.serviceWorker.getRegistrations();
-      return regs.length;
+      return regs.map((r) => ({ scope: r.scope, script: (r.active || r.installing || r.waiting || {}).scriptURL || '' }));
     });
-    rec('staff: and registers no service worker of its own', staffWorkers === 0, String(staffWorkers));
+    rec('staff: and registers the staff worker, not the portal one',
+      staffScopes.length === 1 && /mep-staff-sw\.js$/.test(staffScopes[0].script), JSON.stringify(staffScopes));
+
+    /* The thing the owner reported: a Download button that could not work,
+       under a line claiming the app was available. */
+    const loginText = await staffPage.locator('body').innerText();
+    rec('staff: the page no longer claims an Android app that does not exist',
+      !/The Android app is available to install/i.test(loginText), loginText.slice(-300));
+    rec('staff: no dead Download button is shown',
+      (await staffPage.locator('button:disabled:has-text("Download")').count()) === 0);
+    rec('staff: the page says how to put it on a phone',
+      /Put MEP PROJECTS on your phone/i.test(loginText) && /(Add to Home Screen|Install the app)/i.test(loginText),
+      loginText.slice(-300));
+
+    const staffMf = await api('GET', '/staff-app/manifest.json');
+    rec('staff: its manifest is served and is the application itself',
+      staffMf.status === 200 && staffMf.json.display === 'standalone' && staffMf.json.start_url === '/'
+      && (staffMf.json.icons || []).some((i) => String(i.purpose || '').includes('maskable')),
+      JSON.stringify(staffMf.json && { d: staffMf.json.display, s: staffMf.json.start_url }));
+    await staffPage.screenshot({ path: path.join(SHOTS, '3-staff-login.png'), fullPage: true });
     await staffCtx.close();
 
     rec('no page errors', pageErrors.length === 0, pageErrors.slice(0, 2).join(' | '));
