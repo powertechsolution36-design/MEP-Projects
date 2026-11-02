@@ -1727,6 +1727,9 @@
   background: var(--primary);
   transition: width 240ms ease;
 }
+/* Finished work reads as finished at a glance: the bar turns green rather
+   than staying the colour of work in hand (owner report, 2 Nov 2026). */
+.portal-meter.is-done .portal-meter-fill { background: var(--ok-600); }
 .portal-meter-note { font-size: var(--fs-md); color: var(--text-secondary); margin: var(--s-2) 0 0; }
 
 /* ---- Update feed ------------------------------------------------- */

@@ -344,7 +344,37 @@ async function api(method, pathname, { token, body } = {}) {
     const otherCall = list.find((c) => String(c.id) !== String(callId));
     if (otherCall) {
       const peek = await api('GET', `/api/portal/complaints/${otherCall.id}`, { token });
-      /* ---- cover that has run out (owner request, 31 Oct 2026) ---- */
+      /* Owner report (2 Nov 2026): a site standing on the last stage — which
+       is itself named "Completed" — used to read "In progress". */
+    {
+      // The project was unlinked a few checks ago to prove that ends their
+      // access; it goes back on so this one can be about the stage.
+      await api('PUT', `/api/customer-accounts/${myAccount.id}/projects`, { token: staff, body: { projectIds: ['prj_demo'] } });
+      const admin2 = (await api('POST', '/api/auth/login', { body: { username: 'admin', password: 'password123' } })).json.token;
+      const moved = await api('POST', '/api/projects/prj_demo/stage', { token: admin2, body: { stage: 'Completed', confirmPendingMaterial: true, confirmIncompleteChecklist: true } });
+      rec('staff: the project can be moved onto its last stage', moved.status === 200, JSON.stringify(moved.json).slice(0, 160));
+
+      await page.goto(`${BASE}/portal`, { waitUntil: 'networkidle' });
+      await page.waitForTimeout(900);
+      // Scoped to the project's own row: "In progress" is also the heading
+      // of the open-complaints section, which has nothing to do with it.
+      const projRow = (await page.locator('.portal-row', { hasText: 'AHU replacement' }).first().innerText()).replace(/\s+/g, ' ');
+      rec('client: a finished site says Completed, not In progress',
+        /Completed/.test(projRow) && !/In progress/.test(projRow), projRow);
+      rec('client: and it reads as finished, not "now at"',
+        /Finished/.test(projRow) && !/Now at/.test(projRow), projRow);
+      await page.screenshot({ path: path.join(SHOTS, '9-project-finished.png'), fullPage: true });
+
+      await page.goto(`${BASE}/portal/projects/prj_demo`, { waitUntil: 'networkidle' });
+      await page.waitForTimeout(800);
+      const detailDone = await page.locator('body').innerText();
+      rec('client: the project page says the work is completed',
+        /Work completed/i.test(detailDone) && !/Happening now/i.test(detailDone), detailDone.slice(0, 400));
+      await page.goto(`${BASE}/portal`, { waitUntil: 'networkidle' });
+      await page.waitForTimeout(600);
+    }
+
+    /* ---- cover that has run out (owner request, 31 Oct 2026) ---- */
     const ended = await api('PATCH', '/api/contracts/amc_demo', {
       token: staff, body: { endDate: '2026-09-30' },
     });

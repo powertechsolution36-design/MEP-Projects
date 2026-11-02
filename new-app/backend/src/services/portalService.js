@@ -401,6 +401,29 @@ function buildStageTimeline(project) {
 }
 
 /** Whole percent, from position in the stage list. 100 only when done. */
+/**
+ * Is the work on site finished? (owner report, 2 Nov 2026)
+ *
+ * TWO DIFFERENT THINGS ARE BOTH CALLED "completed", which is what the client
+ * was tripping over:
+ *
+ *   · the STAGE — the last stage of every division's list is literally named
+ *     'Completed' ('Delivered' for MEP). An engineer moving the project onto
+ *     it is saying the work on site is done;
+ *   · the STATUS — 'Ongoing' / 'Completed' / 'In Service', which somebody in
+ *     the office changes afterwards, often days later and sometimes never.
+ *
+ * The client's screen read only the status, so a site that was finished kept
+ * saying "In progress" and "Now at: Completed" in the same breath. Standing
+ * on the last stage is what the client can see with their own eyes, so that
+ * is what the portal calls finished — and the status still counts, because
+ * 'In Service' is finished too.
+ */
+function projectIsFinished(project, timeline) {
+  if (project.status === 'Completed' || project.status === 'In Service') return true;
+  return timeline.length > 0 && timeline[timeline.length - 1].reached;
+}
+
 function stageProgressPercent(project, timeline) {
   if (project.status === 'Completed') return 100;
   const total = timeline.length;
@@ -458,9 +481,13 @@ function customerProjectView(project, { withUpdates = false } = {}) {
     capacity: project.capacity || '',
     stage: project.stage || '',
     status: project.status || '',
+    // What the client's screen reads. See projectIsFinished: the stage and
+    // the status are two different things and both can mean "done".
+    finished: projectIsFinished(project, timeline),
     startDate: project.startDate || null,
-    // Set when the project is completed; a target date is not promised to a
-    // client from a checklist that staff may still be editing.
+    // Only a date somebody actually recorded. A finished site whose office
+    // paperwork is not done yet gets "finished" with no date, never a date
+    // this code invented.
     completedDate: project.status === 'Completed' ? project.endDate || null : null,
     stages: timeline,
     progressPercent: stageProgressPercent(project, timeline),
@@ -478,7 +505,7 @@ async function listMyProjects(auth, deps) {
     .map((p) => customerProjectView(p))
     .sort((a, b) => {
       // Live work first, then the most recently started.
-      const done = (v) => (v.status === 'Completed' ? 1 : 0);
+      const done = (v) => (v.finished ? 1 : 0);
       if (done(a) !== done(b)) return done(a) - done(b);
       return new Date(b.startDate || 0) - new Date(a.startDate || 0);
     });
@@ -550,6 +577,7 @@ async function getMyProjectPhoto(auth, projectId, photoId, deps) {
 
 module.exports = {
   dialableNumber,
+  projectIsFinished,
   coverHasEnded,
   getPortalProfile,
   listMyProjects,

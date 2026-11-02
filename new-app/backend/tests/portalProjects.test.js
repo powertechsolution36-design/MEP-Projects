@@ -30,7 +30,7 @@ const CUSTOMER_PW = 'client-password-1';
 
 /** Every key the portal is allowed to send about a project. */
 const LIST_KEYS = [
-  'capacity', 'completedDate', 'division', 'id', 'lastUpdateAt', 'name',
+  'capacity', 'completedDate', 'division', 'finished', 'id', 'lastUpdateAt', 'name',
   'progressPercent', 'siteType', 'stage', 'stages', 'startDate', 'status', 'updateCount',
 ];
 const DETAIL_KEYS = [...LIST_KEYS, 'updates'].sort();
@@ -747,5 +747,87 @@ test('project client: another company cannot give one of our clients cover', asy
     const c = await h.activeClient();
     const tried = await h.call('PUT', `/api/customer-accounts/${c.accountId}/cover`, { token: beta, body: { contractId: 'ctrB1' } });
     assert.equal(tried.status, 404, 'not theirs, so it does not exist');
+  } finally { h.server.close(); }
+});
+
+/* ================= finished means finished =================
+ * Owner report (2 Nov 2026): "the project is completed but shows the progress
+ * is still going". Two different things are called completed — the last STAGE
+ * of every division's list is named 'Completed', and the project STATUS is a
+ * separate field somebody changes in the office afterwards. The client's
+ * screen read only the status, so a site standing on the last stage said
+ * "In progress" and "Now at: Completed" at the same time.
+ */
+
+test('project finished: standing on the last stage is finished, whatever the office has not done yet', async () => {
+  const h = await harness();
+  try {
+    const mgr = await h.staffToken('mgr');
+    const c = await h.activeClient();
+    await h.call('PUT', `/api/customer-accounts/${c.accountId}/projects`, { token: mgr, body: { projectIds: ['prjA1'] } });
+
+    // Mid-build: plainly not finished.
+    let one = (await h.call('GET', '/api/portal/projects', { token: c.token })).json.projects[0];
+    assert.equal(one.finished, false);
+    assert.ok(one.progressPercent < 100);
+
+    // The engineer moves it onto the last stage. The status is still Ongoing,
+    // because nobody in the office has touched it — and that is the case the
+    // client was complaining about.
+    const project = h.state.projects.find((p) => p.id === 'prjA1');
+    project.stage = 'Completed';
+    project.stageHistory = [...(project.stageHistory || []), { stage: 'Completed', enteredAt: new Date('2026-07-01'), enteredByUserId: 'uAdmin' }];
+    assert.equal(project.status, 'Ongoing', 'the status really is still Ongoing');
+
+    one = (await h.call('GET', '/api/portal/projects', { token: c.token })).json.projects[0];
+    assert.equal(one.finished, true, 'the client is told the work is done');
+    assert.equal(one.progressPercent, 100);
+    assert.equal(one.stages[one.stages.length - 1].reached, true);
+
+    const detail = (await h.call('GET', '/api/portal/projects/prjA1', { token: c.token })).json.project;
+    assert.equal(detail.finished, true, 'and the two screens agree');
+  } finally { h.server.close(); }
+});
+
+test('project finished: the status alone still counts, including In Service', async () => {
+  const h = await harness();
+  try {
+    const mgr = await h.staffToken('mgr');
+    const c = await h.activeClient();
+    await h.call('PUT', `/api/customer-accounts/${c.accountId}/projects`, { token: mgr, body: { projectIds: ['prjA1'] } });
+    const project = h.state.projects.find((p) => p.id === 'prjA1');
+
+    project.status = 'Completed';
+    assert.equal((await h.call('GET', '/api/portal/projects', { token: c.token })).json.projects[0].finished, true);
+
+    // Handed over and running: finished as far as the client is concerned.
+    project.status = 'In Service';
+    assert.equal((await h.call('GET', '/api/portal/projects', { token: c.token })).json.projects[0].finished, true);
+
+    project.status = 'Ongoing';
+    assert.equal((await h.call('GET', '/api/portal/projects', { token: c.token })).json.projects[0].finished, false,
+      'and back to in progress when it genuinely is');
+  } finally { h.server.close(); }
+});
+
+test('project finished: a date is only ever one somebody recorded', async () => {
+  const h = await harness();
+  try {
+    const mgr = await h.staffToken('mgr');
+    const c = await h.activeClient();
+    await h.call('PUT', `/api/customer-accounts/${c.accountId}/projects`, { token: mgr, body: { projectIds: ['prjA1'] } });
+    const project = h.state.projects.find((p) => p.id === 'prjA1');
+
+    // Finished by stage, with no end date filed: finished, and no date invented.
+    project.stage = 'Completed';
+    project.stageHistory = [...(project.stageHistory || []), { stage: 'Completed', enteredAt: new Date('2026-07-01'), enteredByUserId: 'uAdmin' }];
+    const byStage = (await h.call('GET', '/api/portal/projects', { token: c.token })).json.projects[0];
+    assert.equal(byStage.finished, true);
+    assert.equal(byStage.completedDate, null, 'no date is better than a made-up one');
+
+    project.status = 'Completed';
+    project.endDate = new Date('2026-07-04');
+    const byStatus = (await h.call('GET', '/api/portal/projects', { token: c.token })).json.projects[0];
+    assert.ok(byStatus.completedDate, 'and the real one is shown once it exists');
   } finally { h.server.close(); }
 });

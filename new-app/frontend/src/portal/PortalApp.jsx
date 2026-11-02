@@ -547,9 +547,9 @@ function sinceText(at) {
   return `Updated ${mins} minutes ago`;
 }
 
-function Meter({ percent, label }) {
+function Meter({ percent, label, finished = false }) {
   return (
-    <div className="portal-meter" role="img" aria-label={label}>
+    <div className={`portal-meter${finished ? ' is-done' : ''}`} role="img" aria-label={label}>
       <span className="portal-meter-fill" style={{ width: `${Math.max(2, percent)}%` }} />
     </div>
   );
@@ -563,14 +563,17 @@ function ProjectRow({ p }) {
         <span className="portal-row-meta">
           {p.division}{p.capacity ? ` · ${p.capacity}` : ''}
         </span>
-        <Meter percent={p.progressPercent} label={`${p.progressPercent}% complete`} />
+        <Meter percent={p.progressPercent} label={`${p.progressPercent}% complete`} finished={p.finished} />
+        {/* `finished` is the server's answer, not the raw status: the last
+            stage of a division's list IS "Completed", and a site standing on
+            it used to read "In progress · Now at: Completed". */}
         <span className="portal-row-meta">
-          {p.status === 'Completed' ? 'Finished' : `Now at: ${p.stage}`} · {p.progressPercent}%
+          {p.finished ? 'Finished' : `Now at: ${p.stage}`} · {p.progressPercent}%
         </span>
       </span>
       <span className="portal-row-side">
-        <span className={`status-badge ${p.status === 'Completed' ? 'status-won' : 'status-pending'}`}>
-          {p.status === 'Completed' ? 'Completed' : 'In progress'}
+        <span className={`status-badge ${p.finished ? 'status-won' : 'status-pending'}`}>
+          {p.finished ? 'Completed' : 'In progress'}
         </span>
         {p.lastUpdateAt && <span className="portal-row-meta">Latest {fmtLong(p.lastUpdateAt)}</span>}
       </span>
@@ -580,28 +583,34 @@ function ProjectRow({ p }) {
 }
 
 /** The division's stages, with the dates somebody actually recorded. */
-function StageTrail({ stages }) {
+function StageTrail({ stages, finished = false }) {
   return (
     <ol className="portal-steps">
-      {stages.map((st) => (
-        <li
-          key={st.stage}
-          className={`portal-step${st.reached ? ' is-done' : ''}${st.current ? ' is-current' : ''}`}
-        >
-          <span className="portal-step-mark" aria-hidden="true">
-            {/* The stage in hand is NOT finished, so it must not carry a
-                tick — a client reading quickly would take it for done. */}
-            {st.current || !st.reached ? <IconClock /> : <IconCheck />}
-          </span>
-          <span className="portal-step-body">
-            <span className="portal-step-label">{st.stage}</span>
-            <span className="portal-step-when">
-              {st.at ? fmtLong(st.at) : st.current ? 'Happening now' : st.reached ? 'Done' : 'Not yet'}
+      {stages.map((st) => {
+        // Once the work is finished nothing is still "happening now" — the
+        // last stage carried a clock and the words "Happening now" on a site
+        // that was done (owner report, 2 Nov 2026).
+        const done = finished ? st.reached : st.reached && !st.current;
+        return (
+          <li
+            key={st.stage}
+            className={`portal-step${st.reached ? ' is-done' : ''}${st.current && !finished ? ' is-current' : ''}`}
+          >
+            <span className="portal-step-mark" aria-hidden="true">
+              {/* A stage still in hand is NOT finished, so it must not carry
+                  a tick — a client reading quickly would take it for done. */}
+              {done ? <IconCheck /> : <IconClock />}
             </span>
-          </span>
-          <span className="portal-sr">{st.reached ? 'Done' : 'Not done yet'}</span>
-        </li>
-      ))}
+            <span className="portal-step-body">
+              <span className="portal-step-label">{st.stage}</span>
+              <span className="portal-step-when">
+                {st.at ? fmtLong(st.at) : done ? 'Done' : st.current ? 'Happening now' : 'Not yet'}
+              </span>
+            </span>
+            <span className="portal-sr">{done ? 'Done' : 'Not done yet'}</span>
+          </li>
+        );
+      })}
     </ol>
   );
 }
@@ -628,10 +637,10 @@ function PortalProjectDetail() {
               {p.division}{p.siteType ? ` · ${p.siteType}` : ''}{p.capacity ? ` · ${p.capacity}` : ''}
             </p>
 
-            <Meter percent={p.progressPercent} label={`${p.progressPercent}% complete`} />
+            <Meter percent={p.progressPercent} label={`${p.progressPercent}% complete`} finished={p.finished} />
             <p className="portal-meter-note">
-              <strong>{p.progressPercent}% complete</strong>
-              {p.status === 'Completed'
+              <strong>{p.finished ? 'Work completed' : `${p.progressPercent}% complete`}</strong>
+              {p.finished
                 ? <> — finished{p.completedDate ? ` on ${fmtLong(p.completedDate)}` : ''}.</>
                 : <> — currently at <strong>{p.stage}</strong>.</>}
             </p>
@@ -647,7 +656,7 @@ function PortalProjectDetail() {
               </div>
               <div>
                 <dt>Status</dt>
-                <dd>{p.status === 'Completed' ? 'Completed' : 'In progress'}</dd>
+                <dd>{p.finished ? 'Completed' : 'In progress'}</dd>
               </div>
             </dl>
             {at && <p className="portal-cta-note">{sinceText(at)}</p>}
@@ -655,7 +664,7 @@ function PortalProjectDetail() {
 
           <section className="portal-card" aria-labelledby="portal-trail-h">
             <h2 id="portal-trail-h" className="portal-card-h">Progress</h2>
-            <StageTrail stages={p.stages || []} />
+            <StageTrail stages={p.stages || []} finished={p.finished} />
           </section>
 
           <section className="portal-card" aria-labelledby="portal-upd-h">
