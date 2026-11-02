@@ -633,3 +633,119 @@ test('portal photos: the PM can take a photograph down again', async () => {
     assert.deepEqual(detail.json.project.updates[0].photos, []);
   } finally { h.server.close(); }
 });
+
+/* ================= a client who is here for a project only =================
+ * Owner request (31 Oct 2026). Until now approval demanded an AMC / Warranty
+ * client, so a project client could not be approved at all. These tests are
+ * about that client: what they can reach, what they cannot, and what happens
+ * when the company later gives them a year of free AMC.
+ */
+
+test('project client: can be approved with projects and no contract at all', async () => {
+  const h = await harness();
+  try {
+    const mgr = await h.staffToken('mgr');
+    await h.call('POST', '/api/portal/auth/register', { body: { name: 'Mr Nemade', phone: '9422099999', password: CUSTOMER_PW } });
+    const list = await h.call('GET', '/api/customer-accounts', { token: mgr });
+    const acct = list.json.accounts.find((a) => a.phone === normalizePhone('9422099999'));
+
+    // Connected to nothing is refused — it would sign in to an empty app.
+    const nothing = await h.call('POST', `/api/customer-accounts/${acct.id}/approve`, { token: mgr, body: { contractId: '', projectIds: [] } });
+    assert.equal(nothing.status, 400);
+    assert.equal(nothing.json.code, 'NOTHING_TO_CONNECT');
+
+    const ok = await h.call('POST', `/api/customer-accounts/${acct.id}/approve`, {
+      token: mgr, body: { contractId: '', projectIds: ['prjA1'] },
+    });
+    assert.equal(ok.status, 200, JSON.stringify(ok.json));
+    assert.equal(ok.json.account.contractId, null, 'no AMC / Warranty client');
+    assert.deepEqual(ok.json.account.linkedProjectIds, ['prjA1']);
+
+    const login = await h.call('POST', '/api/portal/auth/login', { body: { phone: '9422099999', password: CUSTOMER_PW } });
+    assert.equal(login.status, 200, 'and they can sign in');
+    return { token: login.json.token };
+  } finally { h.server.close(); }
+});
+
+test('project client: sees their project, is offered no complaint, and is refused one', async () => {
+  const h = await harness();
+  try {
+    const mgr = await h.staffToken('mgr');
+    await h.call('POST', '/api/portal/auth/register', { body: { name: 'Mr Nemade', phone: '9422099999', password: CUSTOMER_PW } });
+    const list = await h.call('GET', '/api/customer-accounts', { token: mgr });
+    const acct = list.json.accounts.find((a) => a.phone === normalizePhone('9422099999'));
+    await h.call('POST', `/api/customer-accounts/${acct.id}/approve`, { token: mgr, body: { projectIds: ['prjA1'] } });
+    const token = (await h.call('POST', '/api/portal/auth/login', { body: { phone: '9422099999', password: CUSTOMER_PW } })).json.token;
+
+    const me = (await h.call('GET', '/api/portal/me', { token })).json;
+    assert.equal(me.client, null, 'no cover, and the app is told so rather than guessing');
+    assert.ok(me.company.name, 'the company is still there, so the page has a header and a number');
+
+    const projects = await h.call('GET', '/api/portal/projects', { token });
+    assert.equal(projects.status, 200);
+    assert.equal(projects.json.projects.length, 1);
+
+    const complaints = await h.call('GET', '/api/portal/complaints', { token });
+    assert.equal(complaints.status, 200);
+    assert.deepEqual(complaints.json.complaints, [], 'no service history, and that is not an error');
+
+    const tried = await h.call('POST', '/api/portal/complaints', { token, body: { complaintDescription: 'AC not cooling' } });
+    assert.equal(tried.status, 403);
+    assert.equal(tried.json.code, 'NO_COVER');
+    assert.match(tried.json.error, /call us/i);
+  } finally { h.server.close(); }
+});
+
+test('project client: a year of free AMC is added without registering again', async () => {
+  const h = await harness();
+  try {
+    const mgr = await h.staffToken('mgr');
+    await h.call('POST', '/api/portal/auth/register', { body: { name: 'Mr Nemade', phone: '9422099999', password: CUSTOMER_PW } });
+    const list = await h.call('GET', '/api/customer-accounts', { token: mgr });
+    const acct = list.json.accounts.find((a) => a.phone === normalizePhone('9422099999'));
+    await h.call('POST', `/api/customer-accounts/${acct.id}/approve`, { token: mgr, body: { projectIds: ['prjA1'] } });
+    const token = (await h.call('POST', '/api/portal/auth/login', { body: { phone: '9422099999', password: CUSTOMER_PW } })).json.token;
+
+    // The installation is handed over and the company gives them cover.
+    const covered = await h.call('PUT', `/api/customer-accounts/${acct.id}/cover`, { token: mgr, body: { contractId: 'ctrA1' } });
+    assert.equal(covered.status, 200, JSON.stringify(covered.json));
+    assert.equal(String(covered.json.account.contractId), 'ctrA1');
+
+    // The same session, no re-registration, no new password.
+    const me = (await h.call('GET', '/api/portal/me', { token })).json;
+    assert.ok(me.client, 'now they have cover');
+    assert.equal(me.client.canRaiseComplaint, true);
+    assert.equal(me.client.customer, 'Gastro Hub');
+
+    const raised = await h.call('POST', '/api/portal/complaints', { token, body: { complaintDescription: 'AC not cooling' } });
+    assert.equal(raised.status, 201, JSON.stringify(raised.json));
+
+    // And it can be taken away again when the free year ends.
+    const removed = await h.call('PUT', `/api/customer-accounts/${acct.id}/cover`, { token: mgr, body: { contractId: '' } });
+    assert.equal(removed.status, 200);
+    assert.equal(removed.json.account.contractId, null);
+    assert.equal((await h.call('GET', '/api/portal/me', { token })).json.client, null);
+  } finally { h.server.close(); }
+});
+
+test('project client: cover cannot be removed from a login that has nothing else', async () => {
+  const h = await harness();
+  try {
+    const mgr = await h.staffToken('mgr');
+    const c = await h.activeClient(); // matched to ctrA1, no projects linked
+    const refused = await h.call('PUT', `/api/customer-accounts/${c.accountId}/cover`, { token: mgr, body: { contractId: '' } });
+    assert.equal(refused.status, 400);
+    assert.equal(refused.json.code, 'NOTHING_TO_CONNECT');
+    assert.match(refused.json.error, /switch the login off/i);
+  } finally { h.server.close(); }
+});
+
+test('project client: another company cannot give one of our clients cover', async () => {
+  const h = await harness();
+  try {
+    const beta = await h.staffToken('mgrb');
+    const c = await h.activeClient();
+    const tried = await h.call('PUT', `/api/customer-accounts/${c.accountId}/cover`, { token: beta, body: { contractId: 'ctrB1' } });
+    assert.equal(tried.status, 404, 'not theirs, so it does not exist');
+  } finally { h.server.close(); }
+});

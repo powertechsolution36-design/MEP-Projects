@@ -301,32 +301,46 @@ async function approveCustomerAccount(companyId, accountId, input, actorAuth, de
   const account = await findReviewableAccount(companyId, accountId, deps);
   if (!account) throw portalError('Customer account not found.', 'NOT_FOUND', 404);
 
-  const wantedContractId = (input && input.contractId) || account.contractId;
-  if (!wantedContractId) {
-    throw portalError('Choose which AMC / Warranty client this account belongs to.', 'CONTRACT_REQUIRED');
-  }
-  const contract = await deps.contractRepo.findById(companyId, wantedContractId);
-  if (!contract) throw portalError('That AMC / Warranty client was not found.', 'NOT_FOUND', 404);
-
   /*
-   * Owner decision (31 Oct 2026): say which projects they may follow in the
-   * same step as approving them. It was two screens, so an approved client
-   * routinely ended up seeing nothing. Ids are checked against THIS company,
-   * and anything else is dropped rather than argued with.
+   * Owner request (31 Oct 2026): a client may be here for a PROJECT, for an
+   * AMC / Warranty contract, or for both. It used to be contract-or-nothing,
+   * so a project client could not be approved at all.
+   *
+   * One of the two is still required: an account connected to neither would
+   * sign in and see an empty app, which is worse than not being approved.
    */
+  const wantedContractId = (input && input.contractId) || account.contractId || '';
+  let contract = null;
+  if (wantedContractId) {
+    contract = await deps.contractRepo.findById(companyId, wantedContractId);
+    if (!contract) throw portalError('That AMC / Warranty client was not found.', 'NOT_FOUND', 404);
+  }
+
+  let projectIds = null;
+  if (Array.isArray(input && input.projectIds)) {
+    const unique = [...new Set(input.projectIds.map(String))];
+    // Checked against THIS company; anything else is dropped, not argued with.
+    const found = await deps.projectRepo.listByIdsForCompany(companyId, unique);
+    projectIds = found.map((p) => String(p.id || p._id));
+  }
+
+  const willHaveProjects = projectIds ? projectIds.length : (account.linkedProjectIds || []).length;
+  if (!contract && !willHaveProjects) {
+    throw portalError(
+      'Connect this login to an AMC / Warranty client, to a project, or to both.',
+      'NOTHING_TO_CONNECT'
+    );
+  }
+
   const patch = {
     companyId,
-    contractId: contract.id,
+    contractId: contract ? contract.id : null,
     status: ACTIVE,
     approvedByUserId: actorAuth.userId,
     approvedAt: new Date(),
     decisionNote: String((input && input.note) || '').slice(0, 300),
   };
-  if (Array.isArray(input && input.projectIds)) {
-    const unique = [...new Set(input.projectIds.map(String))];
-    const found = await deps.projectRepo.listByIdsForCompany(companyId, unique);
-    patch.linkedProjectIds = found.map((p) => String(p.id || p._id));
-  }
+  if (projectIds) patch.linkedProjectIds = projectIds;
 
   const updated = await deps.customerAccountRepo.updateFields(accountId, patch);
   return publicAccount(updated, contract);
@@ -377,7 +391,9 @@ async function loginCustomer(input, deps, { ip = 'unknown' } = {}) {
   if (account.status !== ACTIVE) {
     throw portalError('This account is not active. Please contact us.', 'ACCOUNT_INACTIVE', 403);
   }
-  if (!account.companyId || !account.contractId) {
+  // Connected to a contract, to projects, or to both — but to something.
+  // (Owner request, 31 Oct 2026: a project client has no contract at all.)
+  if (!account.companyId || !(account.contractId || (account.linkedProjectIds || []).length)) {
     throw portalError('This account is not linked to a service record yet.', 'ACCOUNT_UNLINKED', 403);
   }
 
@@ -419,12 +435,20 @@ async function verifyCustomerSession(token, deps) {
   if (String(account.companyId || '') !== String(session.companyId || '')) {
     throw portalError('Invalid or expired session.', 'SESSION_INVALID', 401);
   }
-  if (!account.contractId) throw portalError('Invalid or expired session.', 'SESSION_INVALID', 401);
+  /*
+   * Owner request (31 Oct 2026): an account may be connected to a contract,
+   * to projects, or to both — but to SOMETHING. One connected to neither is
+   * treated as not yet approved rather than signed in to an empty app.
+   */
+  const linkedProjectIds = (account.linkedProjectIds || []).map(String);
+  if (!account.contractId && !linkedProjectIds.length) {
+    throw portalError('Invalid or expired session.', 'SESSION_INVALID', 401);
+  }
 
   return {
     accountId: String(account.id),
     companyId: String(account.companyId),
-    contractId: String(account.contractId),
+    contractId: account.contractId ? String(account.contractId) : null,
     sessionId: String(session.id),
     name: account.name,
     phone: account.phone,
@@ -432,7 +456,7 @@ async function verifyCustomerSession(token, deps) {
     // read from the account on every request along with its status — so
     // unlinking a project takes effect on the client's next page load, the
     // same way disabling an account does.
-    linkedProjectIds: (account.linkedProjectIds || []).map(String),
+    linkedProjectIds,
   };
 }
 
@@ -482,9 +506,49 @@ function matchScore(clientTokens, projectTokens) {
   return Math.round((hits / clientTokens.size) * 100);
 }
 
-async function listProjectCandidates(companyId, accountId, actorAuth, deps) {
+/**
+ * Add, change or remove the AMC / Warranty cover on a login that already
+ * exists (owner request, 31 Oct 2026).
+ *
+ * The case that asked for it: a project client is given a year of free AMC
+ * once the installation is handed over. That is one field changing on an
+ * account that is already active — not a new registration, and not a reason
+ * to make the client register again.
+ *
+ * Passing an empty contractId removes the cover, which is how a lapsed free
+ * year is ended. An account must still be connected to something, so it is
+ * refused if nothing would be left.
+ */
+async function setCustomerCover(companyId, accountId, contractId, actorAuth, deps) {
   assertCanReview(actorAuth);
   const account = await deps.customerAccountRepo.findByIdForCompany(companyId, accountId);
+  if (!account) throw portalError('Customer account not found.', 'NOT_FOUND', 404);
+
+  const wanted = String(contractId || '');
+  let contract = null;
+  if (wanted) {
+    contract = await deps.contractRepo.findById(companyId, wanted);
+    if (!contract) throw portalError('That AMC / Warranty client was not found.', 'NOT_FOUND', 404);
+  } else if (!(account.linkedProjectIds || []).length) {
+    throw portalError(
+      'This login would be connected to nothing. Link a project first, or switch the login off.',
+      'NOTHING_TO_CONNECT'
+    );
+  }
+
+  const updated = await deps.customerAccountRepo.updateFields(accountId, {
+    contractId: contract ? contract.id : null,
+  });
+  return publicAccount(updated, contract);
+}
+
+async function listProjectCandidates(companyId, accountId, actorAuth, deps) {
+  assertCanReview(actorAuth);
+  // findReviewableAccount, not findByIdForCompany: a registration whose
+  // number matched nothing has no company yet, and the projects to tick are
+  // exactly what the reviewer needs while approving it. The same oversight
+  // made Approve and Reject unusable on those accounts until 31 Oct 2026.
+  const account = await findReviewableAccount(companyId, accountId, deps);
   if (!account) throw portalError('Customer account not found.', 'NOT_FOUND', 404);
 
   const contract = account.contractId
@@ -667,6 +731,7 @@ module.exports = {
   registerCustomer,
   listCustomerAccounts,
   approveCustomerAccount,
+  setCustomerCover,
   setCustomerAccountStatus,
   loginCustomer,
   verifyCustomerSession,

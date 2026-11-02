@@ -1337,6 +1337,13 @@ const portalPushRepo = {
     const docs = await PortalPushSubscription.find({ companyId, contractId }).lean();
     return docs.map(toPlainLean);
   },
+  /** Addressed by account, for news that is not about a contract at all. */
+  async listForAccounts(companyId, accountIds) {
+    const ids = (accountIds || []).filter((id) => mongoose.isValidObjectId(id));
+    if (!ids.length) return [];
+    const docs = await PortalPushSubscription.find({ companyId, customerAccountId: { $in: ids } }).lean();
+    return docs.map(toPlainLean);
+  },
   async removeByEndpoint(endpoint) {
     const res = await PortalPushSubscription.deleteOne({ endpoint: String(endpoint) });
     return res.deletedCount > 0;

@@ -131,17 +131,25 @@ function dialableNumber(value) {
 }
 
 async function getPortalProfile(auth, deps) {
-  const contract = await deps.contractRepo.findById(auth.companyId, auth.contractId);
-  if (!contract) throw portalError('Your service record was not found.', 'NOT_FOUND', 404);
+  /*
+   * Owner request (31 Oct 2026): a client may be here for a project, for an
+   * AMC / Warranty contract, or for both. `client` is null when there is no
+   * contract — a project client with no cover — and the app shows them their
+   * projects without offering a complaint they could not raise.
+   */
+  const contract = auth.contractId
+    ? await deps.contractRepo.findById(auth.companyId, auth.contractId)
+    : null;
+  if (auth.contractId && !contract) throw portalError('Your service record was not found.', 'NOT_FOUND', 404);
   const company = (await deps.companyRepo.findById(auth.companyId)) || {};
-  // Owner request (31 Oct 2026): a client whose AMC has run out cannot raise
-  // a complaint. The status is computed from the contract's own end date, the
-  // same way every staff screen computes it, so the two can never disagree.
-  const coverStatus = contract.endDate ? computeContractStatus(contract) : 'Unknown';
+  // A client whose AMC has run out cannot raise a complaint either. The
+  // status is computed from the contract's own end date, the same way every
+  // staff screen computes it, so the two can never disagree.
+  const coverStatus = contract ? (contract.endDate ? computeContractStatus(contract) : 'Unknown') : 'None';
 
   return {
     account: { name: auth.name, phone: auth.phone },
-    client: {
+    client: contract ? {
       coverStatus,
       canRaiseComplaint: !coverHasEnded(contract),
       customer: contract.customer || '',
@@ -151,7 +159,7 @@ async function getPortalProfile(auth, deps) {
       amcType: contract.amcType || '',
       startDate: contract.startDate || null,
       endDate: contract.endDate || null,
-    },
+    } : null,
     company: {
       name: company.displayName || company.name || '',
       phone: company.phone || '',
@@ -165,6 +173,9 @@ async function getPortalProfile(auth, deps) {
 }
 
 async function listMyComplaints(auth, deps) {
+  // No contract, no service history: a project client has none, and an empty
+  // list is the honest answer rather than an error.
+  if (!auth.contractId) return [];
   const calls = await deps.serviceCallRepo.listByContract(auth.companyId, auth.contractId);
   const out = [];
   for (const c of calls) {
@@ -177,10 +188,12 @@ async function listMyComplaints(auth, deps) {
 
 /** The one place a client's id is turned into a record. */
 async function getMyComplaint(auth, serviceCallId, deps) {
-  const call = await deps.serviceCallRepo.findById(auth.companyId, serviceCallId);
+  // A client with no contract has no complaints at all, so every id is
+  // "not found" — the same answer a stranger's id gets.
+  const call = auth.contractId ? await deps.serviceCallRepo.findById(auth.companyId, serviceCallId) : null;
   // Not theirs, or not ours: the same answer either way, so an id reveals
   // nothing about whether it exists.
-  if (!call || String(call.contractId || '') !== String(auth.contractId)) {
+  if (!call || !auth.contractId || String(call.contractId || '') !== String(auth.contractId)) {
     throw portalError('Complaint not found.', 'NOT_FOUND', 404);
   }
   const name = await engineerNameFor(call, deps);
@@ -202,8 +215,14 @@ async function createMyComplaint(auth, input, deps) {
   // Owner request (31 Oct 2026): cover that has run out cannot be used.
   // Checked here, on the server, not only hidden on the screen — a button
   // that is not drawn is not a rule.
-  const contract = await deps.contractRepo.findById(auth.companyId, auth.contractId);
-  if (!contract) throw portalError('Your service record was not found.', 'NOT_FOUND', 404);
+  const contract = auth.contractId ? await deps.contractRepo.findById(auth.companyId, auth.contractId) : null;
+  if (!contract) {
+    throw portalError(
+      'This login is for following your project. To raise a service complaint, please call us.',
+      'NO_COVER',
+      403
+    );
+  }
   if (coverHasEnded(contract)) {
     throw portalError(
       'Your contract has ended, so a complaint cannot be raised here. Please call us to renew it.',
@@ -304,6 +323,8 @@ function decodeImage(img, index) {
  * an attachment id proves nothing.
  */
 async function getMyAttachment(auth, attachmentId, deps) {
+  // A client with no contract has no complaints, so no photographs either.
+  if (!auth.contractId) throw portalError('Attachment not found.', 'NOT_FOUND', 404);
   const file = await deps.attachmentRepo.findById(auth.companyId, attachmentId);
   if (!file) throw portalError('Attachment not found.', 'NOT_FOUND', 404);
   const call = await deps.serviceCallRepo.findById(auth.companyId, file.serviceCallId);

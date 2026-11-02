@@ -5,7 +5,7 @@ const { sendError } = require('../errors');
 const { createAuthMiddleware } = require('../middleware/authMiddleware');
 const { requireCompanyContext } = require('../middleware/tenantGuard');
 const {
-  listCustomerAccounts, approveCustomerAccount, setCustomerAccountStatus,
+  listCustomerAccounts, approveCustomerAccount, setCustomerCover, setCustomerAccountStatus,
   listProjectCandidates, setLinkedProjects,
   createPortalInvite, listPortalInvites, revokePortalInvite,
 } = require('../services/portalAuthService');
@@ -40,6 +40,23 @@ function createCustomerAccountRouter(deps) {
   router.post('/:accountId/approve', async (req, res) => {
     try {
       const account = await approveCustomerAccount(req.auth.companyId, req.params.accountId, req.body, req.auth, deps);
+      return res.json({ account });
+    } catch (err) {
+      return sendError(res, err, 'customerAccountRoutes');
+    }
+  });
+
+  /**
+   * Add, change or remove the AMC / Warranty cover on a login that already
+   * exists (owner request, 31 Oct 2026) — a project client given a year of
+   * free AMC, without making them register again. An empty contractId
+   * removes the cover.
+   */
+  router.put('/:accountId/cover', async (req, res) => {
+    try {
+      const account = await setCustomerCover(
+        req.auth.companyId, req.params.accountId, (req.body && req.body.contractId) || '', req.auth, deps
+      );
       return res.json({ account });
     } catch (err) {
       return sendError(res, err, 'customerAccountRoutes');

@@ -1172,6 +1172,12 @@ function createEnquiryFakeStore(seed = {}) {
         .filter((s) => sameCompany(s, companyId) && String(s.contractId) === String(contractId))
         .map((s) => cloneDeep(s));
     },
+    async listForAccounts(companyId, accountIds) {
+      const want = (accountIds || []).map(String);
+      return state.portalPushSubscriptions
+        .filter((s) => sameCompany(s, companyId) && want.includes(String(s.customerAccountId)))
+        .map((s) => cloneDeep(s));
+    },
     async removeByEndpoint(endpoint) {
       const i = state.portalPushSubscriptions.findIndex((s) => String(s.endpoint) === String(endpoint));
       if (i < 0) return false;

@@ -124,7 +124,7 @@ async function subscribe(auth, body, deps, { env = process.env } = {}) {
     p256dh: sub.p256dh,
     auth: sub.auth,
     companyId: auth.companyId,
-    contractId: auth.contractId,
+    contractId: auth.contractId || null,
     customerAccountId: auth.accountId,
     userAgent: typeof (body && body.userAgent) === 'string' ? body.userAgent.slice(0, 200) : '',
   });
@@ -175,15 +175,39 @@ function buildPayload({ title, body, url, tag }) {
  *
  * @returns {Promise<{sent:number, removed:number, reason?:string}>}
  */
-async function sendToContract(companyId, contractId, message, deps, { env = process.env, logger = console, sender } = {}) {
+async function sendToContract(companyId, contractId, message, deps, options = {}) {
+  if (!contractId) return { sent: 0, removed: 0, reason: 'NOT_AVAILABLE' };
+  return sendToDevices(
+    (repo) => repo.listForContract(companyId, contractId),
+    companyId, message, deps, options
+  );
+}
+
+/**
+ * Addressed by account rather than by contract — for a client who follows a
+ * project and holds no AMC or warranty contract at all (owner request,
+ * 31 Oct 2026). The addressing rule is unchanged: the list is assembled here
+ * from ids this file resolved, never from anything a request supplied.
+ */
+async function sendToAccounts(companyId, accountIds, message, deps, options = {}) {
+  const ids = (accountIds || []).map(String).filter(Boolean);
+  if (!ids.length) return { sent: 0, removed: 0 };
+  if (!deps.portalPushRepo || typeof deps.portalPushRepo.listForAccounts !== 'function') {
+    return { sent: 0, removed: 0, reason: 'NOT_AVAILABLE' };
+  }
+  return sendToDevices((repo) => repo.listForAccounts(companyId, ids), companyId, message, deps, options);
+}
+
+/** The one place a message actually goes out. */
+async function sendToDevices(read, companyId, message, deps, { env = process.env, logger = console, sender } = {}) {
   const cfg = config(env);
-  if (!cfg || !deps.portalPushRepo || !companyId || !contractId) {
+  if (!cfg || !deps.portalPushRepo || !companyId) {
     return { sent: 0, removed: 0, reason: cfg ? 'NOT_AVAILABLE' : 'NOT_CONFIGURED' };
   }
 
   let devices = [];
   try {
-    devices = await deps.portalPushRepo.listForContract(companyId, contractId);
+    devices = await read(deps.portalPushRepo);
   } catch (err) {
     logger.warn('[portalPush] could not read the subscriptions:', err && err.message);
     return { sent: 0, removed: 0, reason: 'READ_FAILED' };
@@ -269,32 +293,21 @@ function messageFor(event, ctx = {}) {
 }
 
 /**
- * A project update reaches whoever is watching that project, which is a
- * different list from a complaint's: project access is a link on the
- * client's account, not a contract. The contracts behind those accounts are
- * resolved here, so sending still goes through the one addressed path above.
+ * A project update reaches whoever is watching that project — which is a
+ * different list from a complaint's, because project access is a link on the
+ * client's account rather than on a contract. Addressed by account for that
+ * reason: a client may follow a project and hold no contract at all.
  */
 async function sendToProjectWatchers(companyId, projectId, message, deps, options = {}) {
   if (!deps.customerAccountRepo || typeof deps.customerAccountRepo.listByCompany !== 'function') {
     return { sent: 0, removed: 0, reason: 'NOT_AVAILABLE' };
   }
   const accounts = await deps.customerAccountRepo.listByCompany(companyId);
-  const contractIds = [...new Set(
-    (accounts || [])
-      .filter((a) => a.status === 'Active' && (a.linkedProjectIds || []).map(String).includes(String(projectId)))
-      .map((a) => String(a.contractId || ''))
-      .filter(Boolean)
-  )];
+  const accountIds = (accounts || [])
+    .filter((a) => a.status === 'Active' && (a.linkedProjectIds || []).map(String).includes(String(projectId)))
+    .map((a) => String(a.id || a._id));
 
-  let sent = 0;
-  let removed = 0;
-  for (const contractId of contractIds) {
-    // eslint-disable-next-line no-await-in-loop
-    const r = await sendToContract(companyId, contractId, message, deps, options);
-    sent += r.sent;
-    removed += r.removed;
-  }
-  return { sent, removed };
+  return sendToAccounts(companyId, accountIds, message, deps, options);
 }
 
 /**
@@ -328,6 +341,7 @@ module.exports = {
   buildPayload,
   messageFor,
   sendToContract,
+  sendToAccounts,
   sendToProjectWatchers,
   notifyClient,
 };

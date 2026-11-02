@@ -24,6 +24,20 @@ import { fmtDate } from '../../utils/format';
  *      PUT  /api/customer-accounts/:id/projects
  */
 
+/**
+ * What a customer login can be connected to (owner request, 31 Oct 2026).
+ *
+ * Until now approval demanded an AMC / Warranty client, so a client who had
+ * only a project could not be approved at all — the Approve button simply
+ * stayed grey. The reviewer says which of the three this is, and only then
+ * is asked to pick anybody.
+ */
+const KINDS = [
+  { id: 'amc', label: 'AMC / Warranty', hint: 'they can raise complaints and read their service reports' },
+  { id: 'project', label: 'Project', hint: 'they can follow their project — no service cover' },
+  { id: 'both', label: 'Both', hint: 'a project client who also holds cover' },
+];
+
 const MATCH_TEXT = {
   matched: 'Matched by mobile number',
   ambiguous: 'That number is on more than one client — choose which',
@@ -39,11 +53,11 @@ const MATCH_TEXT = {
  * Projects to link at the moment of approval (owner decision, 31 Oct 2026).
  * Folded closed, because most registrations are AMC clients with no project.
  */
-function ApproveProjects({ accountId, chosen, onChange }) {
+function ApproveProjects({ accountId, chosen, onChange, alwaysOpen = false }) {
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState(null);
 
-  async function load() {
+  const load = useCallback(async () => {
     setOpen(true);
     try {
       const r = await api.get(`/api/customer-accounts/${accountId}/project-candidates`);
@@ -51,7 +65,11 @@ function ApproveProjects({ accountId, chosen, onChange }) {
     } catch {
       setRows([]);
     }
-  }
+  }, [accountId]);
+
+  // When the reviewer has said this login is for a project, the list is the
+  // next thing they need — not something behind another button.
+  useEffect(() => { if (alwaysOpen && !open) load(); }, [alwaysOpen, open, load]);
 
   function toggle(id) {
     onChange(chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id]);
@@ -182,6 +200,62 @@ function ProjectLinks({ account, onSaved }) {
   );
 }
 
+/**
+ * The AMC / Warranty cover on a login that already exists (owner request,
+ * 31 Oct 2026).
+ *
+ * The case that asked for it: a project client is given a year of free AMC
+ * when the installation is handed over. That is one field changing on an
+ * account that is already active — the client does not register again, and
+ * nobody has to approve anything twice.
+ */
+function CoverLink({ account, clients, onSaved }) {
+  const [open, setOpen] = useState(false);
+  const [pick, setPick] = useState(account.contractId || '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  async function save() {
+    setBusy(true); setErr('');
+    try {
+      await api.put(`/api/customer-accounts/${account.id}/cover`, { contractId: pick });
+      setOpen(false);
+      await onSaved();
+    } catch (e) {
+      setErr(e.message || 'That did not work.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 8, fontSize: 13 }}>
+      {!open ? (
+        <button type="button" className="btn sec sm" onClick={() => { setPick(account.contractId || ''); setOpen(true); }}>
+          {account.contract ? 'Change AMC / Warranty cover' : 'Add AMC / Warranty cover'}
+        </button>
+      ) : (
+        <>
+          <label className="filter-field" style={{ maxWidth: 420 }}>
+            AMC / Warranty client
+            <select value={pick} onChange={(e) => setPick(e.target.value)}>
+              <option value="">— No cover (project only) —</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>{c.customer} — {c.site}</option>
+              ))}
+            </select>
+          </label>
+          {err && <p className="error" style={{ fontSize: 13 }}>{err}</p>}
+          <div className="detail-actions">
+            <button className="btn pri sm" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
+            <button className="btn sec sm" disabled={busy} onClick={() => setOpen(false)}>Cancel</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function CustomerAccounts() {
   const [accounts, setAccounts] = useState(null);
   const [clients, setClients] = useState([]);
@@ -189,6 +263,7 @@ export default function CustomerAccounts() {
   const [busyId, setBusyId] = useState('');
   const [chosen, setChosen] = useState({});
   const [approveProjects, setApproveProjects] = useState({});
+  const [kinds, setKinds] = useState({});
 
   const load = useCallback(async () => {
     try {
@@ -222,6 +297,13 @@ export default function CustomerAccounts() {
 
   function card(a, showActions) {
     const pick = chosen[a.id] || a.contractId || '';
+    // What the reviewer says this client is here for. Defaults to the AMC
+    // client, which is what most registrations are.
+    const kind = kinds[a.id] || 'amc';
+    const wantsContract = kind === 'amc' || kind === 'both';
+    const wantsProjects = kind === 'project' || kind === 'both';
+    const pickedProjects = (approveProjects[a.id] || []).length;
+    const canApprove = (!wantsContract || Boolean(pick)) && (!wantsProjects || pickedProjects > 0);
     return (
       <div key={a.id} className="panel" style={{ marginTop: 10 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
@@ -243,23 +325,54 @@ export default function CustomerAccounts() {
 
         {showActions && (
           <>
-            <label className="filter-field" style={{ maxWidth: 420 }}>
-              AMC / Warranty client
-              <select value={pick} onChange={(e) => setChosen((p) => ({ ...p, [a.id]: e.target.value }))}>
-                <option value="">— Choose the client —</option>
-                {clients.map((c) => (
-                  <option key={c.id} value={c.id}>{c.customer} — {c.site}</option>
-                ))}
-              </select>
-            </label>
-            {/* Owner decision (31 Oct 2026): choose the projects while
-                approving, not on a second visit — an approved client who was
-                never linked to a project sees nothing at all. */}
-            <ApproveProjects accountId={a.id} chosen={approveProjects[a.id] || []} onChange={(ids) =>
-              setApproveProjects((prev) => ({ ...prev, [a.id]: ids }))} />
+            {/* Owner request (31 Oct 2026): say what this client is here for
+                BEFORE picking anybody. It used to demand an AMC client, so a
+                project client could not be approved at all. */}
+            <fieldset className="ca-kind">
+              <legend>Connect this login to</legend>
+              {KINDS.map((k) => (
+                <label key={k.id} className="ca-kind-opt">
+                  <input
+                    type="radio"
+                    name={`kind-${a.id}`}
+                    checked={kind === k.id}
+                    onChange={() => setKinds((p) => ({ ...p, [a.id]: k.id }))}
+                  />
+                  <span>
+                    <strong>{k.label}</strong>
+                    <span className="muted"> — {k.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+
+            {wantsContract && (
+              <label className="filter-field" style={{ maxWidth: 420 }}>
+                AMC / Warranty client
+                <select value={pick} onChange={(e) => setChosen((p) => ({ ...p, [a.id]: e.target.value }))}>
+                  <option value="">— Choose the client —</option>
+                  {clients.map((c) => (
+                    <option key={c.id} value={c.id}>{c.customer} — {c.site}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            {wantsProjects && (
+              <ApproveProjects
+                accountId={a.id}
+                chosen={approveProjects[a.id] || []}
+                alwaysOpen={kind === 'project'}
+                onChange={(ids) => setApproveProjects((prev) => ({ ...prev, [a.id]: ids }))}
+              />
+            )}
+
             <div className="detail-actions">
-              <button className="btn pri sm" disabled={busyId === a.id || !pick}
-                onClick={() => act(a.id, 'approve', { contractId: pick, projectIds: approveProjects[a.id] || [] })}>
+              <button className="btn pri sm" disabled={busyId === a.id || !canApprove}
+                onClick={() => act(a.id, 'approve', {
+                  contractId: wantsContract ? pick : '',
+                  projectIds: wantsProjects ? (approveProjects[a.id] || []) : [],
+                })}>
                 {busyId === a.id ? 'Saving…' : 'Approve'}
               </button>
               <button className="btn danger sm" disabled={busyId === a.id}
@@ -267,11 +380,29 @@ export default function CustomerAccounts() {
                 Reject
               </button>
             </div>
+            {!canApprove && (
+              <p className="muted" style={{ fontSize: 13, margin: '6px 0 0' }}>
+                {wantsContract && !pick && wantsProjects
+                  ? 'Choose the AMC / Warranty client and at least one project.'
+                  : wantsContract && !pick
+                    ? 'Choose which AMC / Warranty client this is.'
+                    : 'Tick at least one project.'}
+              </p>
+            )}
           </>
         )}
 
         {!showActions && a.status === 'Active' && (
           <>
+            <p style={{ fontSize: 13, margin: '4px 0 0' }}>
+              {a.contract
+                ? <>Service cover: <strong>{a.contract.customer}</strong> ({a.contract.site})</>
+                : <span className="muted">No service cover — this login follows projects only.</span>}
+              {a.linkedProjectIds?.length
+                ? <> · {a.linkedProjectIds.length} project{a.linkedProjectIds.length === 1 ? '' : 's'} linked</>
+                : null}
+            </p>
+            <CoverLink account={a} clients={clients} onSaved={load} />
             <ProjectLinks account={a} onSaved={load} />
             <div className="detail-actions">
               <button className="btn sec sm" disabled={busyId === a.id}
@@ -290,7 +421,7 @@ export default function CustomerAccounts() {
       <h2>Customer logins</h2>
       <p className="muted">
         Clients who have registered for the service portal. Nobody can sign in until you approve
-        them and say which AMC / Warranty client they are.
+        them and say what they are connected to — an AMC / Warranty client, a project, or both.
       </p>
       {error && <p className="error">{error}</p>}
       {accounts === null && !error && <p className="muted">Loading…</p>}

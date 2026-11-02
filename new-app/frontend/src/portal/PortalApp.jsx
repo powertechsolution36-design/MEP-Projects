@@ -137,8 +137,10 @@ function PortalShell({ children, profile, onLogout, narrow }) {
       <header className="portal-head">
         <div className="portal-head-id">
           <span className="portal-brand">{profile?.company?.name || 'Service portal'}</span>
-          {profile?.client?.customer
-            ? <span className="portal-sub">{profile.client.customer}</span>
+          {/* The client's own name on the contract, or — for a project client
+              with no contract — the name they registered with. */}
+          {profile?.client?.customer || profile?.account?.name
+            ? <span className="portal-sub">{profile.client?.customer || profile.account.name}</span>
             : <span className="portal-sub">AMC &amp; Warranty clients</span>}
         </div>
         {onLogout && (
@@ -748,7 +750,7 @@ function CoverEnded({ endDate, number }) {
   );
 }
 
-function PortalAppCard() {
+function PortalAppCard({ hasCover = true }) {
   const [installEvent, setInstallEvent] = useState(null);
   const [installed, setInstalled] = useState(() => isInstalled());
   const [pushState, setPushState] = useState('loading'); // loading|off|on|denied|unavailable
@@ -854,11 +856,17 @@ function PortalAppCard() {
         <div className="portal-app-row">
           <span className="portal-app-row-icon" aria-hidden="true"><IconBell /></span>
           <span className="portal-app-row-body">
-            <span className="portal-app-row-title">Tell me when my complaint moves</span>
+            {/* A client with no cover never gets a complaint notification, so
+                they are not promised one. */}
+            <span className="portal-app-row-title">
+              {hasCover ? 'Tell me when my complaint moves' : 'Tell me when my project moves'}
+            </span>
             <span className="portal-app-row-sub">
               {pushState === 'denied'
                 ? 'Notifications are blocked for this site in your phone’s settings. Allow them there and come back.'
-                : 'An engineer assigned, a visit arranged, the service report ready.'}
+                : hasCover
+                  ? 'An engineer assigned, a visit arranged, the service report ready.'
+                  : 'An update or a photograph published on your project.'}
             </span>
           </span>
           {pushState !== 'denied' && (
@@ -907,6 +915,27 @@ function PortalDashboard() {
         {/* One column on a phone, the left-hand column on a wide screen:
             the cover card and the app card belong together. */}
         <div className="portal-side">
+        {/* Owner request (31 Oct 2026): a client may be here only to follow
+            their project, with no AMC or warranty at all. They are told what
+            their login is for rather than shown an empty service card and a
+            button that would be refused. */}
+        {!profile?.client ? (
+          <section className="portal-card portal-cover" aria-labelledby="portal-cover-h">
+            <span className="portal-cover-mark" aria-hidden="true"><IconSite /></span>
+            <h2 id="portal-cover-h">Your project</h2>
+            <p className="portal-lede">
+              This login follows your project. You will see how far along it is and the
+              updates and photographs we publish.
+            </p>
+            <p className="portal-cta-note">
+              For a service complaint, or to ask about an AMC, please call us
+              {profile?.company?.serviceNumber || profile?.company?.whatsappNumber
+                ? <> on <a href={telHref(profile.company.serviceNumber || profile.company.whatsappNumber)}>
+                  {fmtPhone(profile.company.serviceNumber || profile.company.whatsappNumber)}</a></>
+                : null}.
+            </p>
+          </section>
+        ) : (
         <section className="portal-card portal-cover" aria-labelledby="portal-cover-h">
           <span className="portal-cover-mark" aria-hidden="true"><IconShield /></span>
           <h2 id="portal-cover-h">Your service</h2>
@@ -944,14 +973,16 @@ function PortalDashboard() {
             )}
         </section>
 
-        {client.canRaiseComplaint === false && (
+        )}
+
+        {profile?.client && client.canRaiseComplaint === false && (
           <CoverEnded
             endDate={client.endDate}
             number={profile?.company?.serviceNumber || profile?.company?.whatsappNumber}
           />
         )}
 
-        <PortalAppCard />
+        <PortalAppCard hasCover={Boolean(profile?.client)} />
         </div>
 
         <div className="portal-stack">
@@ -967,7 +998,9 @@ function PortalDashboard() {
             </section>
           )}
 
-          {complaints && (
+          {/* A client with no cover has no service history and never will
+              while that is true: the two lists are not shown empty at them. */}
+          {complaints && profile?.client && (
             <>
               <section className="portal-card" aria-labelledby="portal-open-h">
                 <h2 id="portal-open-h" className="portal-card-h">

@@ -19,7 +19,10 @@ const { Schema, model } = require('mongoose');
 const portalPushSubscriptionSchema = new Schema(
   {
     companyId: { type: Schema.Types.ObjectId, ref: 'Company', required: true },
-    contractId: { type: Schema.Types.ObjectId, ref: 'Contract', required: true },
+    // Null for a client who is here to follow a project and holds no AMC or
+    // warranty contract (owner request, 31 Oct 2026). The account is what
+    // identifies the device; the contract only says how a complaint reaches it.
+    contractId: { type: Schema.Types.ObjectId, ref: 'Contract', default: null },
     customerAccountId: { type: Schema.Types.ObjectId, ref: 'CustomerAccount', required: true },
     endpoint: { type: String, required: true },
     p256dh: { type: String, required: true },
