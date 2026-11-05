@@ -1,6 +1,7 @@
 'use strict';
 
 const { ServiceError } = require('../errors');
+const { buildContacts, primaryPhone } = require('./shared/contacts');
 const projectService = require('./projectService');
 
 /**
@@ -250,11 +251,15 @@ async function createManualContract(input, actorAuth, deps) {
   const amcType = (input && input.amcType) || 'Quarterly'; // PWA FACT: select defaults to Quarterly.
   const category = (input && input.category) || 'AMC'; // PWA FACT: select defaults to AMC.
   const amount = Number(input && input.amount) || 0; // PWA FACT.
+  // Owner request (5 Nov 2026): the people at the site, each with a name and
+  // a designation. `phone` below is still the client's main number.
+  const contacts = buildContacts(input && input.contacts) || [];
 
   const contract = await deps.contractRepo.create({
     companyId: actorAuth.companyId,
     customer: (input && input.customer) || '',
-    phone: (input && input.phone) || '',
+    phone: primaryPhone((input && input.phone) || '', contacts),
+    contacts,
     email: (input && input.email) || '',
     site,
     capacity: (input && input.capacity) || '',
@@ -367,6 +372,9 @@ function contractMatchesQuery(contract, q) {
     contract.startDate ? dayKeyUTC(contract.startDate) : '',
     contract.endDate ? dayKeyUTC(contract.endDate) : '',
     contract.amount !== undefined && contract.amount !== null ? String(contract.amount) : '',
+    // The people at the site are searchable too — the team looks a client up
+    // by whoever they deal with there as often as by the site's name.
+    ...(contract.contacts || []).flatMap((c) => [c.name, c.designation, c.phone]),
   ]
     .filter((v) => v !== undefined && v !== null)
     .join(' ')
@@ -842,6 +850,18 @@ async function editContract(contractId, input, actorAuth, deps) {
       if (Number.isNaN(d.getTime())) throw new ServiceError('End date is not a date.', 'VALIDATION_ERROR', 400);
       patch.endDate = d;
     }
+  }
+
+  // Contacts are validated rather than copied: a row without a name is
+  // refused, a wholly blank one dropped, and leaving them out of the request
+  // leaves the list as it was.
+  const contacts = buildContacts(src.contacts);
+  if (contacts !== undefined) patch.contacts = contacts;
+  if (patch.phone !== undefined || contacts !== undefined) {
+    patch.phone = primaryPhone(
+      patch.phone !== undefined ? patch.phone : contract.phone,
+      contacts === undefined ? contract.contacts : contacts
+    );
   }
 
   if (Object.keys(patch).length === 0) {

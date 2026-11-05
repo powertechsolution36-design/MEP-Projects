@@ -1,6 +1,7 @@
 'use strict';
 
 const { Schema, model } = require('mongoose');
+const { contactPersonSchema, maxContacts, MAX_CONTACTS } = require('./shared/contactSchema');
 
 /**
  * contracts — a recurring maintenance agreement (AMC or warranty) with a
@@ -56,7 +57,14 @@ const contractSchema = new Schema(
   {
     companyId: { type: Schema.Types.ObjectId, ref: 'Company', required: true }, // PWA FACT
     customer: { type: String }, // PWA FACT
-    phone: { type: String }, // PWA FACT
+    phone: { type: String }, // PWA FACT — the client's main number
+    // Owner request (5 Nov 2026): the other people at the site, each with a
+    // name and what they do there. The main number above is unchanged.
+    contacts: {
+      type: [contactPersonSchema],
+      default: [],
+      validate: { validator: maxContacts, message: `A client has at most ${MAX_CONTACTS} contacts.` },
+    },
     email: { type: String }, // PWA FACT
     site: { type: String, required: true }, // PWA FACT
     capacity: { type: String }, // PWA FACT

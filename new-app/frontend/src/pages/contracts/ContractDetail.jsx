@@ -5,6 +5,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { money, fmtDate, today } from '../../utils/format';
 import { whatsappUrl, displayNumber, canSendToClients } from '../../utils/whatsapp';
 import PortalInvitePanel from '../../components/PortalInvitePanel';
+import ContactsField, { ContactsList } from '../../components/ContactsField';
 
 /**
  * AMC Client — one page per AMC / Warranty client (owner request, 22 Oct 2026).
@@ -248,6 +249,8 @@ export default function ContractDetail() {
       endDate: c.endDate ? fmtDate(c.endDate) : '',
       amcType: c.amcType || 'Quarterly', category: c.category || 'AMC',
       amount: c.amount === undefined || c.amount === null ? '' : String(c.amount),
+      // Owner request (5 Nov 2026): the other people at the site.
+      contacts: (c.contacts || []).map((x) => ({ ...x })),
     });
     setShowPay(false); setShowRenew(false); setShowEdit(true);
   }
@@ -420,6 +423,12 @@ export default function ContractDetail() {
               <span className="muted" style={{ fontSize: 12 }}>Leave blank if there is no end date.</span>
             </label>
           </div>
+
+          <ContactsField
+            value={editForm.contacts}
+            onChange={(contacts) => setEditForm((f) => ({ ...f, contacts }))}
+          />
+
           <div className="detail-actions">
             <button type="submit" className="btn pri" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
             <button type="button" className="btn sec" onClick={() => setShowEdit(false)}>Cancel</button>
@@ -487,6 +496,12 @@ export default function ContractDetail() {
           <div><strong>Period</strong><br />{fmtDate(c.startDate)} – {fmtDate(c.endDate)}</div>
           <div><strong>Amount</strong><br />{money(c.amount)}</div>
         </div>
+        {(c.contacts || []).length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <strong>Contacts at this client</strong>
+            <ContactsList contacts={c.contacts} />
+          </div>
+        )}
         {c.originatingProjectId && (
           <button className="btn sec sm" style={{ marginTop: 8 }} onClick={() => navigate(`/projects/${c.originatingProjectId}`)}>View project</button>
         )}

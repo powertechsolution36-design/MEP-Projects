@@ -77,6 +77,13 @@ export default function ServiceCallDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  /* Client details, correctable after registration (owner request, 5 Nov
+     2026): a name typed wrong when the complaint was taken should not stay
+     wrong on every screen and every report from then on. */
+  const [editingClient, setEditingClient] = useState(false);
+  const [clientForm, setClientForm] = useState({ customer: '', phone: '', site: '' });
+  const [clientSaving, setClientSaving] = useState(false);
+
   /* Engineer candidates for assignment */
   const [engineers, setEngineers] = useState([]);
 
@@ -343,6 +350,31 @@ export default function ServiceCallDetail() {
     );
   }
 
+  function startEditClient() {
+    setClientForm({ customer: sc.customer || '', phone: sc.phone || '', site: sc.site || '' });
+    setEditingClient(true);
+  }
+
+  async function saveClient(e) {
+    e.preventDefault();
+    if (!String(clientForm.customer || '').trim()) { setError('Customer name required.'); return; }
+    setClientSaving(true);
+    setError(null);
+    try {
+      await api.put(`/api/service-calls/${id}/client`, {
+        customer: clientForm.customer.trim(),
+        phone: String(clientForm.phone || '').trim(),
+        site: String(clientForm.site || '').trim(),
+      });
+      setEditingClient(false);
+      await reload();
+    } catch (err) {
+      setError(err.message || 'Could not save the client details.');
+    } finally {
+      setClientSaving(false);
+    }
+  }
+
   if (loading) return <div className="enq-page"><p className="muted">Loading...</p></div>;
   if (error && !sc) return <div className="enq-page"><p style={{ color: 'red' }}>{error}</p></div>;
   if (!sc) return <div className="enq-page"><p className="muted">Service call not found.</p></div>;
@@ -362,12 +394,63 @@ export default function ServiceCallDetail() {
 
       {/* ---- Customer Info ---- */}
       <div className="panel">
-        <h3>Customer Information</h3>
-        <div className="detail-grid">
-          <div><strong>Customer:</strong> {sc.customer || '—'}</div>
-          <div><strong>Phone:</strong> {sc.phone || '—'}</div>
-          <div><strong>Site:</strong> {sc.site || '—'}</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3>Customer Information</h3>
+          {canManage && (
+            <button className="btn sec sm" type="button" onClick={() => (editingClient ? setEditingClient(false) : startEditClient())}>
+              {editingClient ? 'Cancel' : 'Edit'}
+            </button>
+          )}
         </div>
+
+        {!editingClient && (
+          <div className="detail-grid">
+            <div><strong>Customer:</strong> {sc.customer || '—'}</div>
+            <div><strong>Phone:</strong> {sc.phone || '—'}</div>
+            <div><strong>Site:</strong> {sc.site || '—'}</div>
+          </div>
+        )}
+
+        {editingClient && (
+          <form onSubmit={saveClient} style={{ marginTop: 8 }}>
+            <div className="form-grid">
+              <div className="filter-field">
+                <label htmlFor="sc-cust">Customer</label>
+                <input
+                  id="sc-cust"
+                  value={clientForm.customer}
+                  onChange={e => setClientForm(prev => ({ ...prev, customer: e.target.value }))}
+                  required
+                />
+              </div>
+              <div className="filter-field">
+                <label htmlFor="sc-phone">Phone</label>
+                <input
+                  id="sc-phone"
+                  value={clientForm.phone}
+                  onChange={e => setClientForm(prev => ({ ...prev, phone: e.target.value }))}
+                />
+              </div>
+              <div className="filter-field">
+                <label htmlFor="sc-site">Site</label>
+                <input
+                  id="sc-site"
+                  value={clientForm.site}
+                  onChange={e => setClientForm(prev => ({ ...prev, site: e.target.value }))}
+                />
+              </div>
+            </div>
+            <p className="muted" style={{ fontSize: 13, marginTop: 8 }}>
+              Corrects how this client is written on this call. It does not change the
+              AMC / Warranty record, the engineer, or anything already reported.
+            </p>
+            <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+              <button className="btn pri" type="submit" disabled={clientSaving}>
+                {clientSaving ? 'Saving…' : 'Save Client Details'}
+              </button>
+            </div>
+          </form>
+        )}
       </div>
 
       {/* ---- Call Info ---- */}

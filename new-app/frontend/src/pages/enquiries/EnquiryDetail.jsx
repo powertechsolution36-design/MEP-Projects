@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { money, fmtDate } from '../../utils/format';
 import useMyDivisions from '../../hooks/useMyDivisions';
+import ContactsField, { ContactsList } from '../../components/ContactsField';
 
 /**
  * Enquiry Detail — PWA `vEnq(x)` exact reproduction.
@@ -126,6 +127,8 @@ export default function EnquiryDetail() {
       rating: enq.rating || '',
       estimatedValue: enq.estimatedValue || '',
       remark: enq.remark || '',
+      // Owner request (5 Nov 2026): the other people at the site.
+      contacts: (enq.contacts || []).map((c) => ({ ...c })),
     });
     setShowEditModal(true);
   }
@@ -175,6 +178,13 @@ export default function EnquiryDetail() {
           {enq.nextActionDescription && <div><strong>Next Action:</strong> {enq.nextActionDescription}</div>}
           {enq.nextActionDate && <div><strong>Next Date:</strong> {fmtDate(enq.nextActionDate)}</div>}
         </div>
+
+        {(enq.contacts || []).length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <strong>Contacts at this site</strong>
+            <ContactsList contacts={enq.contacts} />
+          </div>
+        )}
 
         {/* Lost fields — shown when status is Lost (PWA FACT: also shown after reopen since lostReason/lostDate are stale) */}
         {(enq.status === 'Lost' || enq.lostReason || enq.lostDate) && (
@@ -315,6 +325,11 @@ export default function EnquiryDetail() {
                   <input type="number" value={editData.estimatedValue} onChange={e => setEditData(d => ({ ...d, estimatedValue: Number(e.target.value) }))} />
                 </div>
               </div>
+              <ContactsField
+                value={editData.contacts}
+                onChange={(contacts) => setEditData(d => ({ ...d, contacts }))}
+                label="Contacts at this site"
+              />
               <div className="filter-field">
                 <label>Remark</label>
                 <textarea value={editData.remark} onChange={e => setEditData(d => ({ ...d, remark: e.target.value }))} rows={2} />

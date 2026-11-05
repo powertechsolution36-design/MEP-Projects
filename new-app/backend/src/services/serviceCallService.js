@@ -421,6 +421,63 @@ async function registerComplaint(input, actorAuth, deps) {
   return { serviceCall, customerMessage: msgReg(psc, company) };
 }
 
+/**
+ * Correct the client's particulars on a call that is already on the register.
+ *
+ * Owner request (5 Nov 2026): "what if I registered a complaint and I make a
+ * spelling mistake in the client name — I need an option to edit". Until now
+ * there was no edit of any kind on a service call (SERVICECALL_DECISION_LOCK
+ * §21 item 14), because the PWA had none; this is the owner lifting that for
+ * the three fields a typo actually lands in.
+ *
+ * Only the client's own particulars — name, phone, site — can be changed.
+ * The complaint number, the status, the engineer, the appointment, the
+ * coverage, the linked contract and the report are all untouched: this
+ * fixes how a client is written down, it does not re-open the call. A
+ * blank field is left as it was rather than wiped, except that the name is
+ * required, exactly as it is when the call is registered.
+ */
+async function editServiceCallClient(id, input, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  assertCanManageServiceCalls(actorAuth, 'edit the client details on a Service Call');
+
+  const serviceCall = await deps.serviceCallRepo.findById(actorAuth.companyId, id);
+  if (!serviceCall) throw new ServiceError('Service Call not found.', 'NOT_FOUND', 404);
+
+  const given = (key) => (input && typeof input[key] === 'string' ? input[key].trim() : undefined);
+  const customer = given('customer');
+  if (customer === '') throw new ServiceError('Customer name required.', 'VALIDATION_ERROR', 400);
+
+  const patch = {
+    customer: customer === undefined ? serviceCall.customer : customer.slice(0, 200),
+    phone: given('phone') === undefined ? serviceCall.phone : given('phone').slice(0, 40),
+    site: given('site') === undefined ? serviceCall.site : given('site').slice(0, 300),
+  };
+
+  const renamed = patch.customer !== serviceCall.customer;
+
+  return deps.withTransaction(deps, async (txnDeps) => {
+    const { session } = txnDeps;
+    const patched = await txnDeps.serviceCallRepo.update(actorAuth.companyId, id, patch, session);
+    // The register is read by everybody, so a correction to the name is
+    // announced the same way a registration is — otherwise a colleague is
+    // left looking for a client who no longer goes by that name.
+    if (renamed) {
+      await txnDeps.notificationRepo.create(
+        {
+          companyId: actorAuth.companyId,
+          text: `PSC-${serviceCall.complaintNumber} client corrected: ${serviceCall.customer} → ${patch.customer}`,
+          date: todayDate(),
+          targetRoles: ['service_mgr', 'admin'],
+          readByUserIds: [],
+        },
+        session
+      );
+    }
+    return patched;
+  });
+}
+
 /* ================= Creation: PM ================= */
 
 /**
@@ -1053,6 +1110,7 @@ module.exports = {
   getOpenServiceCalls,
   exportServiceCallsCsv,
   assignEngineer,
+  editServiceCallClient,
   saveReportDraft,
   completeServiceCall,
   listEngineerCandidates,

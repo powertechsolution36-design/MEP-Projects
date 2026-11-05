@@ -254,6 +254,10 @@ test('audit-correction scope guard: only authorized routes and services exist', 
     // UPDATE (owner request, 21 Oct 2026): renders the Service Report PDF
     // sent to the client; a pure helper of serviceCallService.
     'serviceReportPdf.js',
+    // UPDATE (owner request, 5 Nov 2026): a directory, not a service — the
+    // helpers two or more services share. `contacts.js` lives here: the
+    // contact list an enquiry and a client both now carry.
+    'shared',
     'subscriptionService.js',
     'userService.js',
   ]);

@@ -1313,32 +1313,157 @@
 
 /* ---- Service report (a finished visit) --------------------------
    Owner decision (31 Oct 2026): once the work is done the client is shown
-   the report instead of the progress trail. It is a document, so its
-   sections are separated by rules rather than by cards — one thing to read,
-   top to bottom, printable as it stands. */
-.portal-report-head {
+   the report instead of the progress trail. Owner's pick of four designs
+   (5 Nov 2026): "one page to keep" — it is drawn as a receipt, because that
+   is what a client does with it. One sheet, the company at the head, the
+   particulars down the middle, the closing line at the foot above a torn
+   edge. Rules, not cards, separate the parts: there is one thing to read,
+   top to bottom, and it prints as it stands. */
+.portal-receipt {
+  background: var(--surface);
+  color: var(--text);
+  border-radius: var(--r-sm);
+  box-shadow: 0 10px 24px rgba(17, 24, 39, .14);
+  display: flex;
+  flex-direction: column;
+}
+.portal-receipt-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--s-5);
-  flex-wrap: wrap;
+  padding: var(--s-7) var(--s-7) var(--s-5);
 }
-.portal-report-head h1 { margin: 0; font-size: var(--fs-2xl); }
-.portal-report-kicker {
-  margin: 0 0 var(--s-1);
+.portal-receipt-brand { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.portal-receipt-co {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+.portal-receipt-sub { margin: 0; font-size: var(--fs-sm); color: var(--p-muted); }
+.portal-receipt-sub a { color: inherit; }
+.portal-receipt-kicker {
+  margin: 0;
+  flex: none;
+  text-align: right;
   font-size: var(--fs-xs);
   font-weight: var(--fw-semi);
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
   color: var(--p-muted);
+  /* Two short words over two lines, wrapped by width rather than by a <br>,
+     so the page's text still reads as one phrase. */
+  max-width: 4.5em;
 }
-.portal-report-block {
+.portal-receipt-no {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-5);
+  padding: 0 var(--s-7) var(--s-6);
+  border-bottom: 2px solid var(--text);
+}
+.portal-receipt-no h1 {
+  margin: 0;
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+}
+.portal-receipt-no span { font-size: var(--fs-md); color: var(--p-muted); font-variant-numeric: tabular-nums; }
+
+.portal-receipt-rows {
+  margin: 0;
+  padding: var(--s-6) var(--s-7);
+  border-bottom: 1px dashed var(--border);
   display: flex;
   flex-direction: column;
-  gap: var(--s-3);
-  padding-top: var(--s-5);
-  border-top: 1px solid var(--border-subtle);
+  gap: var(--s-4);
+  font-size: var(--fs-md);
 }
+.portal-receipt-rows > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-5);
+}
+.portal-receipt-rows dt { color: var(--p-muted); flex: none; }
+.portal-receipt-rows dd { margin: 0; text-align: right; font-weight: var(--fw-medium); min-width: 0; }
+
+.portal-receipt-note {
+  padding: var(--s-6) var(--s-7);
+  border-bottom: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+.portal-receipt-note h2 {
+  margin: 0 0 var(--s-2);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--p-muted);
+}
+
+.portal-receipt-used { width: 100%; border-collapse: collapse; font-size: var(--fs-md); }
+.portal-receipt-used caption {
+  padding: var(--s-6) var(--s-7) var(--s-3);
+  text-align: left;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--p-muted);
+}
+.portal-receipt-used td { padding: var(--s-2) var(--s-7); }
+.portal-receipt-used td + td { text-align: right; color: var(--p-muted); font-variant-numeric: tabular-nums; }
+.portal-receipt-used tr:last-child td { padding-bottom: var(--s-6); }
+
+.portal-receipt-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-5);
+  padding: var(--s-6) var(--s-7);
+  border-top: 2px solid var(--text);
+}
+.portal-receipt-closed {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-4);
+  font-weight: var(--fw-bold);
+  color: var(--ok-700);
+}
+.portal-receipt-tick {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: var(--r-pill);
+  background: var(--ok-600);
+  color: var(--text-inverse);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.portal-receipt-tick .portal-icon { width: 15px; height: 15px; stroke-width: 3; }
+.portal-receipt-when { font-size: var(--fs-md); color: var(--p-muted); font-variant-numeric: tabular-nums; }
+
+/* The torn edge. Decorative only, and it carries no meaning a screen
+   reader would need, so it is hidden from the accessibility tree. */
+.portal-receipt-tear {
+  height: 14px;
+  background: var(--surface);
+  margin-bottom: -7px;
+  clip-path: polygon(0 0, 100% 0, 100% 40%, 96% 100%, 92% 40%, 88% 100%, 84% 40%, 80% 100%,
+    76% 40%, 72% 100%, 68% 40%, 64% 100%, 60% 40%, 56% 100%, 52% 40%, 48% 100%, 44% 40%,
+    40% 100%, 36% 40%, 32% 100%, 28% 40%, 24% 100%, 20% 40%, 16% 100%, 12% 40%, 8% 100%, 4% 40%, 0 100%);
+}
+
+.portal-receipt-keep { margin: 0; font-size: var(--fs-md); color: var(--p-muted); }
+.portal-receipt-actions { display: flex; gap: var(--s-4); }
+.portal-receipt-actions > * { flex: 1 1 0; justify-content: center; }
 
 /* ---- What happens next (an open complaint) ---------------------- */
 .portal-promise {
@@ -2210,3 +2335,110 @@
 /* A visit's completed date, editable in place (owner request, 29 Oct 2026). */
 .visit-edit { display: inline-flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; }
 .visit-edit input[type="date"] { max-width: 160px; }
+
+/* ---- Service Calls, banded by status (owner request, 5 Nov 2026) -------
+   The register used to be one newest-first list, which buried the calls
+   nobody has been sent to yet. The rows are unchanged; they are grouped
+   under a band head per status, in lifecycle order, and the chips above
+   narrow the table to one band. */
+.sc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  margin-bottom: var(--s-5);
+}
+.sc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: 34px;
+  padding: 0 var(--s-5);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+}
+.sc-chip:hover { background: var(--surface-hover); }
+.sc-chip.is-on {
+  background: var(--n-800);
+  border-color: var(--n-800);
+  color: var(--text-inverse);
+}
+.sc-chip-n {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-semi);
+  color: inherit;
+  opacity: .8;
+}
+
+.sc-band-head th {
+  background: var(--surface-sunken);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: var(--s-4) var(--s-5);
+  text-align: left;
+  font-weight: var(--fw-semi);
+  /* The table's own column heads are set in capitals; a band head is a
+     sentence about the band, so it keeps the words as they are written. */
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: var(--fs-md);
+  color: var(--text);
+}
+.sc-band-head th > * { vertical-align: middle; }
+.sc-band-n {
+  display: inline-block;
+  margin-left: var(--s-4);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+.sc-band-note {
+  margin-left: var(--s-5);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-normal);
+  color: var(--text-muted);
+}
+
+/* A band's own rows carry its colour down their left edge, so a status is
+   readable without reading the Status column on every line. */
+.sc-band-registered > tr > *:first-child { box-shadow: inset 3px 0 0 var(--warn-600); }
+.sc-band-assigned   > tr > *:first-child { box-shadow: inset 3px 0 0 var(--info-600); }
+.sc-band-scheduled  > tr > *:first-child { box-shadow: inset 3px 0 0 var(--div-mep-fg); }
+.sc-band-completed  > tr > *:first-child { box-shadow: inset 3px 0 0 var(--ok-600); }
+
+@media (max-width: 720px) {
+  .sc-band-note { display: none; }
+}
+
+/* ---- Contacts at a client (owner request, 5 Nov 2026) ----------------
+   More than one person at a site, each with a name and a designation. The
+   record's single Phone field above the list is still the main number. */
+.contacts-field {
+  margin: var(--s-6) 0 0;
+  padding: var(--s-5);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+}
+.contacts-field > legend {
+  padding: 0 var(--s-3);
+  font-weight: var(--fw-semi);
+}
+.contacts-hint { font-size: var(--fs-sm); margin: 0 0 var(--s-4); }
+.contacts-rows { list-style: none; margin: 0 0 var(--s-4); padding: 0; display: flex; flex-direction: column; gap: var(--s-4); }
+.contacts-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: var(--s-4);
+  align-items: end;
+}
+.contacts-remove { white-space: nowrap; }
+.contacts-read { list-style: none; margin: var(--s-3) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-3); }
+
+@media (max-width: 720px) {
+  .contacts-row { grid-template-columns: minmax(0, 1fr); }
+  .contacts-remove { justify-self: start; }
+}

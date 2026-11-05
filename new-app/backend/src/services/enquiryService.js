@@ -1,6 +1,7 @@
 'use strict';
 
 const { ServiceError } = require('../errors');
+const { buildContacts, primaryPhone } = require('./shared/contacts');
 const { assertDivisionEntitled } = require('./subscriptionService');
 const { PROJECT_STAGES_BY_DIVISION } = require('../models/shared/enums');
 const cascade = require('./salesOrderCascade');
@@ -95,6 +96,9 @@ async function createEnquiry(input, actorAuth, deps) {
 
   const { name, siteType, capacity, segment, phone, referenceSource, rating, estimatedValue, remark } =
     input || {};
+  // Owner request (5 Nov 2026): more than one person at the site, each with
+  // a name and a designation. `phone` above is still the main number.
+  const contacts = buildContacts(input && input.contacts) || [];
 
   if (!name) {
     throw new ServiceError('Project name is required.', 'VALIDATION_ERROR', 400); // PWA FACT: `if(!gv("e_n")){toast(...)}`
@@ -121,7 +125,8 @@ async function createEnquiry(input, actorAuth, deps) {
     siteType: siteType || undefined,
     capacity,
     segment,
-    phone,
+    phone: primaryPhone(phone, contacts),
+    contacts,
     referenceSource,
     rating,
     estimatedValue,
@@ -145,6 +150,8 @@ async function getEnquiry(id, actorAuth, deps) {
 }
 
 // PWA FACT: the Edit modal's editable fields (`e_n,e_st,e_c,e_s,e_p,e_r,e_rt,e_v,e_rm`).
+// 'contacts' is the owner's 5 Nov 2026 addition; it is handled separately
+// below because its rows are validated rather than copied across.
 const EDITABLE_FIELDS = ['name', 'siteType', 'capacity', 'segment', 'phone', 'referenceSource', 'rating', 'estimatedValue', 'remark'];
 
 /**
@@ -185,6 +192,18 @@ async function editEnquiry(id, patchInput, actorAuth, deps) {
     if (patch.segment !== existing.segment) {
       await assertDivisionEntitled(actorAuth.companyId, patch.segment, deps, { allowAmc: true });
     }
+  }
+
+  // Contacts are validated, not copied: a row without a name is refused and
+  // a wholly blank row is dropped. Leaving them out of the patch leaves the
+  // list as it was.
+  const contacts = buildContacts(patchInput && patchInput.contacts);
+  if (contacts !== undefined) patch.contacts = contacts;
+  if (Object.prototype.hasOwnProperty.call(patch, 'phone') || contacts !== undefined) {
+    patch.phone = primaryPhone(
+      Object.prototype.hasOwnProperty.call(patch, 'phone') ? patch.phone : existing.phone,
+      contacts === undefined ? existing.contacts : contacts
+    );
   }
 
   return deps.enquiryRepo.updateFields(actorAuth.companyId, id, patch);
@@ -297,7 +316,10 @@ function applyEnquiryFilters(rows, filters) {
   return rows.filter((x) => {
     if (f.q) {
       const q = String(f.q).toLowerCase();
-      const blob = [x.name, x.phone, x.referenceSource, x.segment, x.siteType, x.nextActionDescription, x.lastActionDone, x.remark, x.capacity]
+      const blob = [x.name, x.phone, x.referenceSource, x.segment, x.siteType, x.nextActionDescription, x.lastActionDone, x.remark, x.capacity,
+        // The people at the site are searchable too: the team looks a lead
+        // up by whoever they spoke to as often as by the project's name.
+        ...(x.contacts || []).flatMap((c) => [c.name, c.designation, c.phone])]
         .filter((v) => v !== undefined && v !== null)
         .join(' ')
         .toLowerCase();

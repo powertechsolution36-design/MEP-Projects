@@ -16,12 +16,15 @@ const { requireCompanyContext, rejectClientSuppliedCompanyId } = require('../mid
  *   POST /api/service-calls/complaints             register a Complaint (admin/service_mgr)
  *   POST /api/service-calls/pm/:contractId          schedule a PM visit from a Contract (admin/service_mgr)
  *   PUT  /api/service-calls/:id/assign              assign/reassign/clear engineer + date/time (admin/service_mgr)
+ *   PUT  /api/service-calls/:id/client              correct customer / phone / site (admin/service_mgr)
  *   PUT  /api/service-calls/:id/report              save report draft (assigned engineer or admin/service_mgr)
  *   POST /api/service-calls/:id/complete            complete the call (assigned engineer or admin/service_mgr)
  *   GET  /api/service-calls/:id/report-link         token for the client's PDF report (any company member, completed calls)
  *
- * No edit/delete/cancel/reopen route exists for any role -- the PWA has
- * none (SERVICECALL_DECISION_LOCK.md §21 item 14 / §23 item 13).
+ * No delete/cancel/reopen route exists for any role -- the PWA has none
+ * (SERVICECALL_DECISION_LOCK.md §21 item 14 / §23 item 13). The one edit
+ * that does exist is /:id/client, added at the owner's request on
+ * 5 Nov 2026 so a mistyped client name can be corrected.
  */
 function createServiceCallRouter(deps) {
   const router = express.Router();
@@ -137,6 +140,17 @@ function createServiceCallRouter(deps) {
     '/:id/assign',
     handle(async (req, res) => {
       const serviceCall = await service.assignEngineer(req.params.id, req.body, req.auth, deps);
+      return res.status(200).json({ serviceCall });
+    })
+  );
+
+  // Owner request (5 Nov 2026): the client's particulars can be corrected
+  // after registration — a typo in a name, a wrong phone or site. Nothing
+  // else about the call can be edited from here.
+  router.put(
+    '/:id/client',
+    handle(async (req, res) => {
+      const serviceCall = await service.editServiceCallClient(req.params.id, req.body, req.auth, deps);
       return res.status(200).json({ serviceCall });
     })
   );

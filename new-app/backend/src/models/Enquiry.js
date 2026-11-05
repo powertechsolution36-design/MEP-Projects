@@ -1,6 +1,7 @@
 'use strict';
 
 const { Schema, model } = require('mongoose');
+const { contactPersonSchema, maxContacts, MAX_CONTACTS } = require('./shared/contactSchema');
 
 /**
  * enquiries — a sales lead, tracked to Won (→ SalesOrder) or Lost.
@@ -25,7 +26,14 @@ const enquirySchema = new Schema(
       enum: ['Residential', 'Commercial', 'Factory', 'Banquet Hall', 'Hospital', 'Office'],
     }, // PWA FACT
     capacity: { type: String }, // PWA FACT
-    phone: { type: String }, // PWA FACT
+    phone: { type: String }, // PWA FACT — the client's main number
+    // Owner request (5 Nov 2026): the other people at the site, each with a
+    // name and what they do there. The main number above is unchanged.
+    contacts: {
+      type: [contactPersonSchema],
+      default: [],
+      validate: { validator: maxContacts, message: `An enquiry has at most ${MAX_CONTACTS} contacts.` },
+    },
     referenceSource: { type: String }, // PWA FACT
     segment: { type: String, required: true }, // PWA FACT — a division, or "AMC"
     rating: { type: Number, min: 1, max: 5 }, // PWA FACT

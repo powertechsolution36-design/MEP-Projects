@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import useMyDivisions from '../../hooks/useMyDivisions';
+import ContactsField from '../../components/ContactsField';
 
 /**
  * New Enquiry form — PWA `mEnq()` exact reproduction.
@@ -23,6 +24,8 @@ export default function EnquiryCreate() {
     // option, so it always submits a value (first option, Residential).
     name: '', siteType: 'Residential', capacity: '', segment: '',
     phone: '', referenceSource: '', rating: '3', estimatedValue: '', remark: '', // PWA default rating 3
+    // Owner request (5 Nov 2026): the other people at the site.
+    contacts: [],
   });
 
   function setField(key, value) {
@@ -97,6 +100,12 @@ export default function EnquiryCreate() {
               <input type="number" value={form.estimatedValue} onChange={e => setField('estimatedValue', e.target.value)} />
             </div>
           </div>
+          <ContactsField
+            value={form.contacts}
+            onChange={(contacts) => setField('contacts', contacts)}
+            label="Contacts at this site"
+          />
+
           <div className="filter-field">
             <label>Remark</label>
             <textarea value={form.remark} onChange={e => setField('remark', e.target.value)} rows={3} />

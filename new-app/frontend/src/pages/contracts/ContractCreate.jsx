@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { today } from '../../utils/format';
+import ContactsField from '../../components/ContactsField';
 
 /**
  * Manual AMC / Warranty Contract Creation — PWA `saveContract()` (Path B)
@@ -45,6 +46,8 @@ export default function ContractCreate() {
     amount: '',
     start: today(),
     end: '',
+    // Owner request (5 Nov 2026): the other people at the site.
+    contacts: [],
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -76,6 +79,7 @@ export default function ContractCreate() {
         amount: form.amount ? Number(form.amount) : 0,
         start: form.start || undefined,
         end: form.end || undefined,
+        contacts: form.contacts,
       };
       const data = await api.post('/api/contracts', body);
       const created = data.contract;
@@ -130,6 +134,11 @@ export default function ContractCreate() {
               <input value={form.capacity} onChange={e => setField('capacity', e.target.value)} />
             </div>
           </div>
+
+          <ContactsField
+            value={form.contacts}
+            onChange={(contacts) => setField('contacts', contacts)}
+          />
         </div>
 
         <div className="panel">

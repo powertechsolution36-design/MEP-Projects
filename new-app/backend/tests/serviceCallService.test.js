@@ -199,6 +199,68 @@ test('PSC numbering — concurrent creation requests never collide (atomic count
   assert.equal(new Set(pscs).size, 10); // no duplicates
 });
 
+/* ================= Client details, corrected after registration =========
+   Owner request (5 Nov 2026): a name typed wrong when the complaint was
+   taken must be correctable; nothing else about the call may move. */
+
+test('editServiceCallClient — corrects customer, phone and site, and announces the rename', async () => {
+  const store = baseStore();
+  const { serviceCall } = await service.registerComplaint(
+    { customer: 'Sumit Kulkerni', phone: '9000000002', site: 'Hall' },
+    auth(),
+    store
+  );
+  const updated = await service.editServiceCallClient(
+    serviceCall.id,
+    { customer: 'Sumit Kulkarni', phone: '9000000003', site: 'Main hall' },
+    auth({ role: 'service_mgr' }),
+    store
+  );
+  assert.equal(updated.customer, 'Sumit Kulkarni');
+  assert.equal(updated.phone, '9000000003');
+  assert.equal(updated.site, 'Main hall');
+  // Untouched by the correction.
+  assert.equal(updated.complaintNumber, serviceCall.complaintNumber);
+  assert.equal(updated.status, 'Registered');
+  assert.equal(updated.engineerId, null);
+
+  const notif = store.state.notifications.find((n) => /client corrected/.test(n.text));
+  assert.ok(notif, 'the register is told the client was renamed');
+  assert.match(notif.text, /Sumit Kulkerni → Sumit Kulkarni/);
+  assert.deepEqual(notif.targetRoles, ['service_mgr', 'admin']);
+});
+
+test('editServiceCallClient — a field left out is left as it was, and a blank name is refused', async () => {
+  const store = baseStore();
+  const { serviceCall } = await service.registerComplaint(
+    { customer: 'Priya', phone: '9000000004', site: 'Plant' },
+    auth(),
+    store
+  );
+  const updated = await service.editServiceCallClient(serviceCall.id, { site: 'Plant 2' }, auth(), store);
+  assert.equal(updated.customer, 'Priya');
+  assert.equal(updated.phone, '9000000004');
+  assert.equal(updated.site, 'Plant 2');
+
+  await assert.rejects(
+    () => service.editServiceCallClient(serviceCall.id, { customer: '   ' }, auth(), store),
+    /Customer name required/
+  );
+});
+
+test('editServiceCallClient — only admin / service_mgr may correct a client, and only on a call that exists', async () => {
+  const store = baseStore();
+  const { serviceCall } = await service.registerComplaint({ customer: 'Priya' }, auth(), store);
+  await assert.rejects(
+    () => service.editServiceCallClient(serviceCall.id, { customer: 'X' }, auth({ role: 'service_eng' }), store),
+    /is not permitted to edit the client details/i
+  );
+  await assert.rejects(
+    () => service.editServiceCallClient('nope', { customer: 'X' }, auth(), store),
+    /not found/i
+  );
+});
+
 /* ================= Assignment ================= */
 
 test('assignEngineer — valid candidate role transitions Registered -> Assigned, sets date/time, notifies ["*"]', async () => {

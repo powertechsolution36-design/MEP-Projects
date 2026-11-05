@@ -736,7 +736,135 @@ async function group6h(browser) {
   }
 }
 
-const GROUPS = { '6a': group6a, '6b': group6b, '6c': group6c, '6d': group6d, '6e': group6e, '6f': group6f, '6g': group6g, '6h': group6h };
+/**
+ * Owner requests of 5 Nov 2026, on the staff side:
+ *   - the service-call register is banded by status, with chips that narrow it;
+ *   - a client's name, phone and site can be corrected after registration;
+ *   - an enquiry and an AMC client carry several contacts, each with a name
+ *     and a designation.
+ */
+async function group6i(browser) {
+  const token = await apiToken('service');
+
+  // Three calls, one per band, so the banding has something to band.
+  const made = [];
+  for (const row of [
+    { customer: 'Banding Registered ' + uniq(), phone: '9000000030', site: 'Band site R', complaint: 'No cooling' },
+    { customer: 'Banding Assigned ' + uniq(), phone: '9000000031', site: 'Band site A', complaint: 'Noise' },
+  ]) {
+    const r = await api(token, 'POST', '/api/service-calls/complaints', row);
+    made.push(r.json.serviceCall);
+  }
+  const engineers = (await api(token, 'GET', '/api/service-calls/engineer-candidates')).json.candidates || [];
+  await api(token, 'PUT', `/api/service-calls/${made[1].id}/assign`, { engineerId: engineers[0].id, date: plusDays(3), time: '11:00 AM' });
+
+  const s = await session(browser, 'service');
+  await open(s, '/service-calls');
+  await s.page.waitForTimeout(400);
+
+  const bands = await s.page.locator('tbody.sc-band .sc-band-head th').allInnerTexts();
+  rec('service calls: the register is banded by status, in lifecycle order',
+    bands.some((b) => /Registered/i.test(b)) && bands.some((b) => /Assigned/i.test(b))
+      && bands.findIndex((b) => /Registered/i.test(b)) < bands.findIndex((b) => /Assigned/i.test(b)),
+    bands.join(' | '));
+
+  const regRow = s.page.locator('tbody.sc-band-registered tr.clickable-row');
+  const asgRow = s.page.locator('tbody.sc-band-assigned tr.clickable-row');
+  rec('service calls: each band holds only its own calls',
+    (await regRow.count()) > 0 && (await asgRow.count()) > 0
+      && (await s.page.locator('tbody.sc-band-registered tr.clickable-row:has-text("Assigned")').count()) === 0);
+
+  // A chip narrows the table to one band, and clicking it again lets go.
+  await s.page.locator('.sc-chip:has-text("Registered")').click();
+  await s.page.waitForTimeout(300);
+  rec('service calls: a status chip narrows the register to that one band',
+    (await s.page.locator('tbody.sc-band').count()) === 1
+      && (await s.page.locator('tbody.sc-band-registered').count()) === 1,
+    `${await s.page.locator('tbody.sc-band').count()} bands`);
+  await s.page.locator('.sc-chip:has-text("Registered")').click();
+  await s.page.waitForTimeout(300);
+  rec('service calls: clicking the same chip again shows every band again',
+    (await s.page.locator('tbody.sc-band').count()) >= 2);
+
+  // --- correcting the client on a registered call ---
+  await open(s, `/service-calls/${made[0].id}`);
+  await s.page.locator('.panel:has-text("Customer Information") button:has-text("Edit")').first().click();
+  await s.page.waitForTimeout(250);
+  const fixed = 'Corrected Name ' + uniq();
+  await field(s.page, 'Customer').fill(fixed);
+  await field(s.page, 'Site').fill('Corrected site');
+  await s.page.locator('button:has-text("Save Client Details")').click();
+  await settle(s);
+  const after = (await api(token, 'GET', `/api/service-calls/${made[0].id}`)).json.serviceCall;
+  rec('service call: a mistyped client name and site are corrected in place (PUT /:id/client)',
+    after.customer === fixed && after.site === 'Corrected site' && after.status === 'Registered',
+    `${after.customer} / ${after.site} / ${after.status}` + noAlerts(s));
+  rec('service call: the corrected name is on the page', (await s.page.locator(`text=${fixed}`).count()) >= 1);
+
+  // An engineer has no business renaming a client.
+  const engToken = await apiToken('vinod');
+  const refused = await api(engToken, 'PUT', `/api/service-calls/${made[0].id}/client`, { customer: 'Nope' });
+  rec('service call: an engineer cannot correct the client (server-side)', refused.status === 403, String(refused.status));
+
+  rec('service calls: no errors', s.errors.length === 0, s.errors.join('|'));
+  await s.ctx.close();
+
+  // --- several contacts on a new enquiry ---
+  const e = await session(browser, 'admin');
+  await open(e, '/enquiries/new');
+  const project = 'Contacts Enquiry ' + uniq();
+  await field(e.page, 'Project Name *').fill(project);
+  await field(e.page, 'Segment *').selectOption('HVAC');
+  await e.page.locator('button:has-text("Add contact")').click();
+  await e.page.locator('.contacts-row').nth(0).locator('input').nth(0).fill('Anil Shah');
+  await e.page.locator('.contacts-row').nth(0).locator('input').nth(1).fill('Purchase Manager');
+  await e.page.locator('.contacts-row').nth(0).locator('input').nth(2).fill('9000000040');
+  await e.page.locator('button:has-text("Add contact")').click();
+  await e.page.locator('.contacts-row').nth(1).locator('input').nth(0).fill('Vikas Pawar');
+  await e.page.locator('.contacts-row').nth(1).locator('input').nth(1).fill('Maintenance');
+  await e.page.locator('.contacts-row').nth(1).locator('input').nth(2).fill('9000000041');
+  await e.page.locator('button:has-text("Save Enquiry")').click();
+  await settle(e);
+  const adminToken = await apiToken('admin');
+  const enquiries = (await api(adminToken, 'GET', '/api/enquiries')).json.enquiries || [];
+  const saved = enquiries.find((x) => x.name === project);
+  rec('enquiry: two contacts are saved, each with a name and a designation',
+    !!saved && (saved.contacts || []).length === 2
+      && saved.contacts[0].designation === 'Purchase Manager'
+      && saved.contacts[1].name === 'Vikas Pawar',
+    JSON.stringify(saved ? saved.contacts : 'not saved').slice(0, 160) + noAlerts(e));
+  rec('enquiry: with no main number typed, the first contact fills it',
+    !!saved && saved.phone === '9000000040', saved ? saved.phone : '—');
+  rec('enquiry: the contacts are on the detail page',
+    (await (async () => { await open(e, `/enquiries/${saved.id}`); return e.page.locator('.contacts-read li').count(); })()) === 2);
+  rec('enquiry: a lead is found by the name of whoever we deal with there',
+    ((await api(adminToken, 'GET', '/api/enquiries?q=Vikas%20Pawar')).json.enquiries || []).some((x) => x.id === saved.id));
+  rec('enquiry contacts: no errors', e.errors.length === 0, e.errors.join('|'));
+  await e.ctx.close();
+
+  // --- several contacts on a new AMC client ---
+  const c = await session(browser, 'service');
+  await open(c, '/contracts/new');
+  const site = 'Contacts Client ' + uniq();
+  await field(c.page, 'Site *').fill(site);
+  await field(c.page, 'Customer Name').fill('Contacts Customer');
+  await c.page.locator('button:has-text("Add contact")').click();
+  await c.page.locator('.contacts-row').nth(0).locator('input').nth(0).fill('Sneha D');
+  await c.page.locator('.contacts-row').nth(0).locator('input').nth(1).fill('Accounts');
+  await c.page.locator('.contacts-row').nth(0).locator('input').nth(2).fill('9000000042');
+  await c.page.locator('button[type=submit]').first().click();
+  await settle(c);
+  const contracts = (await api(token, 'GET', '/api/contracts')).json.contracts || [];
+  const savedC = contracts.find((x) => x.site === site);
+  rec('AMC client: the contact is saved with its designation and fills the blank main number',
+    !!savedC && (savedC.contacts || []).length === 1 && savedC.contacts[0].designation === 'Accounts'
+      && savedC.phone === '9000000042',
+    JSON.stringify(savedC ? { contacts: savedC.contacts, phone: savedC.phone } : 'not saved').slice(0, 160) + noAlerts(c));
+  rec('AMC client contacts: no errors', c.errors.length === 0, c.errors.join('|'));
+  await c.ctx.close();
+}
+
+const GROUPS = { '6a': group6a, '6b': group6b, '6c': group6c, '6d': group6d, '6e': group6e, '6f': group6f, '6g': group6g, '6h': group6h, '6i': group6i };
 
 (async () => {
   const want = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(GROUPS);

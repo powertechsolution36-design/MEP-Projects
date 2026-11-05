@@ -15,7 +15,24 @@ import { money, fmtDate } from '../../utils/format';
  *   phone, site, engineerName, status, type, serviceType, complaintDescription).
  * Table columns: #, Type, Customer, Phone, Site, Date, Status, Engineer, Amount.
  * Export: CSV download (admin/service_mgr only).
+ *
+ * Owner request (5 Nov 2026): "service calls should be separated according
+ * to status". One long newest-first list hid what the service manager is
+ * actually looking for — the calls nobody has been sent to yet. The rows are
+ * the same rows, in the same order; they are now banded by status in
+ * lifecycle order, each band headed with its own count, and a row of chips
+ * narrows the table to one status when that is all they want to see.
  */
+
+// Lifecycle order, which is also the order of urgency: a call nobody has
+// been assigned to is the one that needs attention first.
+const STATUS_ORDER = ['Registered', 'Assigned', 'Scheduled', 'Completed'];
+const STATUS_NOTE = {
+  Registered: 'Taken, nobody sent yet',
+  Assigned: 'An engineer has it',
+  Scheduled: 'A visit is set',
+  Completed: 'Work finished',
+};
 
 const MANAGE_ROLES = ['admin', 'service_mgr'];
 
@@ -34,6 +51,8 @@ export default function ServiceCallList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
+  // '' is every status, banded. A chip narrows it to one band.
+  const [statusFilter, setStatusFilter] = useState('');
 
   const canManage = MANAGE_ROLES.includes(user?.role);
 
@@ -97,6 +116,24 @@ export default function ServiceCallList() {
     }
   }
 
+  /* The same rows, banded by status. A status with no calls still gets a
+     chip (showing 0) so the service manager can see at a glance that there
+     is nothing waiting, but it is not given an empty band in the table.
+     Anything with an unexpected status is banded under its own name rather
+     than dropped — a row must never vanish from the register. */
+  const byStatus = {};
+  STATUS_ORDER.forEach((st) => { byStatus[st] = []; });
+  calls.forEach((c) => {
+    const st = c.status || 'Registered';
+    if (!byStatus[st]) byStatus[st] = [];
+    byStatus[st].push(c);
+  });
+  const bandOrder = [...STATUS_ORDER, ...Object.keys(byStatus).filter((st) => !STATUS_ORDER.includes(st))];
+  const shownBands = bandOrder
+    .filter((st) => (statusFilter ? st === statusFilter : true))
+    .map((st) => [st, byStatus[st]])
+    .filter(([, rows]) => rows.length > 0);
+
   /* Role gate: only MANAGE_ROLES can see the list (PWA exact) */
   if (!canManage) {
     return (
@@ -157,46 +194,80 @@ export default function ServiceCallList() {
       {loading && <p className="muted">Loading...</p>}
 
       {!loading && !error && (
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Type</th>
-                <th>Customer</th>
-                <th>Phone</th>
-                <th>Site</th>
-                <th>Date</th>
-                <th>Status</th>
-                <th>Engineer</th>
-                <th>Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {calls.length === 0 && (
-                <tr><td colSpan={9} className="muted">No service calls found.</td></tr>
-              )}
-              {calls.map(c => (
-                <tr
-                  key={c.id || c._id}
-                  className="clickable-row"
-                  onClick={() => navigate(`/service-calls/${c.id || c._id}`)}
-                >
-                  <td>{c.complaintNumber || '—'}</td>
-                  <td>{c.type || '—'}</td>
-                  <td>{c.customer || '—'}</td>
-                  <td>{c.phone || '—'}</td>
-                  <td>{c.site || '—'}</td>
-                  <td>{fmtDate(c.appointmentDate || c.registeredDate)}</td>
-                  <td><span className={`status-badge ${statusClass(c.status)}`}>{c.status}</span></td>
-                  <td>{engineerMap[c.engineerId] || '—'}</td>
-                  <td>{c.report?.amount ? money(c.report.amount) : '—'}</td>
+        <>
+          <div className="sc-chips" role="group" aria-label="Filter by status">
+            <button
+              type="button"
+              className={`sc-chip${statusFilter === '' ? ' is-on' : ''}`}
+              onClick={() => setStatusFilter('')}
+            >
+              All <span className="sc-chip-n">{calls.length}</span>
+            </button>
+            {STATUS_ORDER.map((st) => (
+              <button
+                key={st}
+                type="button"
+                className={`sc-chip sc-chip-${st.toLowerCase()}${statusFilter === st ? ' is-on' : ''}`}
+                onClick={() => setStatusFilter(statusFilter === st ? '' : st)}
+              >
+                {st} <span className="sc-chip-n">{byStatus[st].length}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="table-wrap">
+            <table className="data-table sc-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Type</th>
+                  <th>Customer</th>
+                  <th>Phone</th>
+                  <th>Site</th>
+                  <th>Date</th>
+                  <th>Status</th>
+                  <th>Engineer</th>
+                  <th>Amount</th>
                 </tr>
+              </thead>
+              {shownBands.length === 0 && (
+                <tbody>
+                  <tr><td colSpan={9} className="muted">No service calls found.</td></tr>
+                </tbody>
+              )}
+              {shownBands.map(([st, rows]) => (
+                <tbody key={st} className={`sc-band sc-band-${st.toLowerCase()}`}>
+                  <tr className="sc-band-head">
+                    <th colSpan={9} scope="colgroup">
+                      <span className={`status-badge ${statusClass(st)}`}>{st}</span>
+                      <span className="sc-band-n">{rows.length}</span>
+                      <span className="sc-band-note">{STATUS_NOTE[st]}</span>
+                    </th>
+                  </tr>
+                  {rows.map(c => (
+                    <tr
+                      key={c.id || c._id}
+                      className="clickable-row"
+                      onClick={() => navigate(`/service-calls/${c.id || c._id}`)}
+                    >
+                      <td>{c.complaintNumber || '—'}</td>
+                      <td>{c.type || '—'}</td>
+                      <td>{c.customer || '—'}</td>
+                      <td>{c.phone || '—'}</td>
+                      <td>{c.site || '—'}</td>
+                      <td>{fmtDate(c.appointmentDate || c.registeredDate)}</td>
+                      <td><span className={`status-badge ${statusClass(c.status)}`}>{c.status}</span></td>
+                      <td>{engineerMap[c.engineerId] || '—'}</td>
+                      <td>{c.report?.amount ? money(c.report.amount) : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </table>
+          </div>
+        </>
       )}
+
     </div>
   );
 }

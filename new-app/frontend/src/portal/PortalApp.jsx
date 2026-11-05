@@ -125,6 +125,8 @@ const IconSite = () => icon('M3 20h18M6 20V9l6-4 6 4v11M10 20v-5h4v5');
 const IconPhone = () => icon('M7 2.5h10v19H7z', <path d="M10.5 18.6h3" />);
 const IconBell = () => icon('M18 16V11a6 6 0 1 0-12 0v5l-1.6 2.4h15.2zM10 21h4');
 const IconShare = () => icon('M12 16V4m0 0L8 8m4-4 4 4M5 14v5.5h14V14');
+const IconDownload = () => icon('M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14');
+const IconList = () => icon('M8 7h12M8 12h12M8 17h12M4 7h.01M4 12h.01M4 17h.01');
 
 /* ------------------------------------------------------------------ *
  * Shell
@@ -1292,10 +1294,16 @@ function ResponsePromise({ number }) {
  * stages have nothing left to tell anybody; what the client wants on the
  * screen is what was wrong, who came, what was done and what was used.
  *
+ * Owner's pick of four designs (5 Nov 2026): "one page to keep" — the report
+ * is drawn as a receipt. One sheet, the company at the top, the particulars
+ * down the middle, the closing line at the foot above a torn edge. It reads
+ * the same on the screen as it does on paper, which is the point: a client
+ * keeps it, prints it, or sends it on without anything being lost.
+ *
  * Every line is omitted when the engineer did not record it, so the report
  * never shows an empty row or invents a value to fill one.
  */
-function ServiceReport({ c }) {
+function ServiceReport({ c, company }) {
   const unit = c.unit || {};
   const unitLine = [unit.make, unit.model, unit.capacity, unit.type].filter(Boolean).join(' · ');
   const visitWhen = c.completedAt
@@ -1305,63 +1313,87 @@ function ServiceReport({ c }) {
     ? [c.gasType, c.gasQtyKg ? `${c.gasQtyKg} kg` : ''].filter(Boolean).join(' · ') || 'Topped up'
     : '';
 
-  const facts = [
-    ['Visit completed', visitWhen],
-    ['Engineer', c.engineerName || ''],
+  const rows = [
+    ['Client', (company && company.customer) || ''],
     ['Site', c.site || ''],
-    ['Cover', c.coverage || ''],
-    ['Complaint received', fmtLong(c.registeredDate)],
     ['Unit', unitLine],
+    ['Engineer', c.engineerName || ''],
+    ['Cover', c.coverage || ''],
+    ['Reported on', fmtLong(c.registeredDate)],
   ].filter(([, v]) => v);
 
+  // One table for everything the engineer put into the unit on this visit:
+  // the parts, the material and the gas, in the order they were recorded.
+  const used = [
+    ...(c.partsWork || []).map((p) => [p.part, p.action]),
+    ...(c.materialUsed ? [[c.materialUsed, 'Material']] : []),
+    ...(gasLine ? [[c.gasType ? `${c.gasType} gas` : 'Gas', c.gasQtyKg ? `${c.gasQtyKg} kg` : gasLine]] : []),
+  ].filter(([item]) => item);
+
   return (
-    <section className="portal-card portal-report" aria-labelledby="portal-report-h">
-      <div className="portal-report-head">
-        <div>
-          <p className="portal-report-kicker">Service report</p>
-          <h1 id="portal-report-h">PSC-{c.complaintNumber}</h1>
+    <section className="portal-receipt" aria-labelledby="portal-report-h">
+      <header className="portal-receipt-head">
+        <div className="portal-receipt-brand">
+          <p className="portal-receipt-co">{(company && company.name) || 'Service report'}</p>
+          {company && company.serviceNumber && (
+            <p className="portal-receipt-sub">
+              <a href={telHref(company.serviceNumber)}>{fmtPhone(company.serviceNumber)}</a>
+            </p>
+          )}
         </div>
-        <span className="status-badge status-won">Completed</span>
+        <p className="portal-receipt-kicker">Service report</p>
+      </header>
+
+      <div className="portal-receipt-no">
+        <h1 id="portal-report-h">PSC-{c.complaintNumber}</h1>
+        {visitWhen && <span>{visitWhen}</span>}
       </div>
 
-      <dl className="portal-facts portal-facts-2">
-        {facts.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}
+      <dl className="portal-receipt-rows">
+        {rows.map(([k, v]) => (
+          <div key={k}><dt>{k}</dt><dd>{v}</dd></div>
+        ))}
       </dl>
 
-      {c.complaintDescription && (
-        <div className="portal-report-block">
-          <h2 className="portal-card-h">What you reported</h2>
-          <p className="portal-quote">{c.complaintDescription}</p>
+      <div className="portal-receipt-note">
+        {c.complaintDescription && (
+          <div>
+            <h2>Reported</h2>
+            <p className="portal-quote">{c.complaintDescription}</p>
+          </div>
+        )}
+        <div>
+          <h2>Attended</h2>
+          <p className="portal-quote">{c.serviceDescription || 'The visit is complete.'}</p>
         </div>
-      )}
-
-      <div className="portal-report-block">
-        <h2 className="portal-card-h">What we did</h2>
-        <p className="portal-quote">{c.serviceDescription || 'The visit is complete.'}</p>
+        {c.customerRemark && (
+          <div>
+            <h2>What you told the engineer</h2>
+            <p className="portal-quote">{c.customerRemark}</p>
+          </div>
+        )}
       </div>
 
-      {c.partsWork?.length > 0 && (
-        <div className="portal-report-block">
-          <h2 className="portal-card-h">Parts</h2>
-          <ul className="portal-list">
-            {c.partsWork.map((part, i) => <li key={i}>{part.part} — {part.action}</li>)}
-          </ul>
-        </div>
+      {used.length > 0 && (
+        <table className="portal-receipt-used">
+          <caption>Used on this visit</caption>
+          <tbody>
+            {used.map(([item, what], i) => (
+              <tr key={`${item}-${i}`}><td>{item}</td><td>{what}</td></tr>
+            ))}
+          </tbody>
+        </table>
       )}
 
-      {(gasLine || c.materialUsed) && (
-        <dl className="portal-facts portal-facts-2">
-          {gasLine && <div><dt>Gas charged</dt><dd>{gasLine}</dd></div>}
-          {c.materialUsed && <div><dt>Material used</dt><dd>{c.materialUsed}</dd></div>}
-        </dl>
-      )}
+      <footer className="portal-receipt-foot">
+        <span className="portal-receipt-closed">
+          <span className="portal-receipt-tick"><IconCheck /></span>
+          Complaint closed
+        </span>
+        {visitWhen && <span className="portal-receipt-when">{visitWhen}</span>}
+      </footer>
 
-      {c.customerRemark && (
-        <div className="portal-report-block">
-          <h2 className="portal-card-h">What you told the engineer</h2>
-          <p className="portal-quote">{c.customerRemark}</p>
-        </div>
-      )}
+      <div className="portal-receipt-tear" aria-hidden="true" />
     </section>
   );
 }
@@ -1375,6 +1407,11 @@ function PortalComplaintDetail() {
   // Only on the way in from the form, and only while it is still new: a
   // completed visit should not greet the client with "we have it".
   const justRaised = Boolean(location.state && location.state.justRaised);
+  const reportCompany = {
+    name: (profile && profile.company && profile.company.name) || '',
+    serviceNumber: (profile && profile.company && profile.company.serviceNumber) || '',
+    customer: (profile && profile.client && profile.client.customer) || '',
+  };
 
   useEffect(() => {
     let alive = true;
@@ -1398,7 +1435,7 @@ function PortalComplaintDetail() {
           the report does not exist yet. */}
       {c && c.status === 'Completed' && (
         <>
-          <ServiceReport c={c} />
+          <ServiceReport c={c} company={reportCompany} />
 
           {c.attachments?.length > 0 && (
             <section className="portal-card" aria-labelledby="portal-photos-h">
@@ -1408,6 +1445,17 @@ function PortalComplaintDetail() {
               </ul>
             </section>
           )}
+
+          <p className="portal-receipt-keep">
+            Keep this for your records. Every visit on your cover has one, and they stay in the app.
+          </p>
+
+          <div className="portal-receipt-actions">
+            <button type="button" className="btn sec portal-btn" onClick={() => window.print()}>
+              <IconDownload />Save
+            </button>
+            <Link className="btn sec portal-btn" to="/portal"><IconList />All visits</Link>
+          </div>
         </>
       )}
 

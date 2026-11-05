@@ -240,3 +240,91 @@ test('exportEnquiriesCsv — exact PWA column order and a TOTAL row', async () =
   assert.match(lines[1], /Alpha/);
   assert.match(lines[2], /TOTAL,100000/);
 });
+
+/* ---- Contacts at the site (owner request, 5 Nov 2026) -----------------
+   An enquiry carries more than one person: a name, a designation and a
+   number each. The record's single `phone` is still the main number. */
+
+test('createEnquiry — keeps several contacts, each with a name and designation', async () => {
+  const { deps } = makeDeps();
+  const enquiry = await service.createEnquiry(
+    {
+      name: 'Sneh Resort AC',
+      segment: 'HVAC',
+      phone: '9000000000',
+      contacts: [
+        { name: 'Anil Shah', designation: 'Purchase Manager', phone: '9000000001' },
+        { name: 'Vikas Pawar', designation: 'Maintenance', phone: '9000000002' },
+        { name: '', designation: '', phone: '' },
+      ],
+    },
+    auth(),
+    deps
+  );
+  assert.equal(enquiry.contacts.length, 2, 'the wholly blank row is dropped, not rejected');
+  assert.deepEqual(enquiry.contacts[0], { name: 'Anil Shah', designation: 'Purchase Manager', phone: '9000000001' });
+  assert.equal(enquiry.phone, '9000000000', 'the typed main number wins');
+});
+
+test('createEnquiry — a blank main number is filled from the first contact who has one', async () => {
+  const { deps } = makeDeps();
+  const enquiry = await service.createEnquiry(
+    {
+      name: 'No main number',
+      segment: 'HVAC',
+      contacts: [{ name: 'Anil Shah', designation: 'Owner', phone: '9000000003' }],
+    },
+    auth(),
+    deps
+  );
+  assert.equal(enquiry.phone, '9000000003');
+});
+
+test('createEnquiry — a contact with a number but no name is refused', async () => {
+  const { deps } = makeDeps();
+  await assert.rejects(
+    () => service.createEnquiry(
+      { name: 'Nameless', segment: 'HVAC', contacts: [{ name: '', designation: 'Purchase', phone: '9000000004' }] },
+      auth(),
+      deps
+    ),
+    /Every contact needs a name/
+  );
+});
+
+test('editEnquiry — contacts can be changed, and leaving them out leaves them alone', async () => {
+  const { deps } = makeDeps();
+  const enquiry = await service.createEnquiry(
+    { name: 'Edit me', segment: 'HVAC', phone: '9000000005', contacts: [{ name: 'Anil Shah', designation: 'Owner', phone: '9000000006' }] },
+    auth(),
+    deps
+  );
+
+  const untouched = await service.editEnquiry(enquiry.id, { capacity: '5 TR' }, auth(), deps);
+  assert.equal(untouched.contacts.length, 1);
+
+  const changed = await service.editEnquiry(
+    enquiry.id,
+    { contacts: [{ name: 'Anil Shah', designation: 'Owner', phone: '9000000006' }, { name: 'Sneha D', designation: 'Accounts', phone: '9000000007' }] },
+    auth(),
+    deps
+  );
+  assert.equal(changed.contacts.length, 2);
+  assert.equal(changed.contacts[1].designation, 'Accounts');
+
+  const cleared = await service.editEnquiry(enquiry.id, { contacts: [] }, auth(), deps);
+  assert.deepEqual(cleared.contacts, []);
+});
+
+test('listEnquiries — a lead is found by the name of whoever we deal with there', async () => {
+  const { deps } = makeDeps();
+  await service.createEnquiry(
+    { name: 'Findable site', segment: 'HVAC', contacts: [{ name: 'Rupesh Jadhav', designation: 'Purchase', phone: '9000000008' }] },
+    auth(),
+    deps
+  );
+  const found = await service.listEnquiries(auth(), { filters: { q: 'rupesh' } }, deps);
+  assert.equal(found.length, 1);
+  const none = await service.listEnquiries(auth(), { filters: { q: 'nobody-by-that-name' } }, deps);
+  assert.equal(none.length, 0);
+});

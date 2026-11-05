@@ -183,7 +183,10 @@ async function api(method, pathname, { token, body } = {}) {
     await page.reload({ waitUntil: 'networkidle' });
     await page.waitForTimeout(700);
     const completed = await page.locator('body').innerText();
-    rec('client: sees the work once it is completed', completed.includes('Completed') && completed.includes('Cleared the drain'));
+    // The receipt design (owner's pick, 5 Nov 2026) closes with "Complaint
+    // closed" rather than a status chip, so that is the word to look for.
+    rec('client: sees the work once it is completed',
+      completed.includes('Complaint closed') && completed.includes('Cleared the drain'), completed.slice(0, 240));
     rec('client: never sees the internal remark or the amount',
       !completed.includes('INTERNAL ONLY') && !completed.includes('1800'), completed.slice(0, 200));
     // Owner request (31 Oct 2026): finished work is shown as the service

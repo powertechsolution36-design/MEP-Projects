@@ -569,3 +569,76 @@ test('setVisitCompletedDate — a visit that does not exist is 404, rubbish is 4
     (e) => e.code === 'NOT_FOUND' && e.status === 404
   );
 });
+
+/* ---- Contacts at the client (owner request, 5 Nov 2026) ---------------
+   A site has a purchase manager, a maintenance in-charge and an owner. The
+   contract's single `phone` is still the client's main number. */
+
+test('createManualContract — keeps several contacts, and fills a blank main number from the first one', async () => {
+  const store = createEnquiryFakeStore({ companies: [{ id: 'co1', name: 'Cool Breeze' }] });
+  const withMain = await service.createManualContract(
+    {
+      site: 'KP87 plant',
+      customer: 'Intervalve',
+      phone: '9000000010',
+      contacts: [
+        { name: 'Anil Shah', designation: 'Purchase Manager', phone: '9000000011' },
+        { name: '', designation: '', phone: '' },
+      ],
+    },
+    auth(),
+    store
+  );
+  assert.equal(withMain.contacts.length, 1);
+  assert.equal(withMain.contacts[0].designation, 'Purchase Manager');
+  assert.equal(withMain.phone, '9000000010');
+
+  const noMain = await service.createManualContract(
+    { site: 'KP88 plant', contacts: [{ name: 'Vikas Pawar', designation: 'Maintenance', phone: '9000000012' }] },
+    auth(),
+    store
+  );
+  assert.equal(noMain.phone, '9000000012');
+});
+
+test('createManualContract — a contact with a number but no name is refused', async () => {
+  const store = createEnquiryFakeStore({ companies: [{ id: 'co1', name: 'Cool Breeze' }] });
+  await assert.rejects(
+    () => service.createManualContract(
+      { site: 'Nameless', contacts: [{ name: '', designation: 'Purchase', phone: '9000000013' }] },
+      auth(),
+      store
+    ),
+    /Every contact needs a name/
+  );
+});
+
+test('editContract — contacts can be changed, and leaving them out leaves them alone', async () => {
+  const store = createEnquiryFakeStore({
+    companies: [{ id: 'co1', name: 'Cool Breeze' }],
+    contracts: [baseContract({ contacts: [{ name: 'Anil Shah', designation: 'Owner', phone: '9000000014' }] })],
+  });
+
+  const untouched = await service.editContract('c1', { capacity: '25 TR' }, auth(), store);
+  assert.equal(untouched.contacts.length, 1);
+
+  const changed = await service.editContract(
+    'c1',
+    { contacts: [{ name: 'Anil Shah', designation: 'Owner', phone: '9000000014' }, { name: 'Sneha D', designation: 'Accounts', phone: '9000000015' }] },
+    auth(),
+    store
+  );
+  assert.equal(changed.contacts.length, 2);
+  assert.equal(changed.contacts[1].name, 'Sneha D');
+});
+
+test('listContracts — a client is found by the name of whoever we deal with there', async () => {
+  const store = createEnquiryFakeStore({
+    companies: [{ id: 'co1', name: 'Cool Breeze' }],
+    contracts: [baseContract({ contacts: [{ name: 'Rupesh Jadhav', designation: 'Purchase', phone: '9000000016' }] })],
+  });
+  const found = await service.listContracts(auth(), { filters: { q: 'rupesh' } }, store);
+  assert.equal(found.length, 1);
+  const none = await service.listContracts(auth(), { filters: { q: 'nobody-by-that-name' } }, store);
+  assert.equal(none.length, 0);
+});
