@@ -46,6 +46,38 @@ const VIEW_ROLES = Object.freeze(['sales', 'admin', 'hvac_pm', 'solar_pm', 'mep_
 // VIEW_ROLES above (in the PWA those two roles never reach `vSO()` via its
 // own menu either — this mirrors the PWA's own redundant check rather than
 // silently dropping it).
+// Owner request (14 Nov 2026): Sales Team and Project Team are chosen from
+// a list, not typed. Sales Team offers the company's Admin and Sales users;
+// Project Team offers its Admin and division-Manager users. Whoever may fill
+// the form may read the list: the two roles that create or edit an order,
+// plus solar_pm, which turns an accepted quotation into one.
+const TEAM_CANDIDATE_ROLES = Object.freeze(['sales', 'admin', 'solar_pm']);
+const SALES_TEAM_ROLES = Object.freeze(['admin', 'sales']);
+const PROJECT_TEAM_ROLES = Object.freeze(['admin', 'hvac_pm', 'solar_pm', 'mep_pm']);
+
+/**
+ * The names that may stand in Sales Team and Project Team on an order.
+ * Deactivated users are listed too, deliberately: an order raised last year
+ * carries the name of whoever handled it then, and that name must still be
+ * selectable when the order is edited.
+ */
+async function listTeamCandidates(actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  if (!TEAM_CANDIDATE_ROLES.includes(actorAuth.role)) {
+    throw new ServiceError(
+      `Role "${actorAuth.role}" is not permitted to list Sales Order team candidates (must be ${TEAM_CANDIDATE_ROLES.join(', ')}).`,
+      'FORBIDDEN',
+      403
+    );
+  }
+  const all = await deps.userRepoForEnquiry.listByCompany(actorAuth.companyId);
+  const pick = (roles) => all
+    .filter((u) => roles.includes(u.role) && u.name)
+    .map((u) => ({ name: u.name, role: u.role, active: u.active !== false }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return { sales: pick(SALES_TEAM_ROLES), project: pick(PROJECT_TEAM_ROLES) };
+}
+
 const COST_HIDDEN_ROLES = Object.freeze(['engineer', 'service_eng']);
 const COST_FIELDS = Object.freeze([
   'totalCost',
@@ -358,6 +390,7 @@ module.exports = {
   editSalesOrder,
   listSalesOrders,
   exportSalesOrdersCsv,
+  listTeamCandidates,
   // exported for tests / reuse
   applySalesOrderFilters,
   collectMilestoneInputs,
@@ -366,4 +399,7 @@ module.exports = {
   CREATE_ROLES,
   EDIT_ROLES,
   VIEW_ROLES,
+  TEAM_CANDIDATE_ROLES,
+  SALES_TEAM_ROLES,
+  PROJECT_TEAM_ROLES,
 };

@@ -283,8 +283,49 @@ async function getProject(projectId, actorAuth, deps) {
   if (project.salesOrderId && deps.salesOrderRepo && deps.salesOrderRepo.findById) {
     const so = await deps.salesOrderRepo.findById(actorAuth.companyId, project.salesOrderId);
     project.salesOrderNumber = so ? so.orderNumber : null;
+    // Owner request (14 Nov 2026): a Project Manager must see the quotation
+    // the site was won on. Quotations themselves stay closed to PM logins;
+    // what travels with the project is this read-only summary, reached the
+    // only way a project is tied to one -- through its sales order. Null for
+    // an order raised before the quotation flow, or a walk-in order.
+    project.quotation = so && so.quotationId ? await quotationSummaryForProject(actorAuth.companyId, so.quotationId, deps) : null;
   }
   return project;
+}
+
+/**
+ * The quotation a project came from, as much of it as the project screen
+ * shows and no more: the number, the date, where it stands, what it was
+ * quoted at. Deliberately not the line items, the costing or the margin.
+ */
+async function quotationSummaryForProject(companyId, quotationId, deps) {
+  if (!deps.quotationRepo || !deps.quotationRepo.findById) return null;
+  const q = await deps.quotationRepo.findById(companyId, quotationId);
+  if (!q) return null;
+  return {
+    id: String(q.id || q._id || quotationId),
+    quotationNumber: q.quotationNumber || null,
+    date: q.date || null,
+    status: q.status || null,
+    division: q.division || null,
+    subject: q.subject || null,
+    customerName: q.customerName || null,
+    grandTotal: q.grandTotal === undefined ? null : q.grandTotal,
+  };
+}
+
+/**
+ * The public PDF link for that same quotation, minted on the click rather
+ * than on every project read. The gate is the project: whoever may open
+ * this project may open the quotation it was won on.
+ */
+async function getProjectQuotationPdfLink(projectId, actorAuth, deps) {
+  const project = await getProject(projectId, actorAuth, deps);
+  if (!project.quotation) {
+    throw new ServiceError('This project has no quotation behind it.', 'NOT_FOUND', 404);
+  }
+  const { getPdfLink } = require('./quotationService');
+  return getPdfLink(actorAuth.companyId, project.quotation.id, deps);
 }
 
 // PWA FACT (`vProjects`'s `hit(p,[...])` search field list, §20, re-verified
@@ -1754,6 +1795,7 @@ module.exports = {
   prepareServiceConversion,
   isEligibleForServiceConversion,
   listEngineerCandidates,
+  getProjectQuotationPdfLink,
   // exported for tests / reuse
   computePendingReturnableMaterial,
   computeIncompleteOrUnapprovedChecklistCount,

@@ -17,6 +17,7 @@ const { requireCompanyContext, rejectClientSuppliedCompanyId } = require('../mid
  *   GET    /api/projects                                   list/search
  *   GET    /api/projects/export.csv                         list/dashboard CSV
  *   GET    /api/projects/:id                                 detail (no division restriction -- see projectService.getProject)
+ *   GET    /api/projects/:id/quotation-pdf-link              public PDF link for the quotation the project was won on
  *   POST   /api/projects/:id/stage                            stage edit + completion gate
  *   PATCH  /api/projects/:id/vendor                           vendor edit
  *   POST   /api/projects/:id/engineers                        engineer assignment (full replace)
@@ -113,6 +114,16 @@ function createProjectRouter(deps) {
     handle(async (req, res) => {
       const project = await service.getProject(req.params.id, req.auth, deps);
       return res.status(200).json({ project });
+    })
+  );
+
+  // Owner request (14 Nov 2026): the quotation the site was won on, for
+  // whoever may open the project -- the Project Manager included.
+  router.get(
+    '/:id/quotation-pdf-link',
+    handle(async (req, res) => {
+      const link = await service.getProjectQuotationPdfLink(req.params.id, req.auth, deps);
+      return res.status(200).json(link);
     })
   );
 

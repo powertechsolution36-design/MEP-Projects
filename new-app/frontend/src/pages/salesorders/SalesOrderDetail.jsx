@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { money, fmtDate } from '../../utils/format';
 import useMyDivisions from '../../hooks/useMyDivisions';
+import TeamSelect, { useTeamCandidates } from '../../components/TeamSelect';
 
 /**
  * SalesOrder Detail — PWA `vSO(x)` exact reproduction.
@@ -40,6 +41,7 @@ export default function SalesOrderDetail() {
 
   const showCost = !COST_HIDDEN_ROLES.includes(user?.role);
   const canEdit = ['sales', 'admin'].includes(user?.role);
+  const { candidates } = useTeamCandidates(canEdit);
   const canRaise = ['hvac_pm', 'solar_pm', 'mep_pm', 'admin'].includes(user?.role);
 
   const load = useCallback(async () => {
@@ -326,8 +328,8 @@ export default function SalesOrderDetail() {
               ))}
 
               <div className="form-grid">
-                <div className="filter-field"><label>Sales Team</label><input value={editForm.salesTeam} onChange={e => setEditForm(f => ({ ...f, salesTeam: e.target.value }))} /></div>
-                <div className="filter-field"><label>Project Team</label><input value={editForm.projectTeam} onChange={e => setEditForm(f => ({ ...f, projectTeam: e.target.value }))} /></div>
+                <TeamSelect label="Sales Team" value={editForm.salesTeam} options={candidates.sales} onChange={v => setEditForm(f => ({ ...f, salesTeam: v }))} />
+                <TeamSelect label="Project Team" value={editForm.projectTeam} options={candidates.project} onChange={v => setEditForm(f => ({ ...f, projectTeam: v }))} />
               </div>
               <div className="filter-field full-width">
                 <label>Crucial Points</label>

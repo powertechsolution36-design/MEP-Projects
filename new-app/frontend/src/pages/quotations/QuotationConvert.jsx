@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { today } from '../../utils/format';
 import useMyDivisions from '../../hooks/useMyDivisions';
+import TeamSelect, { useTeamCandidates } from '../../components/TeamSelect';
 
 /**
  * Quotation → SalesOrder (owner decision, 14 Nov 2026).
@@ -25,6 +26,7 @@ const DEFAULT_TERMS = '1) Fabrication not in our scope. 2) Civil and interior wo
 
 export default function QuotationConvert() {
   const DIVISIONS = useMyDivisions(); // company's purchased divisions (PWA myDivs())
+  const { candidates } = useTeamCandidates();
   const { id } = useParams();
   const navigate = useNavigate();
   const [quotation, setQuotation] = useState(null);
@@ -174,8 +176,8 @@ export default function QuotationConvert() {
           ))}
 
           <div className="form-grid">
-            <div className="filter-field"><label>Sales Team</label><input value={form.salesTeam} onChange={e => setField('salesTeam', e.target.value)} /></div>
-            <div className="filter-field"><label>Project Team</label><input value={form.projectTeam} onChange={e => setField('projectTeam', e.target.value)} /></div>
+            <TeamSelect label="Sales Team" value={form.salesTeam} options={candidates.sales} onChange={v => setField('salesTeam', v)} />
+            <TeamSelect label="Project Team" value={form.projectTeam} options={candidates.project} onChange={v => setField('projectTeam', v)} />
           </div>
           <div className="filter-field full-width">
             <label>Crucial Points</label>

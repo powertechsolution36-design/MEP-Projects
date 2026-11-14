@@ -299,12 +299,16 @@ async function group6d(browser) {
   await open(a, '/sales-orders/so_demo');
   await a.page.locator('button:has-text("Edit Sales Order")').click();
   const sm = a.page.locator('.modal');
-  const team = 'E2E team ' + uniq();
-  await field(sm, 'Project Team').fill(team);
+  // Project Team is a dropdown since the owner request of 14 Nov 2026, so the
+  // edit picks a name off the list rather than typing one.
+  const teamSel = field(sm, 'Project Team');
+  const teamNames = (await teamSel.locator('option').allInnerTexts()).map((t) => t.trim()).filter((t) => t !== '— none —');
+  const team = teamNames[teamNames.length - 1];
+  await teamSel.selectOption({ label: team });
   await sm.locator('button[type=submit]:has-text("Save")').click();
   await settle(a);
   const so = (await api(adminT, 'GET', '/api/sales-orders/so_demo')).json?.salesOrder;
-  rec('sales order detail: Edit saves (PATCH /api/sales-orders/:id) and keeps the milestones', so?.projectTeam === team && (so?.paymentMilestones || []).length > 0, `${so?.projectTeam} ms=${(so?.paymentMilestones || []).length}${noAlerts(a)}`);
+  rec('sales order detail: Edit saves (PATCH /api/sales-orders/:id) and keeps the milestones', !!team && team.startsWith(so?.projectTeam || '\u0000') && (so?.paymentMilestones || []).length > 0, `${so?.projectTeam} vs ${team} ms=${(so?.paymentMilestones || []).length}${noAlerts(a)}`);
   rec('sales order edit: no errors', a.errors.length === 0, a.errors.join('|'));
 
   // Quotation duplicate (admin)
@@ -969,7 +973,97 @@ async function group6j(browser) {
   await a.ctx.close();
 }
 
-const GROUPS = { '6a': group6a, '6b': group6b, '6c': group6c, '6d': group6d, '6e': group6e, '6f': group6f, '6g': group6g, '6h': group6h, '6i': group6i, '6j': group6j };
+/* ------------------------------------------------ 6k the team dropdowns, and the
+   quotation a Project Manager's site was won on (owner request, 14 Nov 2026) */
+async function group6k(browser) {
+  const adminT = await apiToken('admin');
+  const salesT = await apiToken('sales');
+  const tag = uniq();
+
+  // A lead, quoted, accepted -- the only route to a sales order now.
+  const enq = await api(salesT, 'POST', '/api/enquiries', {
+    name: `Quote Client ${tag}`, segment: 'Solar', siteType: 'Commercial', rating: 4,
+    contacts: [{ name: 'Mr Rao', designation: 'Owner', phone: '9000012345' }],
+  });
+  rec('6k: the lead is registered', enq.status === 201 && !!enq.json.enquiry?.id, String(enq.status));
+  const qt = await api(salesT, 'POST', '/api/quotations', {
+    division: 'Solar', customerName: `Quote Client ${tag}`, customerPhone: '9000012345',
+    subject: `Rooftop ${tag}`, date: today(), enquiryId: enq.json.enquiry.id,
+    equipmentItems: [{ description: 'Panels', unit: 'Nos', qty: 1, supplyRate: 400000, installationRate: 100000 }],
+    accessoriesItems: [],
+  });
+  // Solar prices per item, so the 18% default applies: 5,00,000 + 90,000.
+  rec('6k: a quotation is raised against the lead, totalling 5,90,000',
+    qt.status === 201 && qt.json.quotation?.grandTotal === 590000,
+    `${qt.status} ${qt.json.quotation?.quotationNumber} ${qt.json.quotation?.grandTotal}`);
+
+  // --- the two dropdowns on the conversion form ---
+  const s = await session(browser, 'sales');
+  await open(s, `/quotations/${qt.json.quotation.id}/convert`);
+
+  const salesSel = field(s.page, 'Sales Team');
+  const projSel = field(s.page, 'Project Team');
+  rec('6k: Sales Team is a dropdown, not a text box',
+    (await salesSel.evaluate((el) => el.tagName)) === 'SELECT');
+  rec('6k: Project Team is a dropdown, not a text box',
+    (await projSel.evaluate((el) => el.tagName)) === 'SELECT');
+
+  const salesNames = (await salesSel.locator('option').allInnerTexts()).map((t) => t.trim());
+  const projNames = (await projSel.locator('option').allInnerTexts()).map((t) => t.trim());
+  rec('6k: Sales Team offers the Admin and Sales logins',
+    salesNames.some((n) => /admin/i.test(n)) && salesNames.some((n) => /sales/i.test(n)),
+    salesNames.join(' | '));
+  rec('6k: Project Team offers the Admin and the division Managers, and no sales person',
+    projNames.some((n) => /admin/i.test(n)) && projNames.length >= 3,
+    projNames.join(' | '));
+
+  // The two lists are not the same list.
+  rec('6k: the two dropdowns are different lists',
+    JSON.stringify(salesNames) !== JSON.stringify(projNames));
+
+  const projectPick = projNames.find((n) => n !== '— none —');
+  await projSel.selectOption({ label: projectPick });
+  await flat(s.page, 'Project Name *').fill(`Won site ${tag}`);
+  await s.page.locator('form button[type=submit]').click();
+  await s.page.waitForFunction(() => !location.pathname.endsWith('/convert'), null, { timeout: 15000 }).catch(() => {});
+  await settle(s);
+
+  const sos = (await api(adminT, 'GET', '/api/sales-orders')).json.salesOrders || [];
+  const so = sos.find((o) => o.projectName === `Won site ${tag}`);
+  rec('6k: the order saved the chosen Project Team exactly as picked',
+    !!so && projectPick.startsWith(so.projectTeam), `${so && so.projectTeam} vs ${projectPick}`);
+  rec('6k: conversion form: no errors', s.errors.length === 0, s.errors.join('|') + noAlerts(s));
+  await s.ctx.close();
+
+  // --- the quotation shows on the project the order created ---
+  const projects = (await api(adminT, 'GET', '/api/projects')).json.projects || [];
+  const prj = projects.find((x) => x.name === `Won site ${tag}`);
+  rec('6k: the order created a project for the site', !!prj, String(projects.length));
+
+  const pm = await session(browser, 'akshay'); // the Solar Manager
+  await open(pm, `/projects/${prj.id}`);
+  const pmText = await pm.page.locator('body').innerText();
+  rec('6k: the Project Manager sees the quotation the site was won on',
+    pmText.includes(`Won on quotation ${qt.json.quotation.quotationNumber}`), pmText.slice(0, 200));
+  const quotePanel = await pm.page.locator('.proj-quote').innerText();
+  rec('6k: and what it was quoted at, and that the customer accepted it',
+    /quoted value/i.test(quotePanel) && /5,90,000/.test(quotePanel) && /accepted/i.test(quotePanel),
+    quotePanel.replace(/\s+/g, ' ').slice(0, 200));
+
+  // The Quotations screens themselves stay shut to that login.
+  const shut = await api(pm.token, 'GET', `/api/quotations/${qt.json.quotation.id}`);
+  rec('6k: the Quotations area itself is still closed to the Project Manager',
+    shut.status === 403, String(shut.status));
+
+  const link = await api(pm.token, 'GET', `/api/projects/${prj.id}/quotation-pdf-link`);
+  rec('6k: but the quotation PDF is reachable through the project',
+    link.status === 200 && /^[0-9a-f]{48}$/.test(link.json.pdfToken || ''), String(link.status));
+
+  rec('6k: project screen: no errors', pm.errors.length === 0, pm.errors.join('|') + noAlerts(pm));
+  await pm.ctx.close();
+}
+
+const GROUPS = { '6a': group6a, '6b': group6b, '6c': group6c, '6d': group6d, '6e': group6e, '6f': group6f, '6g': group6g, '6h': group6h, '6i': group6i, '6j': group6j, '6k': group6k };
 
 (async () => {
   const want = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(GROUPS);

@@ -13,6 +13,7 @@ const { requireCompanyContext, rejectClientSuppliedCompanyId } = require('../mid
  *   POST   /api/sales-orders                        standalone create (sales/admin, no Enquiry)
  *   GET    /api/sales-orders                         list/search/filter
  *   GET    /api/sales-orders/export.csv              CSV export (exact PWA dlSOs columns)
+ *   GET    /api/sales-orders/team-candidates        Sales Team / Project Team dropdown names
  *   GET    /api/sales-orders/:id                     detail (costing redacted for engineer/service_eng)
  *   PATCH  /api/sales-orders/:id                     plain field edit (no cascade re-run)
  *   POST   /api/sales-orders/:id/milestones/:mi/raise  raise a milestone to Finance (PM/admin)
@@ -65,6 +66,16 @@ function createSalesOrderRouter(deps) {
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', `attachment; filename="sales-orders.csv"`);
       return res.status(200).send(csv);
+    })
+  );
+
+  // Owner request (14 Nov 2026): the two team fields are dropdowns, so the
+  // form needs the names. Mounted above '/:id' so it is not read as an id.
+  router.get(
+    '/team-candidates',
+    handle(async (req, res) => {
+      const candidates = await service.listTeamCandidates(req.auth, deps);
+      return res.status(200).json(candidates);
     })
   );
 

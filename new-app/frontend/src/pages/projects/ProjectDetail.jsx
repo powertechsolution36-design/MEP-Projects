@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api, getStoredToken } from '../../api/client';
 import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../auth/AuthContext';
-import { fmtDate } from '../../utils/format';
+import { fmtDate, money } from '../../utils/format';
 import { addDaysKey, todayKey, spreadTimelineDates } from '../../utils/timeline';
 import DeliveryChallanPanel from './DeliveryChallanPanel';
 import SignaturePad from '../../components/SignaturePad';
@@ -201,6 +201,26 @@ export default function ProjectDetail() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  /* ---------- the quotation this site was won on (owner request, 14 Nov 2026) ----------
+     The link is minted on the click, not on every project read, so looking at
+     a project never writes to the quotation. */
+  const [quotePdfBusy, setQuotePdfBusy] = useState(false);
+  const [quotePdfError, setQuotePdfError] = useState('');
+
+  async function openQuotationPdf() {
+    setQuotePdfBusy(true);
+    setQuotePdfError('');
+    try {
+      const d = await api.get(`/api/projects/${id}/quotation-pdf-link`);
+      if (!d || !d.pdfToken) throw new Error('No PDF is available for this quotation.');
+      window.open(`${window.location.origin}/api/public/quotations/${d.pdfToken}`, '_blank', 'noopener');
+    } catch (err) {
+      setQuotePdfError(err.message);
+    } finally {
+      setQuotePdfBusy(false);
+    }
+  }
 
   /* ---------- timelineReady (§7) ---------- */
   function isTimelineReady(p) {
@@ -644,6 +664,29 @@ export default function ProjectDetail() {
               🧾 View Sales Order
             </button>
           </p>
+        )}
+
+        {/* Owner request (14 Nov 2026): the quotation this site was won on,
+            read-only, so a Project Manager sees what was promised without
+            being given the Quotations screens. */}
+        {proj.quotation && (
+          <div className="proj-quote" style={{ marginTop: 12 }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>
+              Won on quotation {proj.quotation.quotationNumber || '—'}
+            </div>
+            <div className="detail-grid">
+              <div><strong>Quoted on:</strong> {fmtDate(proj.quotation.date)}</div>
+              <div><strong>Status:</strong> {proj.quotation.status || '—'}</div>
+              <div><strong>Quoted value:</strong> {proj.quotation.grandTotal === null || proj.quotation.grandTotal === undefined ? '—' : money(proj.quotation.grandTotal)}</div>
+              <div><strong>Subject:</strong> {proj.quotation.subject || '—'}</div>
+            </div>
+            <p style={{ marginTop: 8 }}>
+              <button className="btn sec sm" onClick={openQuotationPdf} disabled={quotePdfBusy}>
+                {quotePdfBusy ? 'Opening…' : '📄 Open quotation PDF'}
+              </button>
+              {quotePdfError && <span className="err" style={{ marginLeft: 8 }}>{quotePdfError}</span>}
+            </p>
+          </div>
         )}
 
         {/* ======== Stage & Status ======== */}
