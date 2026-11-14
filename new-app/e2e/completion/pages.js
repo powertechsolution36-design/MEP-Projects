@@ -814,13 +814,14 @@ async function group5f(browser) {
   const adminT = await apiToken('admin');
   const getQ = async (id) => (await api(adminT, 'GET', `/api/quotations/${id}`)).json?.quotation;
   const field = (page, text) => page.locator(`label.filter-field:has-text("${text}") :is(input, select)`).first();
+  // Owner request (14 Nov 2026): amounts are plain text boxes with no
+  // spinner, and GST is picked from a list.
   const fillRow = async (panel, i, { desc, qty, supply, gst }) => {
     const row = panel.locator('tbody tr').nth(i);
     await row.locator('input[placeholder="Item description"]').fill(desc);
-    const nums = row.locator('input[type=number]');
-    await nums.nth(0).fill(String(qty));
-    await nums.nth(1).fill(String(supply));
-    if (gst !== undefined) await nums.nth(2).fill(String(gst));
+    await row.locator('input[aria-label="Quantity"]').fill(String(qty));
+    await row.locator('input[aria-label="Supply rate"]').fill(String(supply));
+    if (gst !== undefined) await row.locator('select[aria-label="GST % for this item"]').selectOption(String(gst));
   };
   const createAndOpen = async (s) => {
     await s.page.locator('button:has-text("Create Quotation")').click();
@@ -844,6 +845,13 @@ async function group5f(browser) {
     await panel.locator('button:has-text("+ Add Row")').click();
     await fillRow(panel, 1, { desc: 'E2E Inverter', qty: 1, supply: 50000, gst: 18 });
     const tot = (await s.page.locator('.panel:has(h3:text-is("Totals"))').innerText()).replace(/\s+/g, ' ');
+    const firstRow = panel.locator('tbody tr').nth(0);
+    rec('quotation create: an amount is a plain box — no spinner to nudge the price',
+      (await firstRow.locator('input[aria-label="Supply rate"]').getAttribute('type')) === 'text'
+      && (await firstRow.locator('input[type=number]').count()) === 0);
+    rec('quotation create: GST is picked from a list, and can be left off',
+      (await firstRow.locator('select[aria-label="GST % for this item"] option').allInnerTexts())
+        .map((t) => t.trim()).join('|').includes('18%'));
     rec('quotation create (Solar): on-screen GST is per item (₹ 21,000), grand total ₹ 1,71,000', /GST Amount ₹ 21,000/i.test(tot) && /Grand Total ₹ 1,71,000/i.test(tot), tot);
     solarId = await createAndOpen(s);
     const q = solarId ? await getQ(solarId) : null;
@@ -863,7 +871,7 @@ async function group5f(browser) {
     await field(s.page, 'Customer Name *').fill('E2E Export Customer');
     const panel = s.page.locator('.panel:has(h3:text-is("Equipment Items"))');
     await fillRow(panel, 0, { desc: 'E2E VRF outdoor unit', qty: 1, supply: 200000 });
-    await s.page.locator('.panel:has(h3:text-is("Totals")) input[type=number]').fill('0');
+    await s.page.locator('.panel:has(h3:text-is("Totals")) select[aria-label="GST %"]').selectOption('');
     hvacId = await createAndOpen(s);
     const q = hvacId ? await getQ(hvacId) : null;
     rec('quotation create (HVAC): a 0% GST quotation is saved at 0% (not 18%)', !!q && Number(q.gstPercent) === 0 && Number(q.gstAmount) === 0, q ? `${q.gstPercent}% ${q.gstAmount}` : s.page.url());

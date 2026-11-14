@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { money } from '../../utils/format';
+import AmountInput, { GstSelect } from '../../components/AmountInput';
 
 /**
  * The Equipment / Accessories line-item editor, shared by the create and the
@@ -192,17 +193,18 @@ export default function LineItemsEditor({ items, setItems, label, onAutocomplete
                     />
                   </td>
                   <td><input value={item.unit || ''} onChange={e => setItemField(idx, 'unit', e.target.value)} style={{ width: 60 }} /></td>
-                  <td><input type="number" min={0} value={item.qty ?? 0} onChange={e => setItemField(idx, 'qty', Number(e.target.value))} style={{ width: 60 }} /></td>
-                  <td><input type="number" min={0} value={item.supplyRate ?? 0} onChange={e => setItemField(idx, 'supplyRate', Number(e.target.value))} style={{ width: 90 }} /></td>
-                  {!isSolar && <td><input type="number" min={0} value={item.installationRate ?? 0} onChange={e => setItemField(idx, 'installationRate', Number(e.target.value))} style={{ width: 90 }} /></td>}
+                  <td><AmountInput value={item.qty} onChange={v => setItemField(idx, 'qty', v === '' ? 0 : v)} style={{ width: 60 }} ariaLabel="Quantity" /></td>
+                  <td><AmountInput value={item.supplyRate} onChange={v => setItemField(idx, 'supplyRate', v === '' ? 0 : v)} style={{ width: 90 }} ariaLabel="Supply rate" /></td>
+                  {!isSolar && <td><AmountInput value={item.installationRate} onChange={v => setItemField(idx, 'installationRate', v === '' ? 0 : v)} style={{ width: 90 }} ariaLabel="Installation rate" /></td>}
                   <td>
-                    <input
-                      type="number" min={0}
-                      value={item.gstPercent != null ? item.gstPercent : ''}
-                      onChange={e => setItemField(idx, 'gstPercent', e.target.value === '' ? null : Number(e.target.value))}
-                      style={{ width: 70 }}
-                      placeholder={isSolar ? '18' : '—'}
-                      title={isSolar ? 'GST % for this item' : "GST % for this item — leave blank to use the quotation's GST %"}
+                    <GstSelect
+                      value={item.gstPercent}
+                      onChange={v => setItemField(idx, 'gstPercent', v)}
+                      blankValue={null}
+                      blankLabel={isSolar ? '18% (default)' : "Quotation's %"}
+                      style={{ width: 110 }}
+                      ariaLabel="GST % for this item"
+                      title={isSolar ? 'GST % for this item — blank means the 18% default' : "GST % for this item — blank uses the quotation's GST %"}
                     />
                   </td>
                   <td style={{ textAlign: 'right' }}>{money(basicAmt)}</td>

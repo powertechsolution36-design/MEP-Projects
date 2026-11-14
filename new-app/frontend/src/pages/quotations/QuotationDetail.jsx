@@ -6,6 +6,7 @@ import { money, fmtDate } from '../../utils/format';
 import DivisionSelector from '../../components/DivisionSelector';
 import { quotationProblem } from './quotationValidation';
 import LineItemsEditor from './LineItemsEditor';
+import { GstSelect } from '../../components/AmountInput';
 import { quotationTotals } from './quotationTotals';
 import { whatsappUrl, displayNumber } from '../../utils/whatsapp';
 
@@ -371,7 +372,7 @@ export default function QuotationDetail() {
               <div><strong>Equipment Total</strong><br/>{money(editTotals.eqTotal)}</div>
               <div><strong>Accessories Total</strong><br/>{money(editTotals.accTotal)}</div>
               <div><strong>Subtotal</strong><br/>{money(editTotals.subtotal)}</div>
-              <div><strong>GST %</strong><br/><input type="number" value={form.gstPercent} onChange={e => setField('gstPercent', e.target.value)} style={{ width: 60 }} /></div>
+              <div><strong>GST %</strong><br/><GstSelect value={form.gstPercent} onChange={v => setField('gstPercent', v)} style={{ width: 110 }} ariaLabel="GST %" title="GST % on the subtotal — No GST charges nothing" /></div>
               <div><strong>GST Amount</strong><br/>{money(editTotals.gstAmount)}</div>
               <div><strong>Grand Total</strong><br/><strong style={{ fontSize: 18 }}>{money(editTotals.grandTotal)}</strong></div>
             </div>

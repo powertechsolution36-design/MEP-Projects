@@ -5,6 +5,7 @@ import { money, today } from '../../utils/format';
 import DivisionSelector from '../../components/DivisionSelector';
 import { quotationProblem } from './quotationValidation';
 import LineItemsEditor, { EMPTY_LINE } from './LineItemsEditor';
+import { GstSelect } from '../../components/AmountInput';
 import { quotationTotals } from './quotationTotals';
 
 /**
@@ -452,8 +453,8 @@ export default function QuotationCreate() {
             <div><strong>Subtotal</strong><br/>{money(totals.subtotal)}</div>
             <div>
               <strong>GST %</strong><br/>
-              <input type="number" value={form.gstPercent} onChange={e => setField('gstPercent', e.target.value)}
-                style={{ width: 60 }} min={0} max={100} />
+              <GstSelect value={form.gstPercent} onChange={v => setField('gstPercent', v)}
+                style={{ width: 110 }} ariaLabel="GST %" title="GST % on the subtotal — No GST charges nothing" />
             </div>
             <div><strong>GST Amount</strong><br/>{money(totals.gstAmount)}</div>
             <div><strong>Grand Total</strong><br/><span style={{ fontSize: 18, fontWeight: 'bold' }}>{money(totals.grandTotal)}</span></div>
