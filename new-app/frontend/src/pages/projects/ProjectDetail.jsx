@@ -208,7 +208,14 @@ export default function ProjectDetail() {
   const [quotePdfBusy, setQuotePdfBusy] = useState(false);
   const [quotePdfError, setQuotePdfError] = useState('');
 
-  async function openQuotationPdf() {
+  // The roles quotationRoutes lets through; everyone else reads the PDF.
+  const canOpenQuotationScreen = ['admin', 'sales', 'finance'].includes(user?.role);
+
+  async function openQuotation() {
+    if (canOpenQuotationScreen && proj?.quotation?.id) {
+      navigate(`/quotations/${proj.quotation.id}`);
+      return;
+    }
     setQuotePdfBusy(true);
     setQuotePdfError('');
     try {
@@ -657,12 +664,23 @@ export default function ProjectDetail() {
           <div><strong>Checklist Template:</strong> {proj.checklistTemplateName || '—'}</div>
         </div>
 
-        {/* SO Link */}
-        {proj.salesOrderId && (
-          <p style={{ marginTop: 8 }}>
-            <button className="btn sec sm" onClick={() => navigate(`/sales-orders/${proj.salesOrderId}`)}>
-              🧾 View Sales Order
-            </button>
+        {/* SO link, and beside it the quotation the site was won on
+            (owner request, 14 Nov 2026). A login that may open the
+            Quotations screens goes to the quotation itself; one that may
+            not -- a Project Manager -- gets the customer's PDF. */}
+        {(proj.salesOrderId || proj.quotation) && (
+          <p style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {proj.salesOrderId && (
+              <button className="btn sec sm" onClick={() => navigate(`/sales-orders/${proj.salesOrderId}`)}>
+                🧾 View Sales Order
+              </button>
+            )}
+            {proj.quotation && (
+              <button className="btn sec sm" onClick={openQuotation} disabled={quotePdfBusy}>
+                {quotePdfBusy ? 'Opening…' : '📄 View Quotation'}
+              </button>
+            )}
+            {quotePdfError && <span className="err">{quotePdfError}</span>}
           </p>
         )}
 
@@ -680,12 +698,6 @@ export default function ProjectDetail() {
               <div><strong>Quoted value:</strong> {proj.quotation.grandTotal === null || proj.quotation.grandTotal === undefined ? '—' : money(proj.quotation.grandTotal)}</div>
               <div><strong>Subject:</strong> {proj.quotation.subject || '—'}</div>
             </div>
-            <p style={{ marginTop: 8 }}>
-              <button className="btn sec sm" onClick={openQuotationPdf} disabled={quotePdfBusy}>
-                {quotePdfBusy ? 'Opening…' : '📄 Open quotation PDF'}
-              </button>
-              {quotePdfError && <span className="err" style={{ marginLeft: 8 }}>{quotePdfError}</span>}
-            </p>
           </div>
         )}
 

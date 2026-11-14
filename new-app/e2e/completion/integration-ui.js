@@ -1050,6 +1050,19 @@ async function group6k(browser) {
     /quoted value/i.test(quotePanel) && /5,90,000/.test(quotePanel) && /accepted/i.test(quotePanel),
     quotePanel.replace(/\s+/g, ' ').slice(0, 200));
 
+  rec('6k: View Quotation sits beside View Sales Order',
+    (await pm.page.locator('button:has-text("View Sales Order")').count()) === 1
+    && (await pm.page.locator('button:has-text("View Quotation")').count()) === 1);
+
+  // For a Project Manager the button opens the customer's PDF in a new tab,
+  // because the Quotations screens are not theirs to open.
+  const popup = pm.page.waitForEvent('popup', { timeout: 10000 }).catch(() => null);
+  await pm.page.locator('button:has-text("View Quotation")').click();
+  const tab = await popup;
+  rec('6k: for the Project Manager it opens the quotation PDF',
+    !!tab && /\/api\/public\/quotations\/[0-9a-f]{48}$/.test(tab.url()), tab ? tab.url() : 'no new tab');
+  if (tab) await tab.close();
+
   // The Quotations screens themselves stay shut to that login.
   const shut = await api(pm.token, 'GET', `/api/quotations/${qt.json.quotation.id}`);
   rec('6k: the Quotations area itself is still closed to the Project Manager',
@@ -1061,6 +1074,16 @@ async function group6k(browser) {
 
   rec('6k: project screen: no errors', pm.errors.length === 0, pm.errors.join('|') + noAlerts(pm));
   await pm.ctx.close();
+
+  // Admin may open the Quotations screens, so the same button goes there.
+  const ad = await session(browser, 'admin');
+  await open(ad, `/projects/${prj.id}`);
+  await ad.page.locator('button:has-text("View Quotation")').click();
+  await settle(ad);
+  rec('6k: for Admin the same button opens the quotation screen itself',
+    ad.page.url().endsWith(`/quotations/${qt.json.quotation.id}`), ad.page.url());
+  rec('6k: admin project screen: no errors', ad.errors.length === 0, ad.errors.join('|') + noAlerts(ad));
+  await ad.ctx.close();
 }
 
 const GROUPS = { '6a': group6a, '6b': group6b, '6c': group6c, '6d': group6d, '6e': group6e, '6f': group6f, '6g': group6g, '6h': group6h, '6i': group6i, '6j': group6j, '6k': group6k };
