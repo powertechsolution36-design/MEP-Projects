@@ -1086,7 +1086,87 @@ async function group6k(browser) {
   await ad.ctx.close();
 }
 
-const GROUPS = { '6a': group6a, '6b': group6b, '6c': group6c, '6d': group6d, '6e': group6e, '6f': group6f, '6g': group6g, '6h': group6h, '6i': group6i, '6j': group6j, '6k': group6k };
+/* ------------------------------------------------ 6l Save as Draft on the
+   quotation and the sales order (owner request, 14 Nov 2026) */
+async function group6l(browser) {
+  const adminT = await apiToken('admin');
+  const tag = uniq();
+
+  // The quotation screen wraps its input inside the label; the sales order
+  // screen puts the label above it.
+  const qField = (page, text) => page.locator(`label.filter-field:has-text("${text}") :is(input, select)`).first();
+  const countQuotations = async () => ((await api(adminT, 'GET', '/api/quotations')).json.quotations || []).length;
+  const countOrders = async () => ((await api(adminT, 'GET', '/api/sales-orders')).json.salesOrders || []).length;
+  const countProjects = async () => ((await api(adminT, 'GET', '/api/projects')).json.projects || []).length;
+
+  const quotationsBefore = await countQuotations();
+  const ordersBefore = await countOrders();
+  const projectsBefore = await countProjects();
+
+  // --- a quotation put away half-filled ---
+  const s = await session(browser, 'sales');
+  await open(s, '/quotations/new');
+  await qField(s.page, 'Customer Name *').fill(`Draft Client ${tag}`);
+  // Division deliberately left empty: a draft does not have to be complete.
+  await s.page.locator('button:has-text("Save as Draft")').click();
+  await settle(s);
+  rec('6l: the quotation form says it saved', (await s.page.locator('body').innerText()).includes('Saved as draft.'));
+  rec('6l: a quotation draft creates no quotation, so no QTN number is spent',
+    (await countQuotations()) === quotationsBefore, `${await countQuotations()} vs ${quotationsBefore}`);
+
+  const drafts = (await api(s.token, 'GET', '/api/form-drafts?kind=quotation')).json.drafts || [];
+  const mine = drafts.find((d) => d.label === `Draft Client ${tag}`);
+  rec('6l: the draft is listed under the name it had got to', !!mine, drafts.map((d) => d.label).join(' | '));
+
+  // --- and picked up again on a fresh visit ---
+  await open(s, '/quotations/new');
+  await s.page.locator('button:has-text("Drafts (")').click();
+  await s.page.locator(`button:has-text("Draft Client ${tag}")`).click();
+  await settle(s);
+  rec('6l: resuming a draft puts the form back as it was',
+    (await qField(s.page, 'Customer Name *').inputValue()) === `Draft Client ${tag}`);
+
+  // Finishing it is the ordinary submit — and only then is a number spent.
+  await qField(s.page, 'Division *').selectOption('Solar');
+  await s.page.locator('button:has-text("Create Quotation")').click();
+  await s.page.waitForURL(/\/quotations\/(?!new$)[^/]+$/, { timeout: 15000 }).catch(() => {});
+  await settle(s);
+  rec('6l: finishing the draft creates the quotation', (await countQuotations()) === quotationsBefore + 1,
+    `${await countQuotations()} vs ${quotationsBefore + 1}`);
+  const left = (await api(s.token, 'GET', '/api/form-drafts?kind=quotation')).json.drafts || [];
+  rec('6l: and the draft is cleared once the quotation exists',
+    !left.some((d) => d.label === `Draft Client ${tag}`), left.map((d) => d.label).join(' | '));
+  rec('6l: quotation drafts: no errors', s.errors.length === 0, s.errors.join('|') + noAlerts(s));
+  await s.ctx.close();
+
+  // --- a sales order put away half-filled raises nothing at all ---
+  const so = await session(browser, 'sales');
+  await open(so, '/sales-orders/new');
+  await field(so.page, 'Project Name *').fill(`Draft Site ${tag}`);
+  await so.page.locator('button:has-text("Save as Draft")').click();
+  await settle(so);
+  rec('6l: a sales order draft raises no order, no project and no payment',
+    (await countOrders()) === ordersBefore && (await countProjects()) === projectsBefore,
+    `orders ${await countOrders()}/${ordersBefore} projects ${await countProjects()}/${projectsBefore}`);
+
+  const soDrafts = (await api(so.token, 'GET', '/api/form-drafts?kind=salesOrder')).json.drafts || [];
+  rec('6l: the sales order draft is listed', soDrafts.some((d) => d.label === `Draft Site ${tag}`),
+    soDrafts.map((d) => d.label).join(' | '));
+  rec('6l: sales order drafts: no errors', so.errors.length === 0, so.errors.join('|') + noAlerts(so));
+  await so.ctx.close();
+
+  // --- a draft is personal ---
+  const otherT = await apiToken('finance');
+  const seen = (await api(otherT, 'GET', '/api/form-drafts?kind=quotation')).json.drafts || [];
+  rec('6l: another person does not see someone else’s drafts',
+    !seen.some((d) => d.label === `Draft Client ${tag}`), seen.map((d) => d.label).join(' | '));
+  const engineerT = await apiToken('vinod');
+  const refused = await api(engineerT, 'GET', '/api/form-drafts?kind=quotation');
+  rec('6l: a role that cannot raise a quotation cannot keep drafts of one either',
+    refused.status === 403, String(refused.status));
+}
+
+const GROUPS = { '6a': group6a, '6b': group6b, '6c': group6c, '6d': group6d, '6e': group6e, '6f': group6f, '6g': group6g, '6h': group6h, '6i': group6i, '6j': group6j, '6k': group6k, '6l': group6l };
 
 (async () => {
   const want = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(GROUPS);

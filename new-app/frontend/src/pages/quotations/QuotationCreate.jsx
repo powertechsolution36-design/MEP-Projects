@@ -6,6 +6,7 @@ import DivisionSelector from '../../components/DivisionSelector';
 import { quotationProblem } from './quotationValidation';
 import LineItemsEditor, { EMPTY_LINE } from './LineItemsEditor';
 import { GstSelect } from '../../components/AmountInput';
+import DraftBar, { useDrafts } from '../../components/DraftBar';
 import { quotationTotals } from './quotationTotals';
 
 /**
@@ -40,6 +41,24 @@ export default function QuotationCreate() {
   const [accessoriesItems, setAccessoriesItems] = useState([]);
   const [paymentTerms, setPaymentTerms] = useState([]);
   const [excludedWorks, setExcludedWorks] = useState(['']);
+
+  /* Save as Draft (owner request, 14 Nov 2026). The draft is this whole
+     screen, put away. Nothing is numbered until Create Quotation is pressed,
+     so an abandoned draft leaves no gap in the QTN numbering. */
+  const drafts = useDrafts(
+    'quotation',
+    () => ({ form, equipmentItems, accessoriesItems, paymentTerms, excludedWorks, selectedTemplate }),
+    form.customerName || form.subject || 'Untitled quotation'
+  );
+  function resumeDraft(p) {
+    if (p.form) setForm((f) => ({ ...f, ...p.form }));
+    if (Array.isArray(p.equipmentItems)) setEquipmentItems(p.equipmentItems);
+    if (Array.isArray(p.accessoriesItems)) setAccessoriesItems(p.accessoriesItems);
+    if (Array.isArray(p.paymentTerms)) setPaymentTerms(p.paymentTerms);
+    if (Array.isArray(p.excludedWorks)) setExcludedWorks(p.excludedWorks);
+    if (p.selectedTemplate !== undefined) setSelectedTemplate(p.selectedTemplate);
+    setSaveError('');
+  }
 
   /* Prefill from the lead this is being quoted for. Only the fields a lead
      actually knows — the rest is the quotation's own work. */
@@ -280,6 +299,8 @@ export default function QuotationCreate() {
         enquiryId: enquiryId || undefined,
       };
       const data = await api.post('/api/quotations', payload);
+      // The quotation exists now, so the draft of it has done its job.
+      await drafts.discard();
       navigate(`/quotations/${data.quotation.id}`);
     } catch (err) {
       setSaveError(err.message || 'Could not create the quotation.');
@@ -540,10 +561,11 @@ export default function QuotationCreate() {
         )}
 
         {/* ── Submit ── */}
-        <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+        <div style={{ marginTop: 16, display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <button type="submit" className="btn pri" disabled={busy}>
             {busy ? 'Creating…' : 'Create Quotation'}
           </button>
+          <DraftBar drafts={drafts} onResume={resumeDraft} />
           <button type="button" className="btn sec" onClick={() => navigate('/quotations')}>Cancel</button>
         </div>
       </form>

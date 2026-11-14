@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import { today } from '../../utils/format';
 import useMyDivisions from '../../hooks/useMyDivisions';
 import TeamSelect, { useTeamCandidates } from '../../components/TeamSelect';
+import DraftBar, { useDrafts } from '../../components/DraftBar';
 
 /**
  * Quotation → SalesOrder (owner decision, 14 Nov 2026).
@@ -33,6 +34,18 @@ export default function QuotationConvert() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState(null);
+
+  /* Save as Draft (owner request, 14 Nov 2026). The quotation stays as it is
+     and no order is raised while the form sits here: no SO number, no
+     project, no payment records, no notifications. */
+  const drafts = useDrafts(
+    'salesOrder',
+    () => ({ form, quotationId: id }),
+    (form && (form.projectName || form.siteAddress)) || 'Untitled sales order'
+  );
+  function resumeDraft(p) {
+    if (p && p.form) setForm((f) => ({ ...(f || {}), ...p.form }));
+  }
 
   useEffect(() => {
     (async () => {
@@ -121,6 +134,8 @@ export default function QuotationConvert() {
           .map(m => ({ description: m.description, amount: Number(m.amount) })),
       };
       const result = await api.post(`/api/quotations/${id}/convert`, payload);
+      // The order exists now, so the draft of it has done its job.
+      await drafts.discard();
       navigate(`/sales-orders/${result.salesOrder.id}`);
     } catch (err) {
       alert(err.message);
@@ -214,8 +229,9 @@ export default function QuotationConvert() {
             <button type="button" className="btn sec sm" onClick={addMilestone}>+ Add Milestone</button>
           )}
 
-          <div className="modal-actions" style={{ marginTop: 20 }}>
+          <div className="modal-actions" style={{ marginTop: 20, display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
             <button type="button" className="btn sec sm" onClick={() => navigate(-1)}>Cancel</button>
+            <DraftBar drafts={drafts} onResume={resumeDraft} />
             <button type="submit" className="btn pri sm" disabled={busy}>Create Sales Order</button>
           </div>
         </form>

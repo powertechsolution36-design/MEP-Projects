@@ -44,6 +44,7 @@ function createEnquiryFakeStore(seed = {}) {
     plans: seed.plans || [],
     subscriptions: seed.subscriptions || [],
     itemNames: seed.itemNames || [],
+    formDrafts: seed.formDrafts || [],
     quotations: seed.quotations || [],
     amcTemplates: seed.amcTemplates || [],
     paymentTermTemplates: seed.paymentTermTemplates || [],
@@ -77,6 +78,7 @@ function createEnquiryFakeStore(seed = {}) {
     state.inventoryItems = snap.inventoryItems;
     state.inventoryIssues = snap.inventoryIssues;
     state.inventoryTransactions = snap.inventoryTransactions;
+    state.formDrafts = snap.formDrafts;
     state.plans = snap.plans;
     state.subscriptions = snap.subscriptions;
     state.itemNames = snap.itemNames;
@@ -831,6 +833,42 @@ function createEnquiryFakeStore(seed = {}) {
 
   const sameCompany = (r, companyId) => String(r.companyId) === String(companyId);
 
+  // Owner request (14 Nov 2026): half-filled quotation and sales-order forms.
+  const formDraftRepo = {
+    async create(data) {
+      const now = new Date().toISOString();
+      const doc = { id: nextId('draft'), createdAt: now, updatedAt: now, ...data };
+      state.formDrafts.push(doc);
+      return cloneDeep(doc);
+    },
+    async findById(companyId, id) {
+      const doc = state.formDrafts.find((d) => matchesId(d, id) && sameCompany(d, companyId));
+      return doc ? cloneDeep(doc) : null;
+    },
+    async update(companyId, id, patch) {
+      const doc = state.formDrafts.find((d) => matchesId(d, id) && sameCompany(d, companyId));
+      if (!doc) return null;
+      Object.assign(doc, patch, { updatedAt: new Date().toISOString() });
+      return cloneDeep(doc);
+    },
+    async listByCompany(companyId, { kind, userId } = {}) {
+      return state.formDrafts
+        .filter((d) => sameCompany(d, companyId)
+          && (!kind || d.kind === kind)
+          && (!userId || String(d.userId) === String(userId)))
+        .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
+        .map(cloneDeep);
+    },
+    async deleteById(companyId, id) {
+      const before = state.formDrafts.length;
+      state.formDrafts = state.formDrafts.filter((d) => !(matchesId(d, id) && sameCompany(d, companyId)));
+      return state.formDrafts.length < before;
+    },
+    async deleteManyByCompany(companyId) {
+      state.formDrafts = state.formDrafts.filter((d) => !sameCompany(d, companyId));
+    },
+  };
+
   const itemNameRepo = {
     async findByNormalized(companyId, division, normalizedName) {
       const doc = state.itemNames.find(
@@ -1314,6 +1352,7 @@ function createEnquiryFakeStore(seed = {}) {
     planRepo,
     subscriptionRepo,
     itemNameRepo,
+    formDraftRepo,
     quotationRepo,
     quotationTemplateRepo,
     customerAccountRepo,

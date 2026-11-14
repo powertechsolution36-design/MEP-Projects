@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import { today } from '../../utils/format';
 import useMyDivisions from '../../hooks/useMyDivisions';
 import TeamSelect, { useTeamCandidates } from '../../components/TeamSelect';
+import DraftBar, { useDrafts } from '../../components/DraftBar';
 
 /**
  * Standalone SalesOrder Create — PWA `mSO()` with no enquiry, exact reproduction.
@@ -19,6 +20,7 @@ const DEFAULT_TERMS = '1) Fabrication not in our scope. 2) Civil and interior wo
 export default function SalesOrderCreate() {
   const DIVISIONS = useMyDivisions(); // company's purchased divisions (PWA myDivs())
   const { candidates } = useTeamCandidates();
+
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({
@@ -43,6 +45,18 @@ export default function SalesOrderCreate() {
     termsAndConditions: DEFAULT_TERMS,
     paymentMilestones: [{ description: '', amount: '' }],
   });
+
+  /* Save as Draft (owner request, 14 Nov 2026). Nothing is created while the
+     form sits here -- no SO number, no project, no payment records and no
+     notifications. All of that is Create Sales Order's job, unchanged. */
+  const drafts = useDrafts(
+    'salesOrder',
+    () => ({ form }),
+    form.projectName || form.siteAddress || 'Untitled sales order'
+  );
+  function resumeDraft(p) {
+    if (p && p.form) setForm((f) => ({ ...f, ...p.form }));
+  }
 
   // Pre-fill salesTeam with current user's name
   useEffect(() => {
@@ -98,6 +112,8 @@ export default function SalesOrderCreate() {
           .map(m => ({ description: m.description, amount: Number(m.amount) })),
       };
       const result = await api.post('/api/sales-orders', payload);
+      // The order exists now, so the draft of it has done its job.
+      await drafts.discard();
       navigate(`/sales-orders/${result.salesOrder.id}`);
     } catch (err) {
       alert(err.message);
@@ -187,8 +203,9 @@ export default function SalesOrderCreate() {
             <button type="button" className="btn sec sm" onClick={addMilestone}>+ Add Milestone</button>
           )}
 
-          <div className="modal-actions" style={{ marginTop: 20 }}>
+          <div className="modal-actions" style={{ marginTop: 20, display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
             <button type="button" className="btn sec sm" onClick={() => navigate('/sales-orders')}>Cancel</button>
+            <DraftBar drafts={drafts} onResume={resumeDraft} />
             <button type="submit" className="btn pri sm" disabled={busy}>Create Sales Order</button>
           </div>
         </form>

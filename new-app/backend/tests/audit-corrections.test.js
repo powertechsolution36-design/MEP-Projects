@@ -186,7 +186,11 @@ test('audit-correction scope guard: only authorized routes and services exist', 
     // attached to a complaint.
     'customerAccountRoutes.js',
     'dailyTaskRoutes.js', 'dashboardRoutes.js',
-    'enquiryRoutes.js', 'inventoryRoutes.js', 'itemNameRoutes.js', 'notificationRoutes.js', 'paymentRoutes.js',
+    'enquiryRoutes.js',
+    // UPDATE (owner request, 14 Nov 2026): half-filled quotation and sales
+    // order forms, saved to be finished later.
+    'formDraftRoutes.js',
+    'inventoryRoutes.js', 'itemNameRoutes.js', 'notificationRoutes.js', 'paymentRoutes.js',
     'paymentTermTemplateRoutes.js',
     // UPDATE (owner decision, 27 Oct 2026): the customer portal's own API.
     'portalRoutes.js',
@@ -222,6 +226,10 @@ test('audit-correction scope guard: only authorized routes and services exist', 
     'dailyTaskService.js',
     'dashboardService.js',
     'enquiryService.js',
+    // UPDATE (owner request, 14 Nov 2026): a draft is only the form, put
+    // away -- nothing is numbered and nothing downstream exists until the
+    // form is submitted in the ordinary way.
+    'formDraftService.js',
     'inventoryService.js',
     'itemNameService.js',
     'notificationService.js',

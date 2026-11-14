@@ -21,6 +21,7 @@ const {
   Subscription,
   Quotation,
   ItemName,
+  FormDraft,
   AmcTemplate,
   PaymentTermTemplate,
   QuotationTemplate,
@@ -1410,7 +1411,43 @@ const projectPhotoRepo = {
   },
 };
 
+/* ---------------------------------------------------------------- drafts */
+// Owner request (14 Nov 2026): a half-filled quotation or sales order can be
+// put away and finished later. See models/FormDraft.js for why a draft is
+// kept apart from the record it will become.
+const formDraftRepo = {
+  async create(data) {
+    return toPlain(await FormDraft.create(data));
+  },
+  async findById(companyId, id) {
+    if (!mongoose.isValidObjectId(id)) return null;
+    return toPlainLean(await FormDraft.findOne({ _id: id, companyId }).lean());
+  },
+  async update(companyId, id, patch) {
+    if (!mongoose.isValidObjectId(id)) return null;
+    return toPlainLean(
+      await FormDraft.findOneAndUpdate({ _id: id, companyId }, { $set: patch }, { new: true }).lean()
+    );
+  },
+  async listByCompany(companyId, { kind, userId } = {}) {
+    const q = { companyId };
+    if (kind) q.kind = kind;
+    if (userId) q.userId = userId;
+    const docs = await FormDraft.find(q).sort({ updatedAt: -1 }).lean();
+    return docs.map(toPlainLean);
+  },
+  async deleteById(companyId, id) {
+    if (!mongoose.isValidObjectId(id)) return false;
+    const res = await FormDraft.deleteOne({ _id: id, companyId });
+    return res.deletedCount > 0;
+  },
+  async deleteManyByCompany(companyId, session) {
+    await FormDraft.deleteMany({ companyId }, { session });
+  },
+};
+
 module.exports = {
+  formDraftRepo,
   enquiryRepo,
   projectPhotoRepo,
   portalInviteRepo,

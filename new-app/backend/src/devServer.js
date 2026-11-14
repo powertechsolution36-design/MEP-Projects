@@ -60,6 +60,7 @@ const { createQuotationTemplateRouter } = require('./routes/quotationTemplateRou
 const { createPortalRouter } = require('./routes/portalRoutes');
 const { createCustomerAccountRouter, createServiceCallAttachmentRouter } = require('./routes/customerAccountRoutes');
 const { createItemNameRouter } = require('./routes/itemNameRoutes');
+const { createFormDraftRouter } = require('./routes/formDraftRoutes');
 const { createAmcDocumentRouter } = require('./routes/amcDocumentRoutes');
 const { createPaymentTermTemplateRouter } = require('./routes/paymentTermTemplateRoutes');
 const { createDashboardRouter } = require('./routes/dashboardRoutes');
@@ -242,6 +243,7 @@ function createDevRepositories() {
     planRepo: store.planRepo,
     subscriptionRepo: store.subscriptionRepo,
     itemNameRepo: store.itemNameRepo,
+    formDraftRepo: store.formDraftRepo,
     quotationRepo: store.quotationRepo,
     amcTemplateRepo: store.amcTemplateRepo,
     paymentTermTemplateRepo: store.paymentTermTemplateRepo,
@@ -290,6 +292,7 @@ function createDevApp(deps, config) {
   app.use('/api/quotations', createQuotationRouter(fullDeps));
   app.use('/api/quotation-templates', createQuotationTemplateRouter(fullDeps));
   app.use('/api/item-names', createItemNameRouter(fullDeps));
+  app.use('/api/form-drafts', createFormDraftRouter(fullDeps));
   app.use('/api/amc-documents', createAmcDocumentRouter(fullDeps));
   app.use('/api/payment-term-templates', createPaymentTermTemplateRouter(fullDeps));
   app.use('/api/dashboard', createDashboardRouter(fullDeps));
