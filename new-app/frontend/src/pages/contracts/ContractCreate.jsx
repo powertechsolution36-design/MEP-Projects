@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { today } from '../../utils/format';
 import ContactsField from '../../components/ContactsField';
+import useMyDivisions from '../../hooks/useMyDivisions';
 
 /**
  * Manual AMC / Warranty Contract Creation — PWA `saveContract()` (Path B)
@@ -34,6 +35,8 @@ const CATEGORIES = ['AMC', 'Warranty'];
 
 export default function ContractCreate() {
   const { user } = useAuth();
+  // Owner request (14 Nov 2026): say which side of the business the cover is.
+  const myDivisions = useMyDivisions();
   const navigate = useNavigate();
   const [form, setForm] = useState({
     customer: '',
@@ -41,6 +44,7 @@ export default function ContractCreate() {
     email: '',
     site: '',
     capacity: '',
+    division: '',
     category: 'AMC',
     amcType: 'Quarterly',
     amount: '',
@@ -65,6 +69,10 @@ export default function ContractCreate() {
       alert('Site name required.');
       return;
     }
+    if (!form.division) {
+      alert('Choose the division — Solar, HVAC or MEP.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -74,6 +82,7 @@ export default function ContractCreate() {
         email: form.email,
         site: form.site,
         capacity: form.capacity,
+        division: form.division,
         category: form.category,
         amcType: form.amcType,
         amount: form.amount ? Number(form.amount) : 0,
@@ -144,6 +153,13 @@ export default function ContractCreate() {
         <div className="panel">
           <h3>Contract Details</h3>
           <div className="form-grid">
+            <div className="filter-field">
+              <label>Division *</label>
+              <select value={form.division} onChange={e => setField('division', e.target.value)} required>
+                <option value="">— select —</option>
+                {myDivisions.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
             <div className="filter-field">
               <label>Category</label>
               <select value={form.category} onChange={e => setField('category', e.target.value)}>

@@ -1,6 +1,7 @@
 'use strict';
 
 const { Schema, model } = require('mongoose');
+const { DIVISIONS } = require('./shared/enums');
 
 /**
  * serviceCalls — a complaint or a scheduled PM visit, registration through
@@ -57,6 +58,11 @@ const serviceCallSchema = new Schema(
     complaintNumber: { type: Number, required: true, immutable: true },
     type: { type: String, enum: ['Complaint', 'PM'], required: true, immutable: true }, // PWA FACT
     customer: { type: String, required: true }, // PWA FACT
+    // Owner request (14 Nov 2026): the division the call belongs to. Taken
+    // from the AMC / Warranty client it is raised against; asked for on a
+    // walk-in that has no client behind it. Optional for the same reason
+    // Contract.division is: calls taken before this existed have none.
+    division: { type: String, enum: DIVISIONS },
     phone: { type: String }, // PWA FACT
     site: { type: String }, // PWA FACT
     appointmentDate: { type: Date }, // PWA FACT

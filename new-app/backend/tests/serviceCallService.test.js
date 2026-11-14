@@ -900,3 +900,98 @@ test('msgReg/msgDone punctuation inconsistency preserved verbatim: "PSC " (space
   assert.match(service.msgPM(5, '2026-01-01', '10 AM', company), /PSC 5(?!-)/);
   assert.match(service.msgPMdone(5, '2026-01-01', '10 AM', company), /PSC 5(?!-)/);
 });
+
+/* ---- Division on a service call (owner request, 14 Nov 2026) ------------
+   A call takes its division from the client it is raised against; a walk-in
+   is asked. The Solar Manager works solar calls and only solar calls. */
+
+test('registerComplaint — the division comes from the AMC client it is raised against', async () => {
+  const store = baseStore({ contracts: [baseContract({ division: 'Solar' })] });
+  const { serviceCall } = await service.registerComplaint(
+    { contractId: 'c1', customer: 'Sunrise' },
+    auth(),
+    store
+  );
+  assert.equal(serviceCall.division, 'Solar');
+});
+
+test('registerComplaint — a walk-in is asked, and the answer is checked', async () => {
+  const store = baseStore();
+  const { serviceCall } = await service.registerComplaint(
+    { customer: 'Walk-in', division: 'HVAC' },
+    auth(),
+    store
+  );
+  assert.equal(serviceCall.division, 'HVAC');
+
+  await assert.rejects(
+    () => service.registerComplaint({ customer: 'X', division: 'Wind' }, auth(), store),
+    /Division must be one of/
+  );
+
+  // Not asked at all, it stays blank rather than being guessed.
+  const { serviceCall: blank } = await service.registerComplaint({ customer: 'Y' }, auth(), store);
+  assert.equal(blank.division, '');
+});
+
+test('registerComplaint — the Solar Manager gets its own division, and is refused another', async () => {
+  const store = baseStore({ contracts: [baseContract({ division: 'HVAC' })] });
+  const { serviceCall } = await service.registerComplaint(
+    { customer: 'Walk-in' },
+    auth({ role: 'solar_pm' }),
+    store
+  );
+  assert.equal(serviceCall.division, 'Solar', 'its own division is filled in');
+
+  await assert.rejects(
+    () => service.registerComplaint({ contractId: 'c1', customer: 'Ravi' }, auth({ role: 'solar_pm' }), store),
+    /HVAC client, not Solar/
+  );
+});
+
+test('listServiceCalls — confined to a division; admin may narrow to one', async () => {
+  const store = baseStore();
+  await service.registerComplaint({ customer: 'A', division: 'Solar' }, auth(), store);
+  await service.registerComplaint({ customer: 'B', division: 'HVAC' }, auth(), store);
+  await service.registerComplaint({ customer: 'C' }, auth(), store);
+
+  const solarEyes = await service.listServiceCalls(auth({ role: 'solar_pm' }), {}, store);
+  assert.deepEqual(solarEyes.map((c) => c.customer), ['A']);
+
+  const all = await service.listServiceCalls(auth(), {}, store);
+  assert.equal(all.length, 3);
+
+  const narrowed = await service.listServiceCalls(auth(), { filters: { division: 'HVAC' } }, store);
+  assert.deepEqual(narrowed.map((c) => c.customer), ['B']);
+});
+
+test('getServiceCall — another division is not found by id either', async () => {
+  const store = baseStore();
+  const { serviceCall } = await service.registerComplaint({ customer: 'B', division: 'HVAC' }, auth(), store);
+  await assert.rejects(
+    () => service.getServiceCall(serviceCall.id, auth({ role: 'solar_pm' }), store),
+    /not found/i
+  );
+  const asAdmin = await service.getServiceCall(serviceCall.id, auth(), store);
+  assert.equal(asAdmin.customer, 'B');
+});
+
+test('schedulePM — the visit inherits the client’s division', async () => {
+  const store = baseStore({ contracts: [baseContract({ division: 'Solar' })] });
+  const { serviceCall } = await service.schedulePM('c1', { date: '2026-11-20' }, auth(), store);
+  assert.equal(serviceCall.division, 'Solar');
+  assert.equal(serviceCall.type, 'PM');
+});
+
+test('the Solar Manager may register and assign, like the service manager', async () => {
+  const store = baseStore({ users: [engineerUser()] });
+  const { serviceCall } = await service.registerComplaint({ customer: 'Sunrise' }, auth({ role: 'solar_pm' }), store);
+  const updated = await service.assignEngineer(
+    serviceCall.id,
+    { engineerId: 'eng1', date: '2026-11-20' },
+    auth({ role: 'solar_pm' }),
+    store
+  );
+  assert.equal(updated.engineerId, 'eng1');
+  assert.equal(updated.status, 'Assigned');
+});

@@ -34,7 +34,7 @@ const STATUS_NOTE = {
   Completed: 'Work finished',
 };
 
-const MANAGE_ROLES = ['admin', 'service_mgr'];
+const MANAGE_ROLES = ['admin', 'service_mgr', 'solar_pm'];
 
 function statusClass(status) {
   if (status === 'Registered') return 'status-pending';
@@ -53,8 +53,14 @@ export default function ServiceCallList() {
   const [search, setSearch] = useState('');
   // '' is every status, banded. A chip narrows it to one band.
   const [statusFilter, setStatusFilter] = useState('');
+  // Owner request (14 Nov 2026): admin narrows the register to one division.
+  // A division-confined login never sees this — the server has already
+  // limited it to that division.
+  const [division, setDivision] = useState('');
 
   const canManage = MANAGE_ROLES.includes(user?.role);
+  /* A login tied to one division has nothing to filter. */
+  const showDivisionFilter = !['hvac_pm', 'solar_pm', 'mep_pm'].includes(user?.role);
 
   /* Engineer name map for display (backend list returns engineerId only) */
   const [engineerMap, setEngineerMap] = useState({});
@@ -83,6 +89,7 @@ export default function ServiceCallList() {
     try {
       const params = new URLSearchParams();
       if (search) params.set('q', search);
+      if (division) params.set('division', division);
       const qs = params.toString();
       const data = await api.get('/api/service-calls' + (qs ? '?' + qs : ''));
       setCalls(data.serviceCalls || []);
@@ -91,7 +98,7 @@ export default function ServiceCallList() {
     } finally {
       setLoading(false);
     }
-  }, [search]);
+  }, [search, division]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -99,6 +106,7 @@ export default function ServiceCallList() {
     try {
       const params = new URLSearchParams();
       if (search) params.set('q', search);
+      if (division) params.set('division', division);
       const resp = await fetch(
         API_BASE_URL + '/api/service-calls/export.csv' + (params.toString() ? '?' + params.toString() : ''),
         { headers: { Authorization: `Bearer ${getStoredToken()}` } }
@@ -195,6 +203,21 @@ export default function ServiceCallList() {
 
       {!loading && !error && (
         <>
+          {showDivisionFilter && (
+            <div className="sc-chips" role="group" aria-label="Filter by division">
+              {['', 'HVAC', 'Solar', 'MEP'].map((d) => (
+                <button
+                  key={d || 'all'}
+                  type="button"
+                  className={`sc-chip${division === d ? ' is-on' : ''}`}
+                  onClick={() => setDivision(d)}
+                >
+                  {d || 'All divisions'}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="sc-chips" role="group" aria-label="Filter by status">
             <button
               type="button"
@@ -224,6 +247,7 @@ export default function ServiceCallList() {
                   <th>Customer</th>
                   <th>Phone</th>
                   <th>Site</th>
+                  <th>Division</th>
                   <th>Date</th>
                   <th>Status</th>
                   <th>Engineer</th>
@@ -232,13 +256,13 @@ export default function ServiceCallList() {
               </thead>
               {shownBands.length === 0 && (
                 <tbody>
-                  <tr><td colSpan={9} className="muted">No service calls found.</td></tr>
+                  <tr><td colSpan={10} className="muted">No service calls found.</td></tr>
                 </tbody>
               )}
               {shownBands.map(([st, rows]) => (
                 <tbody key={st} className={`sc-band sc-band-${st.toLowerCase()}`}>
                   <tr className="sc-band-head">
-                    <th colSpan={9} scope="colgroup">
+                    <th colSpan={10} scope="colgroup">
                       <span className={`status-badge ${statusClass(st)}`}>{st}</span>
                       <span className="sc-band-n">{rows.length}</span>
                       <span className="sc-band-note">{STATUS_NOTE[st]}</span>
@@ -255,6 +279,7 @@ export default function ServiceCallList() {
                       <td>{c.customer || '—'}</td>
                       <td>{c.phone || '—'}</td>
                       <td>{c.site || '—'}</td>
+                      <td>{c.division || '—'}</td>
                       <td>{fmtDate(c.appointmentDate || c.registeredDate)}</td>
                       <td><span className={`status-badge ${statusClass(c.status)}`}>{c.status}</span></td>
                       <td>{engineerMap[c.engineerId] || '—'}</td>

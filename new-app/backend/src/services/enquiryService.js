@@ -2,6 +2,7 @@
 
 const { ServiceError } = require('../errors');
 const { buildContacts, primaryPhone } = require('./shared/contacts');
+const { ROLE_DIVISION_MAP } = require('../auth/roleDivision');
 const { assertDivisionEntitled } = require('./subscriptionService');
 const { PROJECT_STAGES_BY_DIVISION } = require('../models/shared/enums');
 const cascade = require('./salesOrderCascade');
@@ -84,11 +85,14 @@ function assertRole(actorAuth, allowedRoles, actionDescription) {
 // Owner decision (29 Oct 2026): `admin` may raise an Enquiry as well. The
 // PWA showed "+ New Enquiry" to sales only and this gate reproduced that
 // server-side; the owner asked for admin to be able to add one too.
-const CREATE_ROLES = Object.freeze(['sales', 'admin']);
+// Owner request (14 Nov 2026): the Solar Manager works solar leads itself —
+// raising, chasing and converting them — so it joins sales and admin here.
+// What it may see and raise is confined to its own division (segmentScope).
+const CREATE_ROLES = Object.freeze(['sales', 'admin', 'solar_pm']);
 // `admin` can do everything `sales` can (edit, follow-up, mark Lost, reopen,
 // convert — none of these carry a role gate in the PWA beyond menu access).
 // Enforced HERE, server-side.
-const MANAGE_ROLES = Object.freeze(['sales', 'admin']);
+const MANAGE_ROLES = Object.freeze(['sales', 'admin', 'solar_pm']);
 
 async function createEnquiry(input, actorAuth, deps) {
   assertCompanyContext(actorAuth);
@@ -116,6 +120,11 @@ async function createEnquiry(input, actorAuth, deps) {
   // PWA FACT (mEnq, index.html:1916): segment options are the company's
   // divisions plus "AMC" -- enforced server-side (owner-approved).
   await assertDivisionEntitled(actorAuth.companyId, segment, deps, { allowAmc: true });
+  // A division-confined login raises leads for its own division only.
+  const mine = segmentScope(actorAuth);
+  if (mine && segment !== mine) {
+    throw new ServiceError(`This login can only raise ${mine} enquiries.`, 'FORBIDDEN', 403);
+  }
 
   const data = {
     companyId: actorAuth.companyId,
@@ -144,6 +153,10 @@ async function getEnquiry(id, actorAuth, deps) {
   assertRole(actorAuth, MANAGE_ROLES, 'view Enquiries');
   const enquiry = await deps.enquiryRepo.findById(actorAuth.companyId, id);
   if (!enquiry) {
+    throw new ServiceError('Enquiry not found.', 'NOT_FOUND', 404);
+  }
+  const mine = segmentScope(actorAuth);
+  if (mine && enquiry.segment !== mine) {
     throw new ServiceError('Enquiry not found.', 'NOT_FOUND', 404);
   }
   return enquiry;
@@ -191,6 +204,10 @@ async function editEnquiry(id, patchInput, actorAuth, deps) {
     }
     if (patch.segment !== existing.segment) {
       await assertDivisionEntitled(actorAuth.companyId, patch.segment, deps, { allowAmc: true });
+    }
+    const mine = segmentScope(actorAuth);
+    if (mine && patch.segment !== mine) {
+      throw new ServiceError(`This login can only keep enquiries in ${mine}.`, 'FORBIDDEN', 403);
     }
   }
 
@@ -367,12 +384,23 @@ function applyEnquiryFilters(rows, filters) {
  * apply the same `applyEnqFilt`. `includeLost: true` reproduces the Lost
  * Enquiries screen's scope; the default reproduces the Enquiry List screen.
  */
+/**
+ * The segment a login is confined to, or null for one that sees them all.
+ * An enquiry's "segment" is its division (or AMC), so a division-confined
+ * login sees its own division's leads and the AMC leads that belong to it.
+ */
+function segmentScope(actorAuth) {
+  return ROLE_DIVISION_MAP[actorAuth && actorAuth.role] || null;
+}
+
 async function listEnquiries(actorAuth, { includeLost = false, filters = {} } = {}, deps) {
   assertCompanyContext(actorAuth);
   assertRole(actorAuth, MANAGE_ROLES, 'view Enquiries');
 
   const all = await deps.enquiryRepo.listByCompany(actorAuth.companyId);
-  const scoped = includeLost ? all.filter((x) => x.status === 'Lost') : all.filter((x) => x.status !== 'Lost');
+  const mine = segmentScope(actorAuth);
+  const owned = mine ? all.filter((x) => x.segment === mine) : all;
+  const scoped = includeLost ? owned.filter((x) => x.status === 'Lost') : owned.filter((x) => x.status !== 'Lost');
   return applyEnquiryFilters(scoped, filters);
 }
 

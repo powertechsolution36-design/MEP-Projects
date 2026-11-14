@@ -2,6 +2,8 @@
 
 const { ServiceError } = require('../errors');
 const { buildContacts, primaryPhone } = require('./shared/contacts');
+const { DIVISIONS } = require('../models/shared/enums');
+const { ROLE_DIVISION_MAP } = require('../auth/roleDivision');
 const projectService = require('./projectService');
 
 /**
@@ -80,13 +82,36 @@ const projectService = require('./projectService');
  * never a fabricated sentinel date.
  */
 
-const MANAGE_ROLES = Object.freeze(['admin', 'service_mgr']); // PWA FACT (§13): menu/button gate for create, PM-schedule, reports.
+// Owner request (14 Nov 2026): the Solar Manager runs the solar side end to
+// end, so it creates and manages AMC / Warranty clients like the service
+// manager does — but only within its own division (see divisionScope below).
+const MANAGE_ROLES = Object.freeze(['admin', 'service_mgr', 'solar_pm']); // PWA FACT (§13) + solar_pm.
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 function assertCompanyContext(actorAuth) {
   if (!actorAuth || !actorAuth.companyId) {
     throw new ServiceError('No company context for this account.', 'NO_COMPANY_CONTEXT', 403);
   }
+}
+
+/**
+ * The division a login is confined to, or null for a login that sees them
+ * all. Owner request (14 Nov 2026) — the same role-to-division table every
+ * other screen already scopes by, now applied to AMC clients too.
+ */
+function divisionScope(actorAuth) {
+  return ROLE_DIVISION_MAP[actorAuth && actorAuth.role] || null;
+}
+
+/** Validates a division against the fixed three. Blank means "not set". */
+function readDivision(value) {
+  if (value === undefined) return undefined;
+  const d = String(value === null ? '' : value).trim();
+  if (!d) return '';
+  if (!DIVISIONS.includes(d)) {
+    throw new ServiceError(`Division must be one of: ${DIVISIONS.join(', ')}.`, 'VALIDATION_ERROR', 400);
+  }
+  return d;
 }
 
 /**
@@ -254,10 +279,20 @@ async function createManualContract(input, actorAuth, deps) {
   // Owner request (5 Nov 2026): the people at the site, each with a name and
   // a designation. `phone` below is still the client's main number.
   const contacts = buildContacts(input && input.contacts) || [];
+  // Owner request (14 Nov 2026): say which division the cover belongs to.
+  // A division-confined login can only register its own division's clients,
+  // and its division is filled in for it when nothing was chosen.
+  const scope = divisionScope(actorAuth);
+  const asked = readDivision(input && input.division);
+  if (scope && asked && asked !== scope) {
+    throw new ServiceError(`This login can only register ${scope} clients.`, 'FORBIDDEN', 403);
+  }
+  const division = scope || asked || '';
 
   const contract = await deps.contractRepo.create({
     companyId: actorAuth.companyId,
     customer: (input && input.customer) || '',
+    division,
     phone: primaryPhone((input && input.phone) || '', contacts),
     contacts,
     email: (input && input.email) || '',
@@ -320,6 +355,9 @@ async function convertProjectToContract(projectId, actorAuth, deps) {
       {
         companyId: actorAuth.companyId,
         customer: project.customer || project.name,
+        // Owner request (14 Nov 2026): the warranty inherits the division of
+        // the project it came out of — nobody re-chooses what is known.
+        division: project.division || '',
         phone: '', // PWA QUIRK (Decision 6 of PROJECT_DECISION_LOCK.md / audit §4/§18 #7): hardcoded blank, never copied.
         email: '', // ditto.
         site: project.name,
@@ -360,6 +398,12 @@ async function getContract(contractId, actorAuth, deps) {
   assertCompanyContext(actorAuth);
   const contract = await deps.contractRepo.findById(actorAuth.companyId, contractId);
   if (!contract) throw new ServiceError('Contract not found.', 'NOT_FOUND', 404);
+  // Owner request (14 Nov 2026): the same rule as the list — a
+  // division-confined login cannot reach another division's client by id.
+  const scope = divisionScope(actorAuth);
+  if (scope && contract.division && contract.division !== scope) {
+    throw new ServiceError('Contract not found.', 'NOT_FOUND', 404);
+  }
   return contract;
 }
 
@@ -368,7 +412,7 @@ async function getContract(contractId, actorAuth, deps) {
 function contractMatchesQuery(contract, q) {
   const blob = [
     contract.customer, contract.phone, contract.email, contract.site, contract.capacity,
-    contract.amcType, contract.category,
+    contract.amcType, contract.category, contract.division,
     contract.startDate ? dayKeyUTC(contract.startDate) : '',
     contract.endDate ? dayKeyUTC(contract.endDate) : '',
     contract.amount !== undefined && contract.amount !== null ? String(contract.amount) : '',
@@ -394,9 +438,30 @@ function contractMatchesQuery(contract, q) {
 async function listContracts(actorAuth, { filters = {} } = {}, deps) {
   assertCompanyContext(actorAuth);
   const all = await deps.contractRepo.listByCompany(actorAuth.companyId);
+  const rows = applyDivision(all, actorAuth, filters);
   const q = filters.q ? String(filters.q).toLowerCase() : '';
-  if (!q) return all;
-  return all.filter((c) => contractMatchesQuery(c, q));
+  if (!q) return rows;
+  return rows.filter((c) => contractMatchesQuery(c, q));
+}
+
+/**
+ * Owner request (14 Nov 2026). Two things at once, and the order matters:
+ * a division-confined login never sees another division's clients, whatever
+ * it asks for; a login that sees them all may narrow the list to one.
+ * Admin asking for "Solar" gets exactly the solar clients, and anything
+ * registered before the field existed shows only in the unfiltered list.
+ */
+function onlyMyDivision(rows, actorAuth) {
+  const scope = divisionScope(actorAuth);
+  return scope ? rows.filter((c) => c.division === scope) : rows;
+}
+
+function applyDivision(rows, actorAuth, filters) {
+  const scope = divisionScope(actorAuth);
+  const asked = filters && filters.division ? String(filters.division) : '';
+  const want = scope || (DIVISIONS.includes(asked) ? asked : '');
+  if (!want) return rows;
+  return rows.filter((c) => c.division === want);
 }
 
 /**
@@ -626,7 +691,7 @@ const STATUS_ORDER = { Active: 0, 'Expiring Soon': 1, Expired: 2 };
 
 async function searchClients(actorAuth, { q = '', limit = 25 } = {}, deps) {
   assertCompanyContext(actorAuth);
-  const all = await deps.contractRepo.listByCompany(actorAuth.companyId);
+  const all = onlyMyDivision(await deps.contractRepo.listByCompany(actorAuth.companyId), actorAuth);
   const needle = String(q || '').trim().toLowerCase();
   const rows = all
     .filter((c) => !needle || [c.customer, c.phone, c.site].some((v) => String(v || '').toLowerCase().includes(needle)))
@@ -650,7 +715,7 @@ async function searchClients(actorAuth, { q = '', limit = 25 } = {}, deps) {
 
 async function getPmDuePanel(actorAuth, deps) {
   assertCompanyContext(actorAuth);
-  const all = await deps.contractRepo.listByCompany(actorAuth.companyId);
+  const all = onlyMyDivision(await deps.contractRepo.listByCompany(actorAuth.companyId), actorAuth);
   const rows = [];
   all.forEach((c) => {
     computePmDueIndexes(c).forEach((i) => {
@@ -675,7 +740,7 @@ async function getPmDuePanel(actorAuth, deps) {
  */
 async function getRenewalOpportunities(actorAuth, deps) {
   assertCompanyContext(actorAuth);
-  const all = await deps.contractRepo.listByCompany(actorAuth.companyId);
+  const all = onlyMyDivision(await deps.contractRepo.listByCompany(actorAuth.companyId), actorAuth);
   return all
     .map((c) => ({ contract: c, status: computeContractStatus(c) }))
     .filter((x) => x.status !== 'Active');
@@ -796,6 +861,9 @@ async function completePmVisitForContract(contractId, actorAuth, deps, { assigne
  */
 const EDITABLE = Object.freeze([
   'customer', 'phone', 'email', 'site', 'capacity', 'amcType', 'category', 'amount',
+  // Owner request (14 Nov 2026): a client tagged to the wrong side of the
+  // business is corrected here, like any other detail.
+  'division',
 ]);
 
 async function editContract(contractId, input, actorAuth, deps) {
@@ -825,6 +893,13 @@ async function editContract(contractId, input, actorAuth, deps) {
         throw new ServiceError('AMC type must be Monthly, Quarterly or Half-Yearly.', 'VALIDATION_ERROR', 400);
       }
       patch.amcType = src.amcType;
+    } else if (key === 'division') {
+      const next = readDivision(src.division);
+      const scope = divisionScope(actorAuth);
+      if (scope && next && next !== scope) {
+        throw new ServiceError(`This login can only manage ${scope} clients.`, 'FORBIDDEN', 403);
+      }
+      patch.division = next;
     } else if (key === 'category') {
       if (!['AMC', 'Warranty'].includes(src.category)) {
         throw new ServiceError('Cover must be AMC or Warranty.', 'VALIDATION_ERROR', 400);

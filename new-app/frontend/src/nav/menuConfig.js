@@ -11,7 +11,7 @@ export const ROLE_LABELS = {
   admin: 'Admin',
   sales: 'Sales',
   hvac_pm: 'HVAC Project Manager',
-  solar_pm: 'Solar Project Manager',
+  solar_pm: 'Solar Manager',
   mep_pm: 'MEP Design Manager',
   engineer: 'Engineer',
   inventory: 'Inventory Manager',
@@ -61,12 +61,23 @@ export const MENUS = {
     ['stock', '📦 Stock', '/inventory/stock'],
     ['checklists', '✅ Checklist Template', '/checklists'],
   ],
+  /**
+   * Owner request (14 Nov 2026): the Solar Manager runs the solar side of
+   * the business end to end, so its menu is the whole solar journey —
+   * leads, orders, projects, service, AMC and material — rather than the
+   * project-only menu the role started with. Everything it opens is scoped
+   * to Solar by the server, not by this list.
+   */
   solar_pm: [
     ['dash', '🏠 Dashboard', '/'],
-    ['projects', '🏗️ Projects', '/projects'],
+    ['enquiries', '📋 Enquiries', '/enquiries'],
     ['sos', '🧾 Sales Orders', '/sales-orders'],
-    ['stock', '📦 Stock', '/inventory/stock'],
-    ['checklists', '✅ Checklist Template', '/checklists'],
+    ['lost', '❌ Lost Enquiries', '/enquiries/lost'],
+    ['projects', '🏗️ Projects', '/projects'],
+    ['service', '🛠️ Service Calls', '/service-calls'],
+    ['pmlist', '🔁 AMC / PM List', '/contracts'],
+    ['invissue', '📤 Issue Material', '/inventory/issue'],
+    ['checklists', '✅ Checklists', '/checklists'],
   ],
   mep_pm: [
     ['dash', '🏠 Dashboard', '/'],
@@ -140,7 +151,7 @@ const MOBILE_NAV_KEYS = {
   admin: ['dash', 'dailyTasks', 'users', 'checklists'],
   sales: ['dash', 'enquiries', 'sos', 'lost'],
   hvac_pm: ['dash', 'projects', 'sos', 'checklists'],
-  solar_pm: ['dash', 'projects', 'sos', 'checklists'],
+  solar_pm: ['dash', 'enquiries', 'projects', 'service'],
   mep_pm: ['dash', 'projects', 'sos', 'checklists'],
   engineer: ['dash', 'dailyTasks', 'mymaterial'],
   inventory: ['dash', 'stock', 'invissue', 'invreturn'],

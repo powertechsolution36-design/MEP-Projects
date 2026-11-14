@@ -185,7 +185,8 @@ function createServiceCallRouter(deps) {
 
 function parseFilters(query) {
   if (!query) return {};
-  return { q: query.q };
+  // Owner request (14 Nov 2026): admin narrows the register to one division.
+  return { q: query.q, division: query.division };
 }
 
 module.exports = { createServiceCallRouter };

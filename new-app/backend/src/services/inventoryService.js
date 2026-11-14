@@ -87,6 +87,11 @@ const MANAGE_ROLES = Object.freeze(['inventory', 'admin']);
 // service_mgr. The old single STOCK_VIEW_ROLES over-granted both exports.
 const STOCK_REPORT_ROLES = Object.freeze(['admin', 'inventory', 'hvac_pm', 'solar_pm', 'service_mgr']);
 const ISSUED_REPORT_ROLES = Object.freeze(['admin', 'inventory']);
+// Owner request (14 Nov 2026): the Solar Manager has Issue Material on its
+// menu, so it may issue stock the way admin and the store can. Only issuing
+// — the rest of the store (items, categories, locations, adjustments,
+// transfers) stays with MANAGE_ROLES.
+const ISSUE_ROLES = Object.freeze(['inventory', 'admin', 'solar_pm']);
 const RECIPIENT_ROLES = Object.freeze(['sales', 'hvac_pm', 'solar_pm', 'mep_pm', 'engineer', 'inventory', 'service_mgr', 'service_eng', 'finance']);
 const UNITS = Object.freeze(['Nos', 'Mtr', 'Kg', 'Set', 'Box', 'Roll', 'Ltr']);
 const ADJUSTMENT_TYPES = Object.freeze(['Purchase In', 'Opening Stock', 'Damage / Write-off', 'Adjustment']);
@@ -94,6 +99,21 @@ const ADJUSTMENT_TYPES = Object.freeze(['Purchase In', 'Opening Stock', 'Damage 
 function assertCompanyContext(actorAuth) {
   if (!actorAuth || !actorAuth.companyId) {
     throw new ServiceError('No company context for this account.', 'NO_COMPANY_CONTEXT', 403);
+  }
+}
+
+/**
+ * Issuing material only (owner request, 14 Nov 2026). Separate from
+ * assertCanManageInventory so the Solar Manager gains the Issue Material
+ * screen without gaining the rest of the store.
+ */
+function assertCanIssueInventory(actorAuth, actionDescription) {
+  if (!ISSUE_ROLES.includes(actorAuth.role)) {
+    throw new ServiceError(
+      `Role "${actorAuth.role}" is not permitted to ${actionDescription || 'issue material'} (must be ${ISSUE_ROLES.join(', ')}).`,
+      'FORBIDDEN',
+      403
+    );
   }
 }
 
@@ -453,7 +473,7 @@ async function adjustStock(itemId, input, actorAuth, deps) {
 
 async function issueMaterial(input, actorAuth, deps) {
   assertCompanyContext(actorAuth);
-  assertCanManageInventory(actorAuth, 'issue Inventory material');
+  assertCanIssueInventory(actorAuth, 'issue Inventory material');
   const src = input || {};
   const q = Number(src.quantity);
   if (!(q > 0)) throw new ServiceError('Quantity must be greater than zero.', 'VALIDATION_ERROR', 400);

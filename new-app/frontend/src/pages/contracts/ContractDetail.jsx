@@ -6,6 +6,7 @@ import { money, fmtDate, today } from '../../utils/format';
 import { whatsappUrl, displayNumber, canSendToClients } from '../../utils/whatsapp';
 import PortalInvitePanel from '../../components/PortalInvitePanel';
 import ContactsField, { ContactsList } from '../../components/ContactsField';
+import useMyDivisions from '../../hooks/useMyDivisions';
 
 /**
  * AMC Client — one page per AMC / Warranty client (owner request, 22 Oct 2026).
@@ -29,7 +30,7 @@ import ContactsField, { ContactsList } from '../../components/ContactsField';
  *      GET  /api/companies/my-profile   (company WhatsApp number)
  */
 
-const MANAGE_ROLES = ['admin', 'service_mgr'];
+const MANAGE_ROLES = ['admin', 'service_mgr', 'solar_pm'];
 const PAYMENT_ROLES = ['admin', 'service_mgr', 'finance'];
 const PAYMENT_MODES = ['Bank Transfer/NEFT', 'Cheque', 'UPI', 'Cash', 'RTGS'];
 const AMC_TYPES = ['Monthly', 'Quarterly', 'Half-Yearly'];
@@ -89,6 +90,7 @@ function Stat({ label, value, sub }) {
 }
 
 export default function ContractDetail() {
+  const myDivisions = useMyDivisions();
   const { id } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -244,6 +246,7 @@ export default function ContractDetail() {
   function openEdit() {
     setEditForm({
       customer: c.customer || '', phone: c.phone || '', email: c.email || '',
+      division: c.division || '',
       site: c.site || '', capacity: c.capacity || '',
       startDate: c.startDate ? fmtDate(c.startDate) : '',
       endDate: c.endDate ? fmtDate(c.endDate) : '',
@@ -402,6 +405,12 @@ export default function ContractDetail() {
             <label className="filter-field">Capacity
               <input value={editForm.capacity} onChange={(e) => setEditForm((f) => ({ ...f, capacity: e.target.value }))} />
             </label>
+            <label className="filter-field">Division
+              <select value={editForm.division} onChange={(e) => setEditForm((f) => ({ ...f, division: e.target.value }))}>
+                <option value="">— not set —</option>
+                {myDivisions.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </label>
             <label className="filter-field">Cover
               <select value={editForm.category} onChange={(e) => setEditForm((f) => ({ ...f, category: e.target.value }))}>
                 <option>AMC</option><option>Warranty</option>
@@ -492,6 +501,7 @@ export default function ContractDetail() {
           <div><strong>Email</strong><br />{c.email || '—'}</div>
           <div><strong>Site</strong><br />{c.site || '—'}</div>
           <div><strong>Capacity</strong><br />{c.capacity || '—'}</div>
+          <div><strong>Division</strong><br />{c.division || '—'}</div>
           <div><strong>Cover</strong><br />{c.category} · {c.amcType}</div>
           <div><strong>Period</strong><br />{fmtDate(c.startDate)} – {fmtDate(c.endDate)}</div>
           <div><strong>Amount</strong><br />{money(c.amount)}</div>

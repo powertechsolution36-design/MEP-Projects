@@ -6,6 +6,8 @@ const { ServiceError } = require('../errors');
 // complaint moves. Never blocks, never fails the work — see portalPushService.
 const portalPush = require('./portalPushService');
 const contractService = require('./contractService');
+const { DIVISIONS } = require('../models/shared/enums');
+const { ROLE_DIVISION_MAP } = require('../auth/roleDivision');
 
 /**
  * ServiceCall (Complaint / PM visit) business/application layer.
@@ -59,7 +61,11 @@ const contractService = require('./contractService');
  *     off to WhatsApp, exactly as the PWA's own `showMsg()` does.
  */
 
-const MANAGE_ROLES = Object.freeze(['admin', 'service_mgr']); // PWA FACT (§18): register/assign/PM-schedule/list gate.
+// Owner request (14 Nov 2026): the Solar Manager works solar service calls
+// the way the service manager works all of them — registering, assigning an
+// engineer and scheduling AMC visits — but sees only its own division
+// (divisionScope below).
+const MANAGE_ROLES = Object.freeze(['admin', 'service_mgr', 'solar_pm']); // PWA FACT (§18) + solar_pm.
 // PWA FACT (§19, `vCall()` L3628): exactly these three roles, no division filter (GENUINELY OPEN #2, not added).
 const ENGINEER_CANDIDATE_ROLES = Object.freeze(['service_eng', 'engineer', 'service_mgr']);
 // PWA FACT (§9, SVC_CHK, exact order): the only 6 keys the PWA's own UI can ever submit.
@@ -75,6 +81,35 @@ const CHECKLIST_VALUES = Object.freeze(['Done', 'Not done']);
 const PART_ACTIONS = Object.freeze(['Repaired', 'Replaced']);
 const GAS_TYPES = Object.freeze(['R22', 'R32', 'R410A', 'R407C', 'R134a', 'R290', 'Other']);
 const MAX_PARTS = 30;
+
+/** The division a login is confined to, or null for one that sees them all. */
+function divisionScope(actorAuth) {
+  return ROLE_DIVISION_MAP[actorAuth && actorAuth.role] || null;
+}
+
+/** Validates a division against the fixed three. Blank means "not set". */
+function readDivision(value) {
+  if (value === undefined) return undefined;
+  const d = String(value === null ? '' : value).trim();
+  if (!d) return '';
+  if (!DIVISIONS.includes(d)) {
+    throw new ServiceError(`Division must be one of: ${DIVISIONS.join(', ')}.`, 'VALIDATION_ERROR', 400);
+  }
+  return d;
+}
+
+/**
+ * Owner request (14 Nov 2026). A division-confined login never sees another
+ * division's calls whatever it asks for; a login that sees them all may
+ * narrow to one. Calls taken before the field existed show only unfiltered.
+ */
+function applyDivision(rows, actorAuth, filters) {
+  const scope = divisionScope(actorAuth);
+  const asked = filters && filters.division ? String(filters.division) : '';
+  const want = scope || (DIVISIONS.includes(asked) ? asked : '');
+  if (!want) return rows;
+  return rows.filter((c) => c.division === want);
+}
 
 /** Validates and tidies the parts list. Blank rows are dropped, not rejected. */
 function buildPartsWork(input) {
@@ -364,6 +399,18 @@ async function registerComplaint(input, actorAuth, deps) {
   }
   const coverage = contract ? coverageFor(contract) : 'Chargeable';
 
+  // Owner request (14 Nov 2026): which side of the business the call belongs
+  // to. A call raised against an AMC / Warranty client takes that client's
+  // division; a walk-in is asked. A division-confined login only ever
+  // registers its own, and gets it filled in without choosing.
+  const scope = divisionScope(actorAuth);
+  const asked = readDivision(input && input.division);
+  const fromContract = contract && contract.division ? contract.division : '';
+  const division = scope || fromContract || asked || '';
+  if (scope && fromContract && fromContract !== scope) {
+    throw new ServiceError(`That client is a ${fromContract} client, not ${scope}.`, 'FORBIDDEN', 403);
+  }
+
   const typedCustomer = input && typeof input.customer === 'string' ? input.customer.trim() : '';
   const customer = typedCustomer || (contract && contract.customer ? String(contract.customer).trim() : '');
   if (!customer) {
@@ -385,6 +432,7 @@ async function registerComplaint(input, actorAuth, deps) {
         complaintNumber: nextPsc,
         type: 'Complaint',
         customer,
+        division,
         phone,
         site,
         appointmentDate: null,
@@ -495,6 +543,15 @@ async function schedulePM(contractId, input, actorAuth, deps) {
   const contract = await deps.contractRepo.findById(actorAuth.companyId, contractId);
   if (!contract) throw new ServiceError('Contract not found.', 'NOT_FOUND', 404);
 
+  // Owner request (14 Nov 2026): a PM visit belongs to the same division as
+  // the client it is scheduled for. A division-confined login may only
+  // schedule its own division's visits.
+  const pmScope = divisionScope(actorAuth);
+  if (pmScope && contract.division && contract.division !== pmScope) {
+    throw new ServiceError(`That client is a ${contract.division} client, not ${pmScope}.`, 'FORBIDDEN', 403);
+  }
+  const pmDivision = contract.division || pmScope || '';
+
   const rawCustomer = (input && input.customer !== undefined ? input.customer : contract.customer) || '';
   const customer = String(rawCustomer).trim();
   if (!customer) {
@@ -517,6 +574,7 @@ async function schedulePM(contractId, input, actorAuth, deps) {
         complaintNumber: nextPsc,
         type: 'PM',
         customer,
+        division: pmDivision,
         phone,
         site,
         appointmentDate,
@@ -565,6 +623,13 @@ async function getServiceCall(id, actorAuth, deps) {
   assertCompanyContext(actorAuth);
   const serviceCall = await deps.serviceCallRepo.findById(actorAuth.companyId, id);
   if (!serviceCall) throw new ServiceError('Service Call not found.', 'NOT_FOUND', 404);
+  // Owner request (14 Nov 2026): a division-confined login sees only its own
+  // division's calls, by the id as surely as by the list — otherwise the
+  // scoping is a hidden menu rather than a rule.
+  const scope = divisionScope(actorAuth);
+  if (scope && serviceCall.division && serviceCall.division !== scope) {
+    throw new ServiceError('Service Call not found.', 'NOT_FOUND', 404);
+  }
   return serviceCall;
 }
 
@@ -583,6 +648,7 @@ function serviceCallMatchesQuery(serviceCall, q, engineerName) {
     serviceCall.phone,
     serviceCall.site,
     serviceCall.status,
+    serviceCall.division,
     engineerName || '',
     dayKeyUTC(serviceCall.registeredDate),
     dayKeyUTC(serviceCall.appointmentDate),
@@ -607,7 +673,8 @@ async function listServiceCalls(actorAuth, { filters = {} } = {}, deps) {
   const all = await deps.serviceCallRepo.listByCompany(actorAuth.companyId);
   const engineers = await engineerNameMap(actorAuth, deps);
   const q = filters.q ? String(filters.q).toLowerCase() : '';
-  const filtered = q ? all.filter((s) => serviceCallMatchesQuery(s, q, engineers.get(String(s.engineerId)))) : all;
+  const scoped = applyDivision(all, actorAuth, filters);
+  const filtered = q ? scoped.filter((s) => serviceCallMatchesQuery(s, q, engineers.get(String(s.engineerId)))) : scoped;
   return filtered.slice().reverse(); // PWA FACT: newest-pushed-first.
 }
 
@@ -632,7 +699,7 @@ async function listMyServiceCalls(actorAuth, deps) {
 async function getOpenServiceCalls(actorAuth, deps) {
   assertCompanyContext(actorAuth);
   assertCanManageServiceCalls(actorAuth, 'view the Open Service Calls panel');
-  const all = await deps.serviceCallRepo.listByCompany(actorAuth.companyId);
+  const all = applyDivision(await deps.serviceCallRepo.listByCompany(actorAuth.companyId), actorAuth, {});
   return all.filter((s) => s.status !== 'Completed');
 }
 
@@ -653,7 +720,7 @@ function csvEscape(value) {
 async function exportServiceCallsCsv(actorAuth, { filters = {} } = {}, deps) {
   assertCompanyContext(actorAuth);
   assertCanManageServiceCalls(actorAuth, 'export the Service Call report');
-  const all = await deps.serviceCallRepo.listByCompany(actorAuth.companyId);
+  const all = applyDivision(await deps.serviceCallRepo.listByCompany(actorAuth.companyId), actorAuth, filters);
   const engineers = await engineerNameMap(actorAuth, deps);
   const q = filters.q ? String(filters.q).toLowerCase() : '';
   const rows = q ? all.filter((s) => serviceCallMatchesQuery(s, q, engineers.get(String(s.engineerId)))) : all;
@@ -999,7 +1066,7 @@ async function completeServiceCall(id, input, actorAuth, deps) {
 async function listReportsToSend(actorAuth, deps) {
   assertCompanyContext(actorAuth);
   assertCanManageServiceCalls(actorAuth, 'see the reports waiting to be sent');
-  const all = await deps.serviceCallRepo.listByCompany(actorAuth.companyId);
+  const all = applyDivision(await deps.serviceCallRepo.listByCompany(actorAuth.companyId), actorAuth, {});
   const names = await engineerNameMap(actorAuth, deps);
   return all
     .filter((c) => c.status === 'Completed' && c.reportSendStatus === 'Pending')

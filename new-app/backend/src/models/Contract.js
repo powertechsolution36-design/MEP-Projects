@@ -2,6 +2,7 @@
 
 const { Schema, model } = require('mongoose');
 const { contactPersonSchema, maxContacts, MAX_CONTACTS } = require('./shared/contactSchema');
+const { DIVISIONS } = require('./shared/enums');
 
 /**
  * contracts — a recurring maintenance agreement (AMC or warranty) with a
@@ -57,6 +58,11 @@ const contractSchema = new Schema(
   {
     companyId: { type: Schema.Types.ObjectId, ref: 'Company', required: true }, // PWA FACT
     customer: { type: String }, // PWA FACT
+    // Owner request (14 Nov 2026): which side of the business the cover
+    // belongs to, chosen when the AMC is registered. Optional, because every
+    // contract created before this field existed has none, and those records
+    // are not guessed at — staff set it themselves.
+    division: { type: String, enum: DIVISIONS },
     phone: { type: String }, // PWA FACT — the client's main number
     // Owner request (5 Nov 2026): the other people at the site, each with a
     // name and what they do there. The main number above is unchanged.

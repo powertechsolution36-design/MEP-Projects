@@ -71,6 +71,10 @@ export default function ContractList() {
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('All');
+  // Owner request (14 Nov 2026): admin narrows the list to one division.
+  // A division-confined login never sees this — the server has already
+  // limited it to that division, so the control would do nothing.
+  const [division, setDivision] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -78,6 +82,7 @@ export default function ContractList() {
     try {
       const params = new URLSearchParams();
       if (search) params.set('q', search);
+      if (division) params.set('division', division);
       const qs = params.toString();
       const data = await api.get('/api/contracts' + (qs ? '?' + qs : ''));
       setContracts(data.contracts || []);
@@ -86,7 +91,7 @@ export default function ContractList() {
     } finally {
       setLoading(false);
     }
-  }, [search]);
+  }, [search, division]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -112,12 +117,15 @@ export default function ContractList() {
   }, [rows, filter]);
 
   /* PWA FACT: export and creation are admin/service_mgr only (MANAGE_ROLES). */
-  const canManage = ['admin', 'service_mgr'].includes(user?.role);
+  const canManage = ['admin', 'service_mgr', 'solar_pm'].includes(user?.role);
+  /* A login tied to one division has nothing to filter. */
+  const showDivisionFilter = !['hvac_pm', 'solar_pm', 'mep_pm'].includes(user?.role);
 
   async function handleExport() {
     try {
       const params = new URLSearchParams();
       if (search) params.set('q', search);
+      if (division) params.set('division', division);
       const resp = await fetch(
         API_BASE_URL + '/api/contracts/export.csv' + (params.toString() ? '?' + params.toString() : ''),
         { headers: { Authorization: `Bearer ${getStoredToken()}` } }
@@ -158,6 +166,23 @@ export default function ContractList() {
         />
       </div>
 
+      {showDivisionFilter && (
+        <div className="amc-tabs" role="tablist" aria-label="Filter clients by division">
+          {['', 'HVAC', 'Solar', 'MEP'].map((d) => (
+            <button
+              key={d || 'all'}
+              type="button"
+              role="tab"
+              aria-selected={division === d}
+              className={`amc-tab${division === d ? ' is-on' : ''}`}
+              onClick={() => setDivision(d)}
+            >
+              {d || 'All divisions'}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Which cover am I looking at? One tap, no second table. */}
       <div className="amc-tabs" role="tablist" aria-label="Filter clients by cover">
         {FILTERS.map((f) => (
@@ -183,6 +208,7 @@ export default function ContractList() {
             <thead>
               <tr>
                 <th>Client</th>
+                <th>Division</th>
                 <th>Cover</th>
                 <th>Covered until</th>
                 <th>Status</th>
@@ -192,7 +218,7 @@ export default function ContractList() {
             <tbody>
               {shown.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="muted">
+                  <td colSpan={6} className="muted">
                     {contracts.length === 0
                       ? 'No AMC or Warranty clients yet.'
                       : `No clients under “${filter}”.`}
@@ -209,6 +235,7 @@ export default function ContractList() {
                     <b>{c.customer || c.site || '—'}</b>
                     {c.site && c.customer && <div className="cell-sub">{c.site}</div>}
                   </td>
+                  <td>{c.division || '—'}</td>
                   <td>
                     {c.category}
                     {c.amcType && <div className="cell-sub">{c.amcType}</div>}

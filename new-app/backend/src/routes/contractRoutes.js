@@ -173,7 +173,8 @@ function createContractRouter(deps) {
 
 function parseFilters(query) {
   if (!query) return {};
-  return { q: query.q };
+  // Owner request (14 Nov 2026): admin narrows the AMC list to one division.
+  return { q: query.q, division: query.division };
 }
 
 module.exports = { createContractRouter };

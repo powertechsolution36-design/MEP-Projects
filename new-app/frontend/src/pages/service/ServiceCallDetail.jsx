@@ -26,7 +26,7 @@ import { whatsappUrl, displayNumber, canSendToClients } from '../../utils/whatsa
  * PWA FACT: no delete/cancel/reopen.
  */
 
-const MANAGE_ROLES = ['admin', 'service_mgr'];
+const MANAGE_ROLES = ['admin', 'service_mgr', 'solar_pm'];
 const CHECKLIST_KEYS = ['Cooling Testing', 'Gas Pressure', 'Filter Clean', 'Indoor Coil', 'Outdoor Coil', 'Body Cleaning'];
 // OWNER DECISION (21 Oct 2026): each checklist item is a tick (Done) or a
 // cross (Not done), and the call can only be completed once the report is
@@ -463,6 +463,7 @@ export default function ServiceCallDetail() {
           <div><strong>Registered:</strong> {fmtDate(sc.registeredDate)}</div>
           <div><strong>Appointment Date:</strong> {fmtDate(sc.appointmentDate) || '—'}</div>
           <div><strong>Appointment Time:</strong> {sc.appointmentTime || '—'}</div>
+          <div><strong>Division:</strong> {sc.division || '—'}</div>
           <div><strong>Coverage:</strong> {sc.coverage || 'Chargeable'}</div>
         </div>
       </div>

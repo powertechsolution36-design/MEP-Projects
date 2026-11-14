@@ -22,7 +22,7 @@ const ROLE_LABELS = Object.freeze({
   admin: 'Admin',
   sales: 'Sales',
   hvac_pm: 'HVAC Project Manager',
-  solar_pm: 'Solar Project Manager',
+  solar_pm: 'Solar Manager',
   mep_pm: 'MEP Design Manager',
   engineer: 'Engineer',
   inventory: 'Inventory Manager',

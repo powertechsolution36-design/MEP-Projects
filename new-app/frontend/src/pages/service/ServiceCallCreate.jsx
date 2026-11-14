@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { today } from '../../utils/format';
 import ClientPicker, { coverageOf, COVERAGE_TEXT } from './ClientPicker';
+import useMyDivisions from '../../hooks/useMyDivisions';
 
 /**
  * Service Call Creation — supports two paths:
@@ -21,7 +22,7 @@ import ClientPicker, { coverageOf, COVERAGE_TEXT } from './ClientPicker';
  * PWA FACT: only admin/service_mgr (MANAGE_ROLES) can create.
  */
 
-const MANAGE_ROLES = ['admin', 'service_mgr'];
+const MANAGE_ROLES = ['admin', 'service_mgr', 'solar_pm'];
 
 export default function ServiceCallCreate() {
   const { user } = useAuth();
@@ -41,7 +42,12 @@ export default function ServiceCallCreate() {
     appointmentDate: today(),
     appointmentTime: '',
     complaintDescription: '',
+    // Owner request (14 Nov 2026): which side of the business the call is.
+    // A call against an AMC / Warranty client takes that client's division
+    // on the server; this is for a walk-in with no client behind it.
+    division: '',
   });
+  const myDivisions = useMyDivisions();
   const [contract, setContract] = useState(null);
   // Complaint path: the AMC / Warranty client it is for, or Chargeable.
   const [client, setClient] = useState(null);
@@ -109,6 +115,7 @@ export default function ServiceCallCreate() {
           appointmentDate: form.appointmentDate || undefined,
           appointmentTime: form.appointmentTime || undefined,
           complaintDescription: form.complaintDescription || undefined,
+          division: form.division || undefined,
         };
         const data = await api.post('/api/service-calls/complaints', body);
         const id = data.serviceCall?.id || data.serviceCall?._id;
@@ -195,6 +202,15 @@ export default function ServiceCallCreate() {
                 readOnly={isPM}
               />
             </div>
+            {!isPM && !client && (
+              <div className="filter-field">
+                <label>Division</label>
+                <select value={form.division} onChange={e => onChange('division', e.target.value)}>
+                  <option value="">— select —</option>
+                  {myDivisions.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+            )}
             <div className="filter-field">
               <label>Appointment Date</label>
               <input

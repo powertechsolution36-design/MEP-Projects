@@ -848,6 +848,8 @@ async function group6i(browser) {
   const site = 'Contacts Client ' + uniq();
   await field(c.page, 'Site *').fill(site);
   await field(c.page, 'Customer Name').fill('Contacts Customer');
+  // Owner request (14 Nov 2026): an AMC now says which division it belongs to.
+  await field(c.page, 'Division *').selectOption('HVAC');
   await c.page.locator('button:has-text("Add contact")').click();
   await c.page.locator('.contacts-row').nth(0).locator('input').nth(0).fill('Sneha D');
   await c.page.locator('.contacts-row').nth(0).locator('input').nth(1).fill('Accounts');
@@ -856,15 +858,118 @@ async function group6i(browser) {
   await settle(c);
   const contracts = (await api(token, 'GET', '/api/contracts')).json.contracts || [];
   const savedC = contracts.find((x) => x.site === site);
-  rec('AMC client: the contact is saved with its designation and fills the blank main number',
+  rec('AMC client: the contact is saved with its designation, the division is kept, and the blank main number is filled',
     !!savedC && (savedC.contacts || []).length === 1 && savedC.contacts[0].designation === 'Accounts'
-      && savedC.phone === '9000000042',
+      && savedC.phone === '9000000042' && savedC.division === 'HVAC',
     JSON.stringify(savedC ? { contacts: savedC.contacts, phone: savedC.phone } : 'not saved').slice(0, 160) + noAlerts(c));
   rec('AMC client contacts: no errors', c.errors.length === 0, c.errors.join('|'));
   await c.ctx.close();
 }
 
-const GROUPS = { '6a': group6a, '6b': group6b, '6c': group6c, '6d': group6d, '6e': group6e, '6f': group6f, '6g': group6g, '6h': group6h, '6i': group6i };
+/**
+ * Owner request (14 Nov 2026): the Solar Manager login. One person runs the
+ * solar side end to end and sees nothing else; admin sees everything with a
+ * division filter on top.
+ */
+async function group6j(browser) {
+  const admin = await apiToken('admin');
+  const tag = uniq();
+
+  // One AMC client and one complaint on each of two divisions.
+  const solarAmc = await api(admin, 'POST', '/api/contracts', {
+    site: `Solar site ${tag}`, customer: `Solar Client ${tag}`, division: 'Solar',
+    category: 'AMC', amcType: 'Quarterly', start: today(), end: plusDays(300),
+  });
+  const hvacAmc = await api(admin, 'POST', '/api/contracts', {
+    site: `HVAC site ${tag}`, customer: `HVAC Client ${tag}`, division: 'HVAC',
+    category: 'AMC', amcType: 'Quarterly', start: today(), end: plusDays(300),
+  });
+  rec('AMC: a client is registered against a division', solarAmc.status === 201
+    && solarAmc.json.contract.division === 'Solar', `${solarAmc.status} ${solarAmc.json.contract?.division}`);
+
+  const solarCall = await api(admin, 'POST', '/api/service-calls/complaints', {
+    contractId: solarAmc.json.contract.id, customer: `Solar Client ${tag}`, complaint: 'Inverter tripping',
+  });
+  await api(admin, 'POST', '/api/service-calls/complaints', {
+    contractId: hvacAmc.json.contract.id, customer: `HVAC Client ${tag}`, complaint: 'No cooling',
+  });
+  rec('service call: the division comes from the client it is raised against',
+    solarCall.json.serviceCall.division === 'Solar', String(solarCall.json.serviceCall.division));
+
+  // --- the Solar Manager's own login ---
+  const s = await session(browser, 'akshay');
+  rec('Solar Manager: the role is named that on screen',
+    (await s.page.locator('text=Solar Manager').count()) >= 1);
+
+  const menu = (await s.page.locator('nav#main-nav a').allInnerTexts()).map((t) => t.trim());
+  const want = ['Dashboard', 'Enquiries', 'Sales Orders', 'Lost Enquiries', 'Projects',
+    'Service Calls', 'AMC / PM List', 'Issue Material', 'Checklists'];
+  rec('Solar Manager: the menu is the nine screens asked for',
+    want.every((w) => menu.some((m) => m.includes(w))) && menu.length === want.length,
+    menu.join(' | '));
+
+  await open(s, '/service-calls');
+  const callsText = await s.page.locator('body').innerText();
+  rec('Solar Manager: sees solar calls and not the others',
+    callsText.includes(`Solar Client ${tag}`) && !callsText.includes(`HVAC Client ${tag}`),
+    callsText.slice(0, 160));
+  rec('Solar Manager: is offered no division filter — there is nothing to filter',
+    (await s.page.locator('[aria-label="Filter by division"]').count()) === 0);
+
+  await open(s, '/contracts');
+  const amcText = await s.page.locator('body').innerText();
+  rec('Solar Manager: the AMC list is solar only',
+    amcText.includes(`Solar Client ${tag}`) && !amcText.includes(`HVAC Client ${tag}`),
+    amcText.slice(0, 160));
+
+  const solarToken = s.token;
+  const peek = await api(solarToken, 'GET', `/api/contracts/${hvacAmc.json.contract.id}`);
+  rec('Solar Manager: another division is not reachable by id either', peek.status === 404, String(peek.status));
+
+  const wrongDivision = await api(solarToken, 'POST', '/api/contracts', {
+    site: `Nope ${tag}`, division: 'HVAC', category: 'AMC', amcType: 'Quarterly',
+  });
+  rec('Solar Manager: cannot register another division\u2019s client', wrongDivision.status === 403, String(wrongDivision.status));
+
+  const ownCall = await api(solarToken, 'POST', '/api/service-calls/complaints', { customer: `Walk-in ${tag}` });
+  rec('Solar Manager: a walk-in it registers is solar without being asked',
+    ownCall.status === 201 && ownCall.json.serviceCall.division === 'Solar',
+    `${ownCall.status} ${ownCall.json.serviceCall?.division}`);
+
+  const engineers = (await api(solarToken, 'GET', '/api/service-calls/engineer-candidates')).json.candidates || [];
+  const assigned = await api(solarToken, 'PUT', `/api/service-calls/${ownCall.json.serviceCall.id}/assign`,
+    { engineerId: engineers[0] && engineers[0].id, date: plusDays(2), time: '10:00 AM' });
+  rec('Solar Manager: can send a company engineer to it',
+    assigned.status === 200 && assigned.json.serviceCall.status === 'Assigned', String(assigned.status));
+
+  rec('Solar Manager: no errors', s.errors.length === 0, s.errors.join('|'));
+  await s.ctx.close();
+
+  // --- admin sees everything, and can narrow it ---
+  const a = await session(browser, 'admin');
+  await open(a, '/service-calls');
+  await a.page.waitForTimeout(400);
+  const bothText = await a.page.locator('body').innerText();
+  rec('Admin: sees every division at once',
+    bothText.includes(`Solar Client ${tag}`) && bothText.includes(`HVAC Client ${tag}`));
+
+  await a.page.locator('[aria-label="Filter by division"] button:has-text("Solar")').click();
+  await settle(a);
+  const solarOnly = await a.page.locator('body').innerText();
+  rec('Admin: the Solar filter narrows the register to solar',
+    solarOnly.includes(`Solar Client ${tag}`) && !solarOnly.includes(`HVAC Client ${tag}`),
+    solarOnly.slice(0, 160));
+
+  await a.page.locator('[aria-label="Filter by division"] button:has-text("All divisions")').click();
+  await settle(a);
+  rec('Admin: clearing the filter brings the others back',
+    (await a.page.locator('body').innerText()).includes(`HVAC Client ${tag}`));
+
+  rec('Admin division filter: no errors', a.errors.length === 0, a.errors.join('|'));
+  await a.ctx.close();
+}
+
+const GROUPS = { '6a': group6a, '6b': group6b, '6c': group6c, '6d': group6d, '6e': group6e, '6f': group6f, '6g': group6g, '6h': group6h, '6i': group6i, '6j': group6j };
 
 (async () => {
   const want = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(GROUPS);

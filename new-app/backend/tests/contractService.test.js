@@ -642,3 +642,81 @@ test('listContracts — a client is found by the name of whoever we deal with th
   const none = await service.listContracts(auth(), { filters: { q: 'nobody-by-that-name' } }, store);
   assert.equal(none.length, 0);
 });
+
+/* ---- Division on an AMC client (owner request, 14 Nov 2026) -------------
+   Every contract says which side of the business it belongs to, and a
+   division-confined login — the Solar Manager — sees only its own. */
+
+test('createManualContract — the division is stored, and must be one of the three', async () => {
+  const store = createEnquiryFakeStore({ companies: [{ id: 'co1', name: 'Cool Breeze' }] });
+  const solar = await service.createManualContract(
+    { site: 'Rooftop array', customer: 'Sunrise', division: 'Solar' },
+    auth(),
+    store
+  );
+  assert.equal(solar.division, 'Solar');
+
+  await assert.rejects(
+    () => service.createManualContract({ site: 'Bad', division: 'Wind' }, auth(), store),
+    /Division must be one of/
+  );
+
+  // Left out entirely, it stays blank — nothing is guessed.
+  const untagged = await service.createManualContract({ site: 'Old client' }, auth(), store);
+  assert.equal(untagged.division, '');
+});
+
+test('createManualContract — the Solar Manager registers solar clients, and only solar', async () => {
+  const store = createEnquiryFakeStore({ companies: [{ id: 'co1', name: 'Cool Breeze' }] });
+  // Its own division is filled in without being chosen.
+  const made = await service.createManualContract({ site: 'Array A' }, auth({ role: 'solar_pm' }), store);
+  assert.equal(made.division, 'Solar');
+
+  await assert.rejects(
+    () => service.createManualContract({ site: 'Chiller', division: 'HVAC' }, auth({ role: 'solar_pm' }), store),
+    /can only register Solar clients/
+  );
+});
+
+test('listContracts — a division-confined login sees its own; admin may narrow to one', async () => {
+  const store = createEnquiryFakeStore({
+    companies: [{ id: 'co1', name: 'Cool Breeze' }],
+    contracts: [
+      baseContract({ id: 'c1', site: 'Array A', division: 'Solar' }),
+      baseContract({ id: 'c2', site: 'Chiller plant', division: 'HVAC' }),
+      baseContract({ id: 'c3', site: 'Old client' }),
+    ],
+  });
+
+  const solarEyes = await service.listContracts(auth({ role: 'solar_pm' }), {}, store);
+  assert.deepEqual(solarEyes.map((c) => c.id), ['c1']);
+
+  const everything = await service.listContracts(auth(), {}, store);
+  assert.equal(everything.length, 3, 'admin sees every client, untagged ones included');
+
+  const narrowed = await service.listContracts(auth(), { filters: { division: 'HVAC' } }, store);
+  assert.deepEqual(narrowed.map((c) => c.id), ['c2']);
+
+  // A confined login cannot widen its own view by asking for another division.
+  const refused = await service.listContracts(auth({ role: 'solar_pm' }), { filters: { division: 'HVAC' } }, store);
+  assert.deepEqual(refused.map((c) => c.id), ['c1']);
+});
+
+test('getContract — another division is not found, by id as surely as in the list', async () => {
+  const store = createEnquiryFakeStore({
+    companies: [{ id: 'co1', name: 'Cool Breeze' }],
+    contracts: [baseContract({ id: 'c2', division: 'HVAC' })],
+  });
+  await assert.rejects(() => service.getContract('c2', auth({ role: 'solar_pm' }), store), /not found/i);
+  const asAdmin = await service.getContract('c2', auth(), store);
+  assert.equal(asAdmin.id, 'c2');
+});
+
+test('editContract — a wrongly tagged client can be corrected', async () => {
+  const store = createEnquiryFakeStore({
+    companies: [{ id: 'co1', name: 'Cool Breeze' }],
+    contracts: [baseContract({ division: 'HVAC' })],
+  });
+  const fixed = await service.editContract('c1', { division: 'Solar' }, auth(), store);
+  assert.equal(fixed.division, 'Solar');
+});
