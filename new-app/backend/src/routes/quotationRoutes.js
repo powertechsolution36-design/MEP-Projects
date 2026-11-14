@@ -6,7 +6,7 @@ const { createAuthMiddleware } = require('../middleware/authMiddleware');
 const { requireCompanyContext } = require('../middleware/tenantGuard');
 const { requireRole } = require('../middleware/roleMiddleware');
 const {
-  createQuotation, updateQuotation, getQuotation,
+  createQuotation, updateQuotation, getQuotation, convertQuotationToSalesOrder,
   listQuotations, duplicateQuotation, deleteQuotation, exportQuotationsCsv,
   getPdfLink,
 } = require('../services/quotationService');
@@ -19,6 +19,18 @@ function createQuotationRouter(deps) {
   // quotation carries commercial pricing -- the commercial roles that have
   // the Quotations menu (admin, sales, finance; super for support).
   router.use(authMiddleware, requireCompanyContext, requireRole('super', 'admin', 'sales', 'finance'));
+
+  // Owner decision (14 Nov 2026): the customer accepted it — turn it into
+  // the sales order, its project and its payment milestones, and mark the
+  // lead behind it Won. The only route from a lead to an order.
+  router.post('/:id/convert', async (req, res) => {
+    try {
+      const result = await convertQuotationToSalesOrder(req.params.id, req.body, req.auth, deps);
+      return res.status(201).json(result);
+    } catch (err) {
+      return sendError(res, err, 'quotationRoutes');
+    }
+  });
 
   // List quotations (with optional filters)
   router.get('/', async (req, res) => {

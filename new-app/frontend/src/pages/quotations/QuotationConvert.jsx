@@ -5,26 +5,29 @@ import { today } from '../../utils/format';
 import useMyDivisions from '../../hooks/useMyDivisions';
 
 /**
- * Enquiry → SalesOrder Conversion — PWA `mSO(0, enqId)` exact reproduction.
+ * Quotation → SalesOrder (owner decision, 14 Nov 2026).
  *
- * Pre-fills: name → projectName, phone → contacts[0].phone,
- *   estimatedValue → totalCost, segment → division (AMC→HVAC),
- *   salesTeam = current user's name, startDate = today,
- *   terms = fixed boilerplate default.
- * All pre-filled fields are user-editable before save.
- * Up to 5 payment milestones (description + amount, both required per row).
+ * The customer accepted the quotation; this turns it into the order. It is
+ * the only route from a lead to an order — the enquiry's own Convert has
+ * been removed.
  *
- * On submit: POST /api/enquiries/:id/convert with the SO form data.
- * Backend cascade: creates SO → Project (with checklist) → Payment entries → marks enquiry Won → sends 2 notifications.
+ * Pre-fills from the quotation: subject → projectName, customer address →
+ * site, grand total → totalCost, its division, the customer as contact 1;
+ * salesTeam = the current user, startDate = today, terms = the boilerplate.
+ * Everything is editable before saving.
+ *
+ * On submit: POST /api/quotations/:id/convert. The server creates the sales
+ * order, its project with the division's checklist, one payment per
+ * milestone, marks the quotation Accepted and the lead behind it Won.
  */
 
 const DEFAULT_TERMS = '1) Fabrication not in our scope. 2) Civil and interior work not in our scope. 3) Mathadi not in our scope.';
 
-export default function EnquiryConvert() {
+export default function QuotationConvert() {
   const DIVISIONS = useMyDivisions(); // company's purchased divisions (PWA myDivs())
   const { id } = useParams();
   const navigate = useNavigate();
-  const [enq, setEnq] = useState(null);
+  const [quotation, setQuotation] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState(null);
@@ -32,28 +35,27 @@ export default function EnquiryConvert() {
   useEffect(() => {
     (async () => {
       try {
-        const data = await api.get(`/api/enquiries/${id}`);
-        const e = data.enquiry;
-        // PWA FACT: segment → division, AMC → HVAC
-        const division = e.segment === 'AMC' ? 'HVAC' : e.segment;
+        const data = await api.get(`/api/quotations/${id}`);
+        const e = data.quotation;
+        const division = e.division;
         // Get current user name for salesTeam default
         const me = await api.get('/api/auth/me');
         const userName = me.user?.name || '';
-        setEnq(e);
+        setQuotation(e);
         setForm({
           division: division || '',
-          projectName: e.name || '',
+          projectName: e.subject || e.customerName || '',
           startDate: today(),
           endDate: '',
-          siteAddress: '',
+          siteAddress: e.customerAddress || '',
           contacts: [
-            { name: '', designation: '', phone: e.phone || '', email: '' },
+            { name: e.customerName || '', designation: '', phone: e.customerPhone || '', email: e.customerEmail || '' },
             { name: '', designation: '', phone: '', email: '' },
           ],
           salesTeam: userName,
           projectTeam: '',
           crucialPoints: '',
-          totalCost: e.estimatedValue || 0,
+          totalCost: e.grandTotal || 0,
           highSideSelling: 0,
           highSidePurchase: 0,
           lowSideCost: 0,
@@ -116,7 +118,7 @@ export default function EnquiryConvert() {
           .filter(m => m.description && m.amount)
           .map(m => ({ description: m.description, amount: Number(m.amount) })),
       };
-      const result = await api.post(`/api/enquiries/${id}/convert`, payload);
+      const result = await api.post(`/api/quotations/${id}/convert`, payload);
       navigate(`/sales-orders/${result.salesOrder.id}`);
     } catch (err) {
       alert(err.message);
@@ -129,8 +131,11 @@ export default function EnquiryConvert() {
     <div className="enq-page">
       <button className="btn sec sm" onClick={() => navigate(-1)}>&larr; Back</button>
       <div className="panel">
-        <h2>Convert Enquiry → Sales Order</h2>
-        <p className="muted">Source Enquiry: <strong>{enq?.name}</strong> (Segment: {enq?.segment})</p>
+        <h2>Quotation accepted → Sales Order</h2>
+        <p className="muted">
+          From quotation <strong>{quotation?.quotationNumber}</strong> · {quotation?.customerName}
+          {quotation?.division ? ` · ${quotation.division}` : ''}
+        </p>
         <form onSubmit={handleSubmit}>
           <div className="form-grid">
             <div className="filter-field">

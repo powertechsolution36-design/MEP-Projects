@@ -3,11 +3,21 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const service = require('../src/services/enquiryService');
+/**
+ * Enquiry → Quotation → Sales Order (owner decision, 14 Nov 2026).
+ *
+ * The enquiry's own Convert is gone. These are the same guarantees the old
+ * suite held — the cascade, the Won transition with its exact remark and
+ * log line, the duplicate guards, the rollback, the role gate and the
+ * checklist fallbacks — now driven through the quotation, which is the only
+ * way a lead becomes an order.
+ */
+const service = require('../src/services/quotationService');
+const enquiryService = require('../src/services/enquiryService');
 const { createEnquiryFakeStore } = require('./enquiryFakes');
 
 function auth(overrides) {
-  return { userId: 'u1', companyId: 'co1', role: 'sales', ...overrides };
+  return { userId: 'u1', companyId: 'co1', role: 'sales', name: 'Priya Sales', ...overrides };
 }
 
 function baseEnquiry(overrides) {
@@ -24,8 +34,45 @@ function baseEnquiry(overrides) {
   };
 }
 
-test('convertEnquiryToSalesOrder — full cascade: field copy/transform/default, enquiryId population, project, payments, checklist, notifications, Won+remark+log', async () => {
-  const store = createEnquiryFakeStore({
+/** A quotation raised against that lead, as the Quote this button makes. */
+function baseQuotation(overrides) {
+  return {
+    id: 'qt1',
+    companyId: 'co1',
+    quotationNumber: 'QTN-0001',
+    enquiryId: 'enq1',
+    division: 'HVAC', // the lead's AMC segment is quoted as HVAC
+    status: 'Sent',
+    customerName: 'Sneh Resort AC',
+    customerPhone: '8605394494',
+    customerAddress: '',
+    subject: 'Sneh Resort AC',
+    grandTotal: 200000,
+    equipmentItems: [],
+    accessoriesItems: [],
+    paymentTerms: [],
+    excludedWorks: [],
+    ...overrides,
+  };
+}
+
+/** The store every test here needs: a lead, its quotation, and a company. */
+function storeWith({ enquiries, quotations, ...rest } = {}) {
+  return createEnquiryFakeStore({
+    companies: [{ id: 'co1', name: 'Cool Breeze', divisions: ['HVAC', 'Solar', 'MEP'] }],
+    enquiries: enquiries || [baseEnquiry()],
+    quotations: quotations || [baseQuotation()],
+    ...rest,
+  });
+}
+
+/** Convert the quotation, the way the screen does. */
+function convert(store, overrides, actor) {
+  return service.convertQuotationToSalesOrder('qt1', overrides, actor || auth(), store);
+}
+
+test('quotation → sales order — full cascade: field copy/transform/default, enquiryId population, project, payments, checklist, notifications, Won+remark+log', async () => {
+  const store = storeWith({
     enquiries: [baseEnquiry()],
     checklistTemplates: [
       { id: 'tpl1', companyId: 'co1', division: 'HVAC', name: 'Standard HVAC', isDefault: true, items: [{ text: 'Site survey', signResponsibility: 'ENGINEER' }, { text: 'Client sign-off', signResponsibility: 'CLIENT' }] },
@@ -34,8 +81,8 @@ test('convertEnquiryToSalesOrder — full cascade: field copy/transform/default,
     users: [{ id: 'u1', name: 'Priya Sales', role: 'sales', companyId: 'co1' }],
   });
 
-  const result = await service.convertEnquiryToSalesOrder(
-    'enq1',
+  const result = await service.convertQuotationToSalesOrder(
+    'qt1',
     {
       contacts: [{ name: 'Yuvraj', designation: 'Owner' }],
       paymentMilestones: [
@@ -100,28 +147,28 @@ test('convertEnquiryToSalesOrder — full cascade: field copy/transform/default,
   assert.match(result.enquiry.followUpLog[0].text, new RegExp(`Confirmed\\. SO-${result.salesOrder.orderNumber} created\\.`));
 });
 
-test('convertEnquiryToSalesOrder — #19=B: rejects conversion of a non-Open Enquiry', async () => {
-  const store = createEnquiryFakeStore({ enquiries: [baseEnquiry({ status: 'Lost' })] });
+test('quotation → sales order — #19=B: rejects conversion of a non-Open Enquiry', async () => {
+  const store = storeWith({ enquiries: [baseEnquiry({ status: 'Lost' })] });
   await assert.rejects(
-    () => service.convertEnquiryToSalesOrder('enq1', {}, auth(), store),
+    () => service.convertQuotationToSalesOrder('qt1', {}, auth(), store),
     (err) => err.code === 'ENQUIRY_NOT_OPEN' && err.status === 409
   );
   assert.equal(store.state.salesOrders.length, 0); // nothing created
 });
 
-test('convertEnquiryToSalesOrder — #19=B: rejects a second conversion of an already-Won Enquiry (pre-check)', async () => {
-  const store = createEnquiryFakeStore({
+test('quotation → sales order — #19=B: rejects a second conversion of an already-Won Enquiry (pre-check)', async () => {
+  const store = storeWith({
     enquiries: [baseEnquiry({ status: 'Won' })],
     salesOrders: [{ id: 'so-existing', companyId: 'co1', enquiryId: 'enq1', orderNumber: 1 }],
   });
   await assert.rejects(
-    () => service.convertEnquiryToSalesOrder('enq1', {}, auth(), store),
+    () => service.convertQuotationToSalesOrder('qt1', {}, auth(), store),
     (err) => err.status === 409
   );
 });
 
-test('convertEnquiryToSalesOrder — #20=D duplicate-key guard: a race that gets past the pre-check is still rejected atomically', async () => {
-  const store = createEnquiryFakeStore({ enquiries: [baseEnquiry()] });
+test('quotation → sales order — #20=D duplicate-key guard: a race that gets past the pre-check is still rejected atomically', async () => {
+  const store = storeWith({ enquiries: [baseEnquiry()] });
 
   // Simulate two concurrent conversions racing past the pre-check by
   // directly inserting a competing SalesOrder for this Enquiry right before
@@ -138,13 +185,13 @@ test('convertEnquiryToSalesOrder — #20=D duplicate-key guard: a race that gets
   };
 
   await assert.rejects(
-    () => service.convertEnquiryToSalesOrder('enq1', {}, auth(), store),
+    () => service.convertQuotationToSalesOrder('qt1', {}, auth(), store),
     (err) => err.code === 'DUPLICATE_CONVERSION'
   );
 });
 
-test('convertEnquiryToSalesOrder — transactional cascade cannot partially succeed: a downstream failure rolls back everything, including the Enquiry Won transition', async () => {
-  const store = createEnquiryFakeStore({ enquiries: [baseEnquiry()] });
+test('quotation → sales order — transactional cascade cannot partially succeed: a downstream failure rolls back everything, including the Enquiry Won transition', async () => {
+  const store = storeWith({ enquiries: [baseEnquiry()] });
 
   // Force the Payment step to fail after the Enquiry has already been
   // marked Won and the SalesOrder + Project already created within the same
@@ -155,8 +202,8 @@ test('convertEnquiryToSalesOrder — transactional cascade cannot partially succ
 
   await assert.rejects(
     () =>
-      service.convertEnquiryToSalesOrder(
-        'enq1',
+      service.convertQuotationToSalesOrder(
+        'qt1',
         { paymentMilestones: [{ description: 'Advance', amount: 50000 }] },
         auth(),
         store
@@ -171,46 +218,49 @@ test('convertEnquiryToSalesOrder — transactional cascade cannot partially succ
   const enquiry = await store.enquiryRepo.findById('co1', 'enq1');
   assert.equal(enquiry.status, 'Open'); // NOT left as Won from the rolled-back attempt
   assert.equal(enquiry.followUpLog.length, 0);
+  // And the quotation is not left marked Accepted for an order that does not exist.
+  const quotation = await store.quotationRepo.findById('co1', 'qt1');
+  assert.equal(quotation.status, 'Sent');
 });
 
-test('convertEnquiryToSalesOrder — with zero payment milestones still creates the SO/Project and both notifications (PWA does the finance notify unconditionally)', async () => {
-  const store = createEnquiryFakeStore({ enquiries: [baseEnquiry()] });
-  const result = await service.convertEnquiryToSalesOrder('enq1', {}, auth(), store);
+test('quotation → sales order — with zero payment milestones still creates the SO/Project and both notifications (PWA does the finance notify unconditionally)', async () => {
+  const store = storeWith({ enquiries: [baseEnquiry()] });
+  const result = await service.convertQuotationToSalesOrder('qt1', {}, auth(), store);
   assert.equal(result.payments.length, 0);
   assert.equal(result.notifications.length, 2);
 });
 
-test('convertEnquiryToSalesOrder — role/tenant enforcement: admin may convert, other roles and other companies may not', async () => {
-  const store = createEnquiryFakeStore({ enquiries: [baseEnquiry()] });
-  const resultAsAdmin = await service.convertEnquiryToSalesOrder('enq1', {}, auth({ role: 'admin' }), store);
+test('quotation → sales order — role/tenant enforcement: admin may convert, other roles and other companies may not', async () => {
+  const store = storeWith({ enquiries: [baseEnquiry()] });
+  const resultAsAdmin = await service.convertQuotationToSalesOrder('qt1', {}, auth({ role: 'admin' }), store);
   assert.ok(resultAsAdmin.salesOrder);
 
-  const store2 = createEnquiryFakeStore({ enquiries: [baseEnquiry()] });
+  const store2 = storeWith({ enquiries: [baseEnquiry()] });
   await assert.rejects(
-    () => service.convertEnquiryToSalesOrder('enq1', {}, auth({ role: 'engineer' }), store2),
+    () => service.convertQuotationToSalesOrder('qt1', {}, auth({ role: 'engineer' }), store2),
     (err) => err.code === 'FORBIDDEN'
   );
 
-  const store3 = createEnquiryFakeStore({ enquiries: [baseEnquiry({ companyId: 'other-co' })] });
+  const store3 = storeWith({ enquiries: [baseEnquiry({ companyId: 'other-co' })] });
   await assert.rejects(
-    () => service.convertEnquiryToSalesOrder('enq1', {}, auth({ companyId: 'co1' }), store3),
+    () => service.convertQuotationToSalesOrder('qt1', {}, auth({ companyId: 'co1' }), store3),
     /not found/i
   );
 });
 
-test('convertEnquiryToSalesOrder — falls back to any division template when none is marked isDefault', async () => {
-  const store = createEnquiryFakeStore({
+test('quotation → sales order — falls back to any division template when none is marked isDefault', async () => {
+  const store = storeWith({
     enquiries: [baseEnquiry()],
     checklistTemplates: [{ id: 'tpl1', companyId: 'co1', division: 'HVAC', name: 'Only One', isDefault: false, items: [{ text: 'Step', signResponsibility: 'ENGINEER' }] }],
   });
-  const result = await service.convertEnquiryToSalesOrder('enq1', {}, auth(), store);
+  const result = await service.convertQuotationToSalesOrder('qt1', {}, auth(), store);
   assert.equal(result.project.checklistTemplateName, 'Only One');
   assert.equal(result.project.checklist.length, 1);
 });
 
-test('convertEnquiryToSalesOrder — with no ChecklistTemplate at all, falls back to the legacy hardcoded checklist (locked decision "Checklist fallback = A"), not an empty list', async () => {
-  const store = createEnquiryFakeStore({ enquiries: [baseEnquiry()] }); // segment "AMC" -> division "HVAC"
-  const result = await service.convertEnquiryToSalesOrder('enq1', {}, auth(), store);
+test('quotation → sales order — with no ChecklistTemplate at all, falls back to the legacy hardcoded checklist (locked decision "Checklist fallback = A"), not an empty list', async () => {
+  const store = storeWith({ enquiries: [baseEnquiry()] }); // segment "AMC" -> division "HVAC"
+  const result = await service.convertQuotationToSalesOrder('qt1', {}, auth(), store);
   // Blank template name (PWA FACT: `chkName:cl?cl.name:""` — the legacy
   // fallback is not a named ChecklistTemplate), but a NON-empty checklist
   // taken from the legacy HVAC_CHK list (13 points).

@@ -556,83 +556,14 @@ const validateSalesOrderDraft = cascade.validateSalesOrderDraft;
  *  14. The whole cascade runs inside one DB transaction (deps.withTransaction)
  *      so it cannot partially succeed.
  */
-async function convertEnquiryToSalesOrder(id, soOverrides, actorAuth, deps) {
-  assertCompanyContext(actorAuth);
-  assertRole(actorAuth, MANAGE_ROLES, 'convert an Enquiry to a SalesOrder');
-
-  const companyId = actorAuth.companyId;
-
-  // Pre-checks (fast-fail before opening a transaction) — the authoritative,
-  // race-safe guards are still the atomic operations inside the transaction
-  // below (markWonIfOpen's conditional update + SalesOrder's unique index).
-  const enquiry = await deps.enquiryRepo.findById(companyId, id);
-  if (!enquiry) {
-    throw new ServiceError('Enquiry not found.', 'NOT_FOUND', 404);
-  }
-  if (enquiry.status !== 'Open') {
-    throw new ServiceError('Only an Open Enquiry can be converted to a SalesOrder.', 'ENQUIRY_NOT_OPEN', 409); // #19=B
-  }
-  const existingSo = await deps.salesOrderRepo.findByEnquiryId(companyId, id);
-  if (existingSo) {
-    throw new ServiceError('This Enquiry has already been converted to a SalesOrder.', 'DUPLICATE_CONVERSION', 409); // #19=B
-  }
-
-  let actorName = actorAuth.name;
-  if (!actorName && deps.userRepoForEnquiry) {
-    const actorUser = await deps.userRepoForEnquiry.findById(actorAuth.userId);
-    actorName = actorUser ? actorUser.name : '';
-  }
-
-  const draft = buildSalesOrderDraft(enquiry, soOverrides, actorName);
-  validateSalesOrderDraft(draft);
-  await assertDivisionEntitled(actorAuth.companyId, draft.division, deps);
-
-  return deps.withTransaction(deps, async (txnDeps) => {
-    const { session } = txnDeps;
-
-    // Steps 1/2/11/12/13 as one atomic, race-safe conditional update.
-    // We need the orderNumber before we can build the remark/log text, but we
-    // also need the atomic Won-guard to run before any SalesOrder is written
-    // (so a losing race never leaves an orphan SalesOrder behind). To satisfy
-    // both, the sequence number is reserved first (harmless if unused — it is
-    // a monotonic counter, not a display gap-sensitive field per
-    // DATABASE_SCHEMA.md "Sequences"), then the guard runs, then the rest of
-    // the cascade proceeds only if the guard succeeded.
-    const orderNumber = await txnDeps.counterRepo.getNextSequence(companyId, 'salesOrder', session);
-
-    const remark = `Converted to SO-${orderNumber}`; // PWA FACT, verified literal string
-    const logText = `Confirmed. SO-${orderNumber} created.`; // PWA FACT, verified literal string
-    const today = todayDate();
-
-    const wonEnquiry = await txnDeps.enquiryRepo.markWonIfOpen(
-      companyId,
-      id,
-      { remark, logEntry: { date: today, text: logText } },
-      session
-    );
-    if (!wonEnquiry) {
-      throw new ServiceError(
-        'Only an Open Enquiry can be converted to a SalesOrder.',
-        'ENQUIRY_NOT_OPEN',
-        409
-      ); // Lost the race — someone else converted/changed status first.
-    }
-
-    // Steps 5-10 (SalesOrder + Project + Payments + notifications) are
-    // IDENTICAL between this conversion path and the standalone "+ New SO"
-    // path (PWA_COVERAGE_AUDIT_SALESORDER.md §5) — shared via
-    // salesOrderCascade.js so the two paths cannot drift apart. Only the
-    // Enquiry-specific Won-guard (above) and the enquiryId link differ.
-    const { salesOrder, project, payments, notifications } = await cascade.runCreationCascade({
-      draft,
-      orderNumber,
-      companyId,
-      enquiryId: id,
-      session,
-      deps: txnDeps,
-    });    return { enquiry: wonEnquiry, salesOrder, project, payments, notifications };
-  });
-}
+/*
+ * Enquiry → SalesOrder used to live here. Owner decision (14 Nov 2026): the
+ * flow is Enquiry → Quotation → Sales Order, with no way round the middle,
+ * so the conversion cascade moved to quotationService's
+ * convertQuotationToSalesOrder. A lead becomes Won there, with the same
+ * remark and follow-up line it always wrote. POST /api/enquiries/:id/convert
+ * is gone with it.
+ */
 
 module.exports = {
   createEnquiry,
@@ -645,7 +576,6 @@ module.exports = {
   getFollowUpsDueToday,
   getSegmentSummary,
   exportEnquiriesCsv,
-  convertEnquiryToSalesOrder,
   // exported for tests / reuse
   applyEnquiryFilters,
   buildSalesOrderDraft,

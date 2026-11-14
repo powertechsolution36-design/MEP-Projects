@@ -167,6 +167,8 @@ async function group5a(browser) {
     await s.page.locator('label:has-text("Amount") + input').first().fill('48000');
     await s.page.locator('label:has-text("Start Date") + input').first().fill('2026-11-01');
     await s.page.locator('label:has-text("End Date") + input').first().fill('2027-10-31');
+    // Division is required since the Solar Manager work (14 Nov 2026).
+    await s.page.locator('label:has-text("Division") + select').first().selectOption('HVAC');
     await s.page.locator('form button[type=submit]').click();
     await s.page.waitForFunction(() => !location.pathname.endsWith('/contracts/new'), null, { timeout: 10000 }).catch(() => {});
     await s.page.waitForLoadState('networkidle');
@@ -377,15 +379,22 @@ async function group5c(browser) {
       await s.ctx.close();
     }
 
-    // Enquiry convert (sales): Equipment / Accessories costing; Division = purchased divisions; SO created.
+    /* Quotation convert (sales). Owner decision (14 Nov 2026): the lead is
+       quoted first, and the sales order is made from the quotation. Same
+       costing screen, reached the new way. */
     if (enqId) {
+      const quoted = await api(adminT, 'POST', '/api/quotations', {
+        division: 'Solar', customerName: 'Pages Quote', subject: 'Pages Quote',
+        enquiryId: enqId, equipmentItems: [{ description: 'Array', qty: 1, supplyRate: 200000 }],
+      });
+      const qtId = quoted.json?.quotation?.id;
       const s = await session(browser, 'sales');
-      await open(s, `/enquiries/${enqId}/convert`);
+      await open(s, `/quotations/${qtId}/convert`);
       const t = await bodyText(s.page);
       const div = await fieldOptions(s.page, 'Division *');
-      rec('enquiry convert: Division offers the purchased divisions only', same(div, TWO), JSON.stringify(div));
-      rec('enquiry convert: costing uses Equipment / Accessories labels (no HS/LS)', NEW_COST_LABELS.every((l) => t.includes(l)) && !OLD_COST_LABELS.some((l) => t.includes(l)));
-      rec('enquiry convert: Solar segment pre-selects the Solar division', (await fieldInput(s.page, 'Division *').inputValue()) === 'Solar');
+      rec('quotation convert: Division offers the purchased divisions only', same(div, TWO), JSON.stringify(div));
+      rec('quotation convert: costing uses Equipment / Accessories labels (no HS/LS)', NEW_COST_LABELS.every((l) => t.includes(l)) && !OLD_COST_LABELS.some((l) => t.includes(l)));
+      rec('quotation convert: the quotation\u2019s division is pre-selected', (await fieldInput(s.page, 'Division *').inputValue()) === 'Solar');
       await fieldInput(s.page, 'Equipment Selling').fill('200000');
       await fieldInput(s.page, 'Equipment Purchase').fill('150000');
       await s.page.locator('button:has-text("Create Sales Order")').click();
@@ -394,10 +403,11 @@ async function group5c(browser) {
       const soId = (s.page.url().match(/\/sales-orders\/([^/?#]+)$/) || [])[1];
       const e = await api(adminT, 'GET', `/api/enquiries/${enqId}`);
       const so = soId ? await api(adminT, 'GET', `/api/sales-orders/${soId}`) : { json: null };
-      rec('enquiry convert: sales order created with the entered costing and the enquiry is Won',
-        !!soId && so.json?.salesOrder?.division === 'Solar' && Number(so.json?.salesOrder?.highSideSelling) === 200000 && e.json?.enquiry?.status === 'Won',
-        `${s.page.url()} ${e.json?.enquiry?.status}`);
-      rec('enquiry convert: no errors', s.errors.length === 0, s.errors.join('|'));
+      rec('quotation convert: sales order created with the entered costing, the lead is Won and the quotation is recorded on it',
+        !!soId && so.json?.salesOrder?.division === 'Solar' && Number(so.json?.salesOrder?.highSideSelling) === 200000
+          && e.json?.enquiry?.status === 'Won' && String(so.json?.salesOrder?.quotationId) === String(qtId),
+        `${s.page.url()} ${e.json?.enquiry?.status} ${so.json?.salesOrder?.quotationId}`);
+      rec('quotation convert: no errors', s.errors.length === 0, s.errors.join('|'));
       await s.ctx.close();
       await layoutCheck(browser, 'sales', `/enquiries/${enqId}`, 'enquiry-detail', enqName);
     }
@@ -522,7 +532,7 @@ async function group5c(browser) {
 
     await layoutCheck(browser, 'sales', '/enquiries/new', 'enquiry-create', 'New Enquiry');
     await layoutCheck(browser, 'admin', '/sales-orders/new', 'so-create', 'Equipment Selling');
-    await layoutCheck(browser, 'sales', '/enquiries/enq_open/convert', 'enquiry-convert', 'Equipment Selling');
+    // The convert screen now lives on the quotation; the layout check follows it.
     await layoutCheck(browser, 'admin', '/checklists', 'checklist-list', 'Checklist Templates');
   } finally {
     const r = await api(superT, 'PATCH', `/api/companies/${CO_ID}`, { divisions: ALL });

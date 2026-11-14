@@ -5,15 +5,25 @@ const { ServiceError } = require('../errors');
 const { bulkUpsertFromLineItems } = require('./itemNameService');
 const { getEffectiveDivisions } = require('./subscriptionService');
 const { PRESET_CODES } = require('./quotationPresets');
+const cascade = require('./salesOrderCascade');
 
 /**
  * Quotation business logic.
  *
  * Quotation is a first-class commercial document for Sales/Finance.
- * It does NOT disturb existing Enquiry → SalesOrder flow.
+ *
+ * Owner decision (14 Nov 2026): it is also the middle of the only route a
+ * job takes. The flow is Enquiry → Quotation → Sales Order; there is no
+ * longer a way to turn an enquiry straight into a sales order, so the
+ * conversion cascade that used to live on the enquiry now runs from here
+ * (convertQuotationToSalesOrder, below).
  */
 
 const ROW_TYPES = ['item', 'sub', 'heading', 'spec'];
+// Owner decision (14 Nov 2026): who may turn an accepted quotation into the
+// sales order — the roles that could convert an enquiry before, plus the
+// Solar Manager.
+const CONVERT_ROLES = Object.freeze(['sales', 'admin', 'solar_pm']);
 
 /**
  * The content a quotation starting point carries (owner request, 22 Oct 2026):
@@ -187,6 +197,9 @@ async function createQuotation(companyId, data, actorId, deps) {
   const quotation = await deps.quotationRepo.create({
     companyId,
     quotationNumber,
+    // Owner request (14 Nov 2026): the lead this was quoted for, so the
+    // chain enquiry → quotation → sales order is unbroken.
+    enquiryId: data.enquiryId || null,
     division: data.division,
     offerType: PRESET_CODES.includes(data.offerType) ? data.offerType : '',
     status: data.status || 'Draft',
@@ -324,6 +337,153 @@ async function duplicateQuotation(companyId, quotationId, actorId, deps) {
   });
 }
 
+/**
+ * Quotation → SalesOrder (owner decision, 14 Nov 2026).
+ *
+ * The one way a job becomes an order. It replaces the enquiry's own
+ * Convert, which has been removed: a sales order now exists because a
+ * customer accepted a quotation, and the order records which one.
+ *
+ * What it does, in one transaction, so it cannot half-happen:
+ *   1. refuses a quotation that is Rejected or Cancelled, or one already
+ *      converted (guarded again by SalesOrder's unique quotationId index);
+ *   2. marks the quotation Accepted;
+ *   3. where the quotation came from an enquiry, marks that enquiry Won
+ *      with the same remark and follow-up line the old path wrote — and
+ *      refuses if it is no longer Open, exactly as before;
+ *   4. runs the shared creation cascade: the SalesOrder, its Project on the
+ *      division's first stage with the division's checklist, one Payment
+ *      per milestone, and the two notifications.
+ *
+ * The draft is seeded from the quotation — division, customer, site,
+ * grand total — and anything the person typed on the sales-order form
+ * wins over it, the same way the enquiry's own values used to be
+ * overridable.
+ */
+async function convertQuotationToSalesOrder(quotationId, soOverrides, actorAuth, deps) {
+  const companyId = actorAuth && actorAuth.companyId;
+  if (!companyId) throw new ServiceError('No company context for this account.', 'NO_COMPANY_CONTEXT', 403);
+  // The same gate the enquiry's own Convert carried, plus the Solar Manager,
+  // which runs solar sales end to end.
+  if (!CONVERT_ROLES.includes(actorAuth.role)) {
+    throw new ServiceError(
+      `Role "${actorAuth.role}" is not permitted to turn a quotation into a sales order (must be ${CONVERT_ROLES.join(', ')}).`,
+      'FORBIDDEN',
+      403
+    );
+  }
+
+  const quotation = await deps.quotationRepo.findById(companyId, quotationId);
+  if (!quotation) throw new ServiceError('Quotation not found.', 'NOT_FOUND', 404);
+  if (quotation.status === 'Rejected' || quotation.status === 'Cancelled') {
+    throw new ServiceError(
+      `A ${quotation.status} quotation cannot become a sales order.`,
+      'QUOTATION_NOT_CONVERTIBLE',
+      409
+    );
+  }
+  const already = await deps.salesOrderRepo.findByQuotationId(companyId, quotationId);
+  if (already) {
+    throw new ServiceError('This quotation has already become a sales order.', 'DUPLICATE_CONVERSION', 409);
+  }
+
+  const enquiryId = quotation.enquiryId ? String(quotation.enquiryId) : null;
+  let enquiry = null;
+  if (enquiryId) {
+    enquiry = await deps.enquiryRepo.findById(companyId, enquiryId);
+    // The quotation names a lead; if it is not this company's, the link is
+    // broken and the order is refused rather than made without it.
+    if (!enquiry) throw new ServiceError('Enquiry not found.', 'NOT_FOUND', 404);
+    if (enquiry.status !== 'Open') {
+      throw new ServiceError('Only an Open Enquiry can be converted to a SalesOrder.', 'ENQUIRY_NOT_OPEN', 409);
+    }
+    const existingSo = await deps.salesOrderRepo.findByEnquiryId(companyId, enquiryId);
+    if (existingSo) {
+      throw new ServiceError('This Enquiry has already been converted to a SalesOrder.', 'DUPLICATE_CONVERSION', 409);
+    }
+  }
+
+  let actorName = actorAuth.name;
+  if (!actorName && deps.userRepoForEnquiry) {
+    const actorUser = await deps.userRepoForEnquiry.findById(actorAuth.userId);
+    actorName = actorUser ? actorUser.name : '';
+  }
+
+  // What the quotation already knows, under anything the form says.
+  const given = soOverrides || {};
+  // The customer on the quotation fills contact 1, field by field, so a form
+  // that names a different person keeps the number we already hold.
+  const givenContacts = Array.isArray(given.contacts) ? given.contacts : [];
+  const c0 = givenContacts[0] || {};
+  const contacts = [
+    {
+      name: c0.name !== undefined ? c0.name : (quotation.customerName || ''),
+      designation: c0.designation || '',
+      phone: c0.phone !== undefined ? c0.phone : (quotation.customerPhone || ''),
+      email: c0.email !== undefined ? c0.email : (quotation.customerEmail || ''),
+    },
+    givenContacts[1] || {},
+  ];
+  const overrides = {
+    division: quotation.division,
+    projectName: quotation.subject || quotation.customerName || '',
+    siteAddress: quotation.customerAddress || '',
+    totalCost: quotation.grandTotal || 0,
+    ...given,
+    contacts,
+  };
+  const draft = cascade.buildSalesOrderDraft(null, overrides, actorName);
+  draft.division = (soOverrides && soOverrides.division) || quotation.division;
+  cascade.validateSalesOrderDraft(draft);
+
+  const divisions = await getEffectiveDivisions(companyId, deps);
+  if (!divisions.includes(draft.division)) {
+    throw new ServiceError(
+      `Division "${draft.division}" is not available for this company.`,
+      'DIVISION_NOT_ENTITLED',
+      403
+    );
+  }
+
+  return deps.withTransaction(deps, async (txnDeps) => {
+    const { session } = txnDeps;
+    const orderNumber = await txnDeps.counterRepo.getNextSequence(companyId, 'salesOrder', session);
+
+    // The same literal strings the enquiry path wrote, so a lead's history
+    // reads the same before and after this change.
+    const remark = `Converted to SO-${orderNumber}`;
+    const logText = `Confirmed. SO-${orderNumber} created.`;
+
+    let wonEnquiry = null;
+    if (enquiryId && enquiry) {
+      wonEnquiry = await txnDeps.enquiryRepo.markWonIfOpen(
+        companyId,
+        enquiryId,
+        { remark, logEntry: { date: new Date(), text: logText } },
+        session
+      );
+      if (!wonEnquiry) {
+        // Lost the race — somebody changed the lead's status first.
+        throw new ServiceError('Only an Open Enquiry can be converted to a SalesOrder.', 'ENQUIRY_NOT_OPEN', 409);
+      }
+    }
+
+    const accepted = await txnDeps.quotationRepo.updateFields(companyId, quotationId, { status: 'Accepted' });
+
+    const { salesOrder, project, payments, notifications } = await cascade.runCreationCascade({
+      draft,
+      orderNumber,
+      companyId,
+      enquiryId,
+      quotationId,
+      session,
+      deps: txnDeps,
+    });
+
+    return { quotation: accepted || quotation, enquiry: wonEnquiry, salesOrder, project, payments, notifications };
+  });
+}
+
 async function deleteQuotation(companyId, quotationId, deps) {
   const q = await deps.quotationRepo.findById(companyId, quotationId);
   if (!q) throw new ServiceError('Quotation not found.', 'NOT_FOUND', 404);
@@ -392,6 +552,7 @@ async function exportQuotationsCsv(companyId, deps) {
 }
 
 module.exports = {
+  convertQuotationToSalesOrder,
   TEMPLATE_FIELDS,
   usesPerItemGst,
   calculateLineTotals,

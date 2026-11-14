@@ -20,7 +20,8 @@ const { requireCompanyContext, rejectClientSuppliedCompanyId } = require('../mid
  *   POST   /api/enquiries/:id/follow-ups      add a follow-up
  *   POST   /api/enquiries/:id/mark-lost       mark Lost
  *   POST   /api/enquiries/:id/reopen          reopen a Lost Enquiry (#18=A: lostReason/lostDate untouched)
- *   POST   /api/enquiries/:id/convert         convert to SalesOrder (#19=B, #20=D — transactional cascade)
+ *   (POST /api/enquiries/:id/convert is gone — owner decision, 14 Nov 2026:
+ *    a lead becomes an order through its quotation, POST /api/quotations/:id/convert)
  *
  * Role/tenant enforcement happens in the service layer (see
  * src/services/enquiryService.js) — this router only wires HTTP concerns
@@ -147,13 +148,6 @@ function createEnquiryRouter(deps) {
     })
   );
 
-  router.post(
-    '/:id/convert',
-    handle(async (req, res) => {
-      const result = await service.convertEnquiryToSalesOrder(req.params.id, req.body, req.auth, deps);
-      return res.status(201).json(result);
-    })
-  );
 
   return router;
 }

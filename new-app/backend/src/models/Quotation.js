@@ -58,6 +58,11 @@ const quotationSchema = new Schema(
       ref: 'Company',
       required: true,
     },
+    // Owner request (14 Nov 2026): the lead this quotation was raised from,
+    // so the chain enquiry -> quotation -> sales order is unbroken. Null for
+    // a quotation typed up without a lead behind it. Not unique: one lead
+    // may be quoted more than once.
+    enquiryId: { type: Schema.Types.ObjectId, ref: 'Enquiry', default: null },
     quotationNumber: { type: String, required: true },
     revision: { type: Number, default: 0 },
     division: {

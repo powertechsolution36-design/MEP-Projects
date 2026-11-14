@@ -200,8 +200,11 @@ export default function EnquiryDetail() {
             <button className="btn sec sm" onClick={openEdit}>✏️ Edit</button>
             {enq.status === 'Open' && (
               <>
-                <button className="btn pri sm" onClick={() => navigate(`/enquiries/${id}/convert`)}>
-                  Confirmed → Create SO
+                {/* Owner decision (14 Nov 2026): a lead is quoted before it
+                    becomes an order. The sales order is created from the
+                    quotation once the customer accepts it. */}
+                <button className="btn pri sm" onClick={() => navigate(`/quotations/new?enquiryId=${id}`)}>
+                  Quote this
                 </button>
                 <button className="btn danger sm" onClick={() => setShowLostModal(true)}>Mark Lost</button>
               </>

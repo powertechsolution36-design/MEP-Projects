@@ -22,6 +22,7 @@ function todayIso() {
 }
 
 const enquiryService = require('../src/services/enquiryService');
+const quotationService = require('../src/services/quotationService');
 const inventoryService = require('../src/services/inventoryService');
 const contractService = require('../src/services/contractService');
 const serviceCallService = require('../src/services/serviceCallService');
@@ -33,19 +34,30 @@ function auth(overrides) {
   return { userId: 'u1', companyId: 'co1', role: 'admin', name: 'Admin One', ...overrides };
 }
 
-/* ============== 1. Enquiry -> SalesOrder ============== */
+/* ============== 1. Quotation -> SalesOrder ==============
+   Owner decision (14 Nov 2026): the flow is Enquiry -> Quotation -> Sales
+   Order, so the race that used to be run on the enquiry's own Convert is
+   now run on the quotation's. The guarantee is unchanged: two simultaneous
+   conversions produce exactly one sales order. */
 
-test('CONCURRENCY: Enquiry->SalesOrder -- two simultaneous conversions of the same Enquiry produce exactly one SalesOrder', async () => {
+test('CONCURRENCY: Quotation->SalesOrder -- two simultaneous conversions of the same Quotation produce exactly one SalesOrder', async () => {
   const store = createAtomicStore({
+    companies: [{ id: 'co1', name: 'Test Co', divisions: ['HVAC', 'Solar', 'MEP'] }],
     enquiries: [{ id: 'enq1', companyId: 'co1', name: 'Test Co', segment: 'HVAC', phone: '9', estimatedValue: 1000, status: 'Open', followUpLog: [] }],
+    quotations: [{
+      id: 'qt1', companyId: 'co1', quotationNumber: 'QTN-0001', enquiryId: 'enq1',
+      division: 'HVAC', status: 'Sent', customerName: 'Test Co', customerPhone: '9',
+      subject: 'Test Co', grandTotal: 1000,
+      equipmentItems: [], accessoriesItems: [], paymentTerms: [], excludedWorks: [],
+    }],
     users: [{ id: 'u1', name: 'Sales One', role: 'sales', companyId: 'co1' }],
   });
   const salesAuth = auth({ role: 'sales' });
   const payload = { contacts: [{ name: 'X' }], paymentMilestones: [{ description: 'Advance', amount: 500 }] };
 
   const results = await Promise.allSettled([
-    enquiryService.convertEnquiryToSalesOrder('enq1', payload, salesAuth, store),
-    enquiryService.convertEnquiryToSalesOrder('enq1', payload, salesAuth, store),
+    quotationService.convertQuotationToSalesOrder('qt1', payload, salesAuth, store),
+    quotationService.convertQuotationToSalesOrder('qt1', payload, salesAuth, store),
   ]);
 
   const fulfilled = results.filter((r) => r.status === 'fulfilled');

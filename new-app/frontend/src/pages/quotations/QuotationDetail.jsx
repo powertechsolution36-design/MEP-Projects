@@ -479,6 +479,14 @@ export default function QuotationDetail() {
               WhatsApp{companyWa ? ` (from ${displayNumber(companyWa)})` : ''}
             </a>
           )}
+          {/* Owner decision (14 Nov 2026): the customer said yes — this is
+              where the sales order, its project and its payment milestones
+              come from. The only route from a lead to an order. */}
+          {canEdit && q.status !== 'Rejected' && q.status !== 'Cancelled' && (
+            <button className="btn pri sm" onClick={() => navigate(`/quotations/${q.id}/convert`)}>
+              Accepted → Create Sales Order
+            </button>
+          )}
           {canEdit && <button className="btn pri sm" onClick={() => { setEditing(true); api.get('/api/payment-term-templates?documentType=quotation').then(d => setPayTermTemplates(d.templates || [])).catch(() => {}); }}>Edit</button>}
           {canEdit && <button className="btn sec sm" onClick={handleDuplicate}>Duplicate</button>}
           {canEdit && <button className="btn sec sm" onClick={handleSaveAsStartingPoint}>Save as starting point</button>}

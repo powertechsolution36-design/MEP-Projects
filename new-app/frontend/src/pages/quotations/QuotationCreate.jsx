@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
 import { money, today } from '../../utils/format';
 import DivisionSelector from '../../components/DivisionSelector';
@@ -19,6 +19,12 @@ import { quotationTotals } from './quotationTotals';
 
 export default function QuotationCreate() {
   const navigate = useNavigate();
+  // Owner decision (14 Nov 2026): a quotation is normally raised from a
+  // lead. Arriving with ?enquiryId=… fills the form from it and keeps the
+  // link, so the sales order made from this quotation can mark that lead
+  // Won. Opened without one, it is a quotation with no lead behind it.
+  const [searchParams] = useSearchParams();
+  const enquiryId = searchParams.get('enquiryId');
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState('');
 
@@ -33,6 +39,30 @@ export default function QuotationCreate() {
   const [accessoriesItems, setAccessoriesItems] = useState([]);
   const [paymentTerms, setPaymentTerms] = useState([]);
   const [excludedWorks, setExcludedWorks] = useState(['']);
+
+  /* Prefill from the lead this is being quoted for. Only the fields a lead
+     actually knows — the rest is the quotation's own work. */
+  useEffect(() => {
+    if (!enquiryId) return;
+    let alive = true;
+    api.get(`/api/enquiries/${enquiryId}`)
+      .then((d) => {
+        const e = d.enquiry;
+        if (!alive || !e) return;
+        setForm((f) => ({
+          ...f,
+          // A lead's segment may be AMC, which is not a quotable division;
+          // HVAC is where those jobs go, exactly as the old conversion did.
+          division: e.segment === 'AMC' ? 'HVAC' : (e.segment || ''),
+          customerName: e.name || '',
+          customerPhone: e.phone || '',
+          subject: e.name || '',
+          capacity: e.capacity || '',
+        }));
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [enquiryId]);
 
   // Payment term templates
   const [templates, setTemplates] = useState([]);
@@ -246,6 +276,7 @@ export default function QuotationCreate() {
         paymentTerms: paymentTerms.filter(t => t.label || t.wording),
         paymentTermTemplateId: selectedTemplate || undefined,
         excludedWorks: excludedWorks.filter(Boolean),
+        enquiryId: enquiryId || undefined,
       };
       const data = await api.post('/api/quotations', payload);
       navigate(`/quotations/${data.quotation.id}`);

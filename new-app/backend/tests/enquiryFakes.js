@@ -138,6 +138,12 @@ function createEnquiryFakeStore(seed = {}) {
   };
 
   const salesOrderRepo = {
+    async findByQuotationId(companyId, quotationId) {
+      const doc = state.salesOrders.find(
+        (s) => String(s.companyId) === String(companyId) && String(s.quotationId) === String(quotationId)
+      );
+      return doc ? { ...doc } : null;
+    },
     async findByEnquiryId(companyId, enquiryId) {
       const doc = state.salesOrders.find(
         (s) => String(s.companyId) === String(companyId) && String(s.enquiryId) === String(enquiryId)

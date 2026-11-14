@@ -9,7 +9,8 @@ import useMyDivisions from '../../hooks/useMyDivisions';
  *
  * PWA FACT: mSO() with no args means e=null, no pre-fill from enquiry.
  * PWA FACT: "+ New SO" button shown only for sales/admin.
- * Same form fields as EnquiryConvert but no source enquiry.
+ * Same form fields as QuotationConvert but no source quotation — the
+ * walk-in path, for an order with no lead and no quotation behind it.
  */
 
 const DEFAULT_TERMS = '1) Fabrication not in our scope. 2) Civil and interior work not in our scope. 3) Mathadi not in our scope.';

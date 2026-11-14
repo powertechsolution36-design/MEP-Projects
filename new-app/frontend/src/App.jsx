@@ -11,7 +11,6 @@ import EnquiryList from './pages/enquiries/EnquiryList';
 import LostEnquiries from './pages/enquiries/LostEnquiries';
 import EnquiryDetail from './pages/enquiries/EnquiryDetail';
 import EnquiryCreate from './pages/enquiries/EnquiryCreate';
-import EnquiryConvert from './pages/enquiries/EnquiryConvert';
 import SalesOrderList from './pages/salesorders/SalesOrderList';
 import SalesOrderDetail from './pages/salesorders/SalesOrderDetail';
 import SalesOrderCreate from './pages/salesorders/SalesOrderCreate';
@@ -29,6 +28,7 @@ import AmcDocument from './pages/contracts/AmcDocument';
 import QuotationList from './pages/quotations/QuotationList';
 import QuotationCreate from './pages/quotations/QuotationCreate';
 import QuotationDetail from './pages/quotations/QuotationDetail';
+import QuotationConvert from './pages/quotations/QuotationConvert';
 
 /* ── Service Call module screens (Stage 7 Pass 4A) ── */
 import ServiceCallList from './pages/service/ServiceCallList';
@@ -108,7 +108,6 @@ export default function App() {
           <Route path="enquiries/lost" element={<LostEnquiries />} />
           <Route path="enquiries/new" element={<EnquiryCreate />} />
           <Route path="enquiries/:id" element={<EnquiryDetail />} />
-          <Route path="enquiries/:id/convert" element={<EnquiryConvert />} />
 
           {/* ── Sales Orders ── */}
           <Route path="sales-orders" element={<SalesOrderList />} />
@@ -135,6 +134,9 @@ export default function App() {
           <Route path="quotations" element={<QuotationList />} />
           <Route path="quotations/new" element={<QuotationCreate />} />
           <Route path="quotations/:id" element={<QuotationDetail />} />
+          {/* Owner decision (14 Nov 2026): a lead becomes an order here, and
+              only here — the enquiry's own convert screen is gone. */}
+          <Route path="quotations/:id/convert" element={<QuotationConvert />} />
           <Route path="service-calls" element={<ServiceCallList />} />
           <Route path="service-calls/new" element={<ServiceCallCreate />} />
           <Route path="service-calls/:id" element={<ServiceCallDetail />} />

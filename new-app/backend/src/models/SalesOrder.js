@@ -46,6 +46,10 @@ const salesOrderSchema = new Schema(
     // (src/services/enquiryService.js convertEnquiryToSalesOrder), never client-editable,
     // and enforced unique below so at most one SalesOrder can ever link to a given Enquiry.
     enquiryId: { type: Schema.Types.ObjectId, ref: 'Enquiry', default: null },
+    // Owner request (14 Nov 2026): the flow is enquiry -> quotation -> sales
+    // order, so an order records the quotation it was accepted from. Null on
+    // the two older paths — a walk-in order, or an enquiry converted direct.
+    quotationId: { type: Schema.Types.ObjectId, ref: 'Quotation', default: null },
     division: { type: String, enum: DIVISIONS, required: true }, // PWA FACT
     projectName: { type: String, required: true }, // PWA FACT
     startDate: { type: Date, required: true }, // PWA FACT
@@ -81,5 +85,8 @@ salesOrderSchema.index({ companyId: 1, division: 1 });
 // set) so a concurrent duplicate conversion attempt fails with a
 // MongoDB duplicate-key error even if the service-layer pre-check races.
 salesOrderSchema.index({ enquiryId: 1 }, { unique: true, sparse: true });
+// One sales order per quotation, enforced the same way: accepting a
+// quotation twice cannot produce two orders.
+salesOrderSchema.index({ quotationId: 1 }, { unique: true, sparse: true });
 
 module.exports = model('SalesOrder', salesOrderSchema);

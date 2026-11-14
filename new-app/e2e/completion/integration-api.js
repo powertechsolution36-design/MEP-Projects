@@ -228,7 +228,7 @@ function concrete(p, ids = FIXTURE) {
     allow('/api/sales-orders', ['admin', 'sales', 'hvac_pm', 'solar_pm', 'mep_pm', 'finance']);
     allow('/api/sales-orders/:id', ['admin', 'sales', 'hvac_pm', 'solar_pm', 'mep_pm', 'finance']); // PWA vSO: no PM-division gate on viewing
     allow('/api/inventory/issues', ['admin', 'inventory']);
-    allow('/api/enquiries', ['admin', 'sales']);
+    allow('/api/enquiries', ['admin', 'sales', 'solar_pm']); // Solar Manager has Enquiries (14 Nov 2026)
     allow('/api/quotations', ['super', 'admin', 'sales', 'finance']); // super admitted "for support" (quotationRoutes.js)
     const sq = await call('GET', '/api/quotations', { token: tok.super });
     rec('C', 'super (no company) gets an empty quotation list, not other companies\' quotations', sq.status === 200 && Array.isArray(sq.json?.quotations) && sq.json.quotations.length === 0, `${sq.json?.quotations?.length}`);
@@ -455,17 +455,33 @@ function concrete(p, ids = FIXTURE) {
     // G10 Enquiry transitions
     const sT = tok.sales;
     const en = (await call('POST', '/api/enquiries', { token: sT, body: { name: 'G10', segment: 'HVAC', siteType: 'Residential' } })).json?.enquiry;
+    // Owner decision (14 Nov 2026): a lead becomes an order through its
+    // quotation. The enquiry's own convert route is gone, and the same
+    // transitions are driven from the quotation instead.
+    const quote = async () => (await call('POST', '/api/quotations', {
+      token: sT,
+      body: {
+        division: 'HVAC', customerName: 'G10', subject: 'G10', enquiryId: en?.id,
+        equipmentItems: [{ description: 'Unit', qty: 1, supplyRate: 1000 }],
+      },
+    })).json?.quotation;
+
     const lost = await call('POST', `/api/enquiries/${en?.id}/mark-lost`, { token: sT, body: { lostReason: 'Price', remark: 'x' } });
-    const convLost = await call('POST', `/api/enquiries/${en?.id}/convert`, { token: sT, body: { division: 'HVAC', projectName: 'G10', startDate: '2026-10-16' } });
+    const qLost = await quote();
+    const convLost = await call('POST', `/api/quotations/${qLost?.id}/convert`, { token: sT, body: { projectName: 'G10', startDate: '2026-10-16' } });
+    const gone = await call('POST', `/api/enquiries/${en?.id}/convert`, { token: sT, body: { division: 'HVAC', projectName: 'G10', startDate: '2026-10-16' } });
     const lostAgain = await call('POST', `/api/enquiries/${en?.id}/mark-lost`, { token: sT, body: { lostReason: 'Price' } });
     const reopen = await call('POST', `/api/enquiries/${en?.id}/reopen`, { token: sT });
-    const conv = await call('POST', `/api/enquiries/${en?.id}/convert`, { token: sT, body: { division: 'HVAC', projectName: 'G10', startDate: '2026-10-16' } });
-    const conv2 = await call('POST', `/api/enquiries/${en?.id}/convert`, { token: sT, body: { division: 'HVAC', projectName: 'G10', startDate: '2026-10-16' } });
+    const q = await quote();
+    const conv = await call('POST', `/api/quotations/${q?.id}/convert`, { token: sT, body: { projectName: 'G10', startDate: '2026-10-16' } });
+    const conv2 = await call('POST', `/api/quotations/${q?.id}/convert`, { token: sT, body: { projectName: 'G10', startDate: '2026-10-16' } });
     const lostWon = await call('POST', `/api/enquiries/${en?.id}/mark-lost`, { token: sT, body: { lostReason: 'Price' } });
     const finalE = (await call('GET', `/api/enquiries/${en?.id}`, { token: sT })).json?.enquiry;
-    rec('G', 'enquiry transitions: Open->Lost ok; convert/mark-lost on Lost refused; reopen ok; convert ok once (2nd refused); Won cannot be marked lost',
+    rec('G', 'enquiry transitions: Open->Lost ok; converting a Lost lead refused; reopen ok; quotation converts once (2nd refused); Won cannot be marked lost',
       lost.status === 200 && convLost.status >= 400 && lostAgain.status >= 400 && reopen.status === 200 && conv.status === 201 && conv2.status >= 400 && lostWon.status >= 400 && finalE?.status === 'Won',
       [lost, convLost, lostAgain, reopen, conv, conv2, lostWon].map((x) => x.status).join('/') + ` ${finalE?.status}`);
+    rec('G', 'the enquiry\u2019s own convert route is gone — a lead goes through its quotation',
+      gone.status === 404, String(gone.status));
   }
 
   const pass = results.filter((r) => r.status === 'PASS').length;

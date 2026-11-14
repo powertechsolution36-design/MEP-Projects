@@ -125,6 +125,12 @@ const salesOrderRepo = {
     const doc = await SalesOrder.findOne({ companyId, enquiryId }).lean();
     return toPlainLean(doc);
   },
+  // Owner request (14 Nov 2026): the duplicate-conversion guard for the
+  // quotation path, the twin of findByEnquiryId above.
+  async findByQuotationId(companyId, quotationId) {
+    const doc = await SalesOrder.findOne({ companyId, quotationId }).lean();
+    return toPlainLean(doc);
+  },
   /**
    * #20=D (durable reference + enforcement): relies on SalesOrder.js's
    * unique+sparse index on `enquiryId` as the final, database-level
