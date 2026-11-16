@@ -226,7 +226,10 @@ function concrete(p, ids = FIXTURE) {
     allow('/api/companies/platform/usage', ['super']);
     allow('/api/payments', ['admin', 'finance']);
     allow('/api/sales-orders', ['admin', 'sales', 'hvac_pm', 'solar_pm', 'mep_pm', 'finance']);
-    allow('/api/sales-orders/:id', ['admin', 'sales', 'hvac_pm', 'solar_pm', 'mep_pm', 'finance']); // PWA vSO: no PM-division gate on viewing
+    // so_demo is HVAC. Owner request (14 Nov 2026): a division Manager sees
+    // its own division's orders only, so the Solar and MEP Managers get 404
+    // here while the HVAC one still gets 200.
+    allow('/api/sales-orders/:id', ['admin', 'sales', 'hvac_pm', 'finance']);
     allow('/api/inventory/issues', ['admin', 'inventory']);
     allow('/api/enquiries', ['admin', 'sales', 'solar_pm']); // Solar Manager has Enquiries (14 Nov 2026)
     allow('/api/quotations', ['super', 'admin', 'sales', 'finance']); // super admitted "for support" (quotationRoutes.js)

@@ -78,6 +78,23 @@ async function listTeamCandidates(actorAuth, deps) {
   return { sales: pick(SALES_TEAM_ROLES), project: pick(PROJECT_TEAM_ROLES) };
 }
 
+// OWNER REQUEST (14 Nov 2026): "Solar Manager can only see Solar Sales
+// order". A division Manager's sales orders are its own division's, which
+// is how the Projects list has always behaved
+// (projectService.PM_DIVISION_FOR_ROLE). This replaces the earlier reading
+// of the PWA -- "vSO: no PM-division gate on viewing" -- which let a Solar
+// Manager open an HVAC order.
+const PM_DIVISION_FOR_ROLE = Object.freeze({ hvac_pm: 'HVAC', solar_pm: 'Solar', mep_pm: 'MEP' });
+
+/** The order is not this Manager's division's, so it is not theirs to see. */
+function assertDivisionVisible(actorAuth, salesOrder) {
+  const mine = PM_DIVISION_FOR_ROLE[actorAuth.role];
+  if (!mine || salesOrder.division === mine) return;
+  // 404, not 403: which orders exist in another division is not the
+  // business of someone who may not read them.
+  throw new ServiceError('SalesOrder not found.', 'NOT_FOUND', 404);
+}
+
 const COST_HIDDEN_ROLES = Object.freeze(['engineer', 'service_eng']);
 const COST_FIELDS = Object.freeze([
   'totalCost',
@@ -180,6 +197,7 @@ async function getSalesOrder(id, actorAuth, deps) {
   if (!so) {
     throw new ServiceError('SalesOrder not found.', 'NOT_FOUND', 404);
   }
+  assertDivisionVisible(actorAuth, so);
   // PWA FACT (vSO "Open Project →", index.html:2036): the SO links to the
   // project its cascade created.
   const project = deps.projectRepo ? await deps.projectRepo.findBySalesOrderId(actorAuth.companyId, so.id) : null;
@@ -274,7 +292,9 @@ function applySalesOrderFilters(rows, filters) {
 /** PWA FACT (vSOs / dlSOs `hasDiv(x.div)`, index.html:1970, 3419). */
 async function onlyEntitledDivisions(actorAuth, rows, deps) {
   const divisions = await getEffectiveDivisions(actorAuth.companyId, deps);
-  return rows.filter((x) => divisions.includes(x.division));
+  const entitled = rows.filter((x) => divisions.includes(x.division));
+  const mine = PM_DIVISION_FOR_ROLE[actorAuth.role];
+  return mine ? entitled.filter((x) => x.division === mine) : entitled;
 }
 
 function computePaySummaryFromFlags(so) {
@@ -399,6 +419,7 @@ module.exports = {
   CREATE_ROLES,
   EDIT_ROLES,
   VIEW_ROLES,
+  PM_DIVISION_FOR_ROLE,
   TEAM_CANDIDATE_ROLES,
   SALES_TEAM_ROLES,
   PROJECT_TEAM_ROLES,

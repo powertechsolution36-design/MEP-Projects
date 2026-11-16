@@ -164,3 +164,84 @@ test('another company cannot reach a project, or its quotation, by id', async ()
     (err) => err.status === 404
   );
 });
+
+/* ---------------- 3. a division Manager's sales orders ----------------
+   Owner report (14 Nov 2026): "Solar Manager is able to see HVAC Sales
+   order ... can only see Solar Sales order". */
+
+const SO_ROWS = [
+  { id: 'so_solar', companyId: 'co1', orderNumber: 1, division: 'Solar', projectName: 'Rooftop', paymentMilestones: [] },
+  { id: 'so_hvac', companyId: 'co1', orderNumber: 2, division: 'HVAC', projectName: 'Chiller', paymentMilestones: [] },
+  { id: 'so_mep', companyId: 'co1', orderNumber: 3, division: 'MEP', projectName: 'Plumbing', paymentMilestones: [] },
+];
+
+function divisionStore() {
+  return createEnquiryFakeStore({
+    users: USERS,
+    salesOrders: SO_ROWS.map((r) => ({ ...r })),
+    companies: [{ id: 'co1', name: 'MEP Powertech', divisions: ['HVAC', 'Solar', 'MEP'] }],
+  });
+}
+
+test('the Solar Manager sees only Solar sales orders, never the HVAC ones', async () => {
+  const store = divisionStore();
+  const list = await salesOrderService.listSalesOrders(auth({ role: 'solar_pm' }), {}, store);
+  assert.deepEqual(list.map((o) => o.division), ['Solar']);
+  assert.deepEqual(list.map((o) => o.projectName), ['Rooftop']);
+});
+
+test('each division Manager sees its own, and admin, sales and finance still see all three', async () => {
+  const store = divisionStore();
+  for (const [role, division] of [['solar_pm', 'Solar'], ['hvac_pm', 'HVAC'], ['mep_pm', 'MEP']]) {
+    const list = await salesOrderService.listSalesOrders(auth({ role }), {}, store);
+    assert.deepEqual(list.map((o) => o.division), [division], `${role} should see only ${division}`);
+  }
+  for (const role of ['admin', 'sales', 'finance']) {
+    const list = await salesOrderService.listSalesOrders(auth({ role }), {}, store);
+    assert.equal(list.length, 3, `${role} should still see every division`);
+  }
+});
+
+test('another division’s sales order is not reachable by id either', async () => {
+  const store = divisionStore();
+  const solar = auth({ role: 'solar_pm' });
+  assert.equal((await salesOrderService.getSalesOrder('so_solar', solar, store)).division, 'Solar');
+  for (const id of ['so_hvac', 'so_mep']) {
+    await assert.rejects(
+      () => salesOrderService.getSalesOrder(id, solar, store),
+      (err) => err.code === 'NOT_FOUND' && err.status === 404,
+      `${id} should be out of reach`
+    );
+  }
+  // Admin is unaffected.
+  assert.equal((await salesOrderService.getSalesOrder('so_hvac', auth({ role: 'admin' }), store)).division, 'HVAC');
+});
+
+test('the sales order CSV a division Manager exports carries only its own division', async () => {
+  const store = divisionStore();
+  const csv = await salesOrderService.exportSalesOrdersCsv(auth({ role: 'solar_pm' }), {}, store);
+  assert.ok(csv.includes('Rooftop'), 'its own order should be in the export');
+  assert.ok(!csv.includes('Chiller'), 'another division should not be');
+  assert.ok(!csv.includes('Plumbing'), 'nor the third');
+});
+
+test('the Solar Manager may raise an enquiry, a complaint and an AMC client of its own', async () => {
+  const enquiryService = require('../src/services/enquiryService');
+  const serviceCallService = require('../src/services/serviceCallService');
+  const contractService = require('../src/services/contractService');
+  const store = divisionStore();
+  const solar = auth({ role: 'solar_pm', userId: 'u_solar', name: 'Akshay Solar' });
+
+  const enq = await enquiryService.createEnquiry({ name: 'Solar lead', segment: 'Solar', siteType: 'Commercial' }, solar, store);
+  assert.equal(enq.segment, 'Solar');
+
+  const { serviceCall } = await serviceCallService.registerComplaint({ customer: 'Walk-in', complaint: 'Inverter tripping' }, solar, store);
+  assert.equal(serviceCall.division, 'Solar');
+
+  const amc = await contractService.createManualContract(
+    { site: 'Solar site', customer: 'Solar Client', division: 'Solar', category: 'AMC', amcType: 'Quarterly', start: '2026-11-01', end: '2027-10-31' },
+    solar,
+    store
+  );
+  assert.equal(amc.division, 'Solar');
+});

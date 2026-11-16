@@ -946,6 +946,35 @@ async function group6j(browser) {
   rec('Solar Manager: can send a company engineer to it',
     assigned.status === 200 && assigned.json.serviceCall.status === 'Assigned', String(assigned.status));
 
+  // Owner report (14 Nov 2026): "Solar Manager is able to see HVAC Sales
+  // order ... can only see Solar Sales order".
+  const soSolar = await api(admin, 'POST', '/api/sales-orders', {
+    division: 'Solar', projectName: `Solar order ${tag}`, startDate: today(), paymentMilestones: [],
+  });
+  const soHvac = await api(admin, 'POST', '/api/sales-orders', {
+    division: 'HVAC', projectName: `HVAC order ${tag}`, startDate: today(), paymentMilestones: [],
+  });
+  await open(s, '/sales-orders');
+  await s.page.waitForTimeout(400);
+  const soText = await s.page.locator('body').innerText();
+  rec('Solar Manager: the Sales Orders list is solar only',
+    soText.includes(`Solar order ${tag}`) && !soText.includes(`HVAC order ${tag}`), soText.slice(0, 200));
+  const peekSo = await api(s.token, 'GET', `/api/sales-orders/${soHvac.json.salesOrder.id}`);
+  rec('Solar Manager: an HVAC order is not reachable by id either', peekSo.status === 404, String(peekSo.status));
+  const ownSo = await api(s.token, 'GET', `/api/sales-orders/${soSolar.json.salesOrder.id}`);
+  rec('Solar Manager: its own order opens normally', ownSo.status === 200, String(ownSo.status));
+
+  // The three things it must be able to raise when the admin is busy.
+  const ownEnq = await api(s.token, 'POST', '/api/enquiries', {
+    name: `Solar lead ${tag}`, segment: 'Solar', siteType: 'Commercial', rating: 3,
+  });
+  rec('Solar Manager: can raise an enquiry of its own', ownEnq.status === 201, String(ownEnq.status));
+  const ownAmc = await api(s.token, 'POST', '/api/contracts', {
+    site: `Own AMC ${tag}`, customer: `Own Client ${tag}`, division: 'Solar',
+    category: 'AMC', amcType: 'Quarterly', start: today(), end: plusDays(300),
+  });
+  rec('Solar Manager: can register an AMC client of its own', ownAmc.status === 201, String(ownAmc.status));
+
   rec('Solar Manager: no errors', s.errors.length === 0, s.errors.join('|'));
   await s.ctx.close();
 
