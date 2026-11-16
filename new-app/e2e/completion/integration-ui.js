@@ -688,6 +688,42 @@ async function group6g(browser) {
   rec('project: the Change Stage button is gone from the project screen',
     (await s.page.locator('button:has-text("Change Stage")').count()) === 0);
 
+  // Owner request (16 Nov 2026): a checklist point can release the payment
+  // milestone it earns, and Finance is asked the moment it is signed off.
+  // Point 3 — the earlier checks already signed point 1 off, and a point
+  // that is ALREADY signed off releases its milestone the moment it is
+  // linked, which is not the flow under test here.
+  const msSel = s.page.locator('select[aria-label="Payment released by point 3"]');
+  rec('project: a checklist point offers the sales order\u2019s milestones',
+    (await msSel.locator('option').allInnerTexts()).some((t) => /Advance/.test(t)),
+    (await msSel.locator('option').allInnerTexts()).join(' | '));
+  await msSel.selectOption('0');
+  await settle(s);
+  await s.page.locator('input[aria-label="Collect within days for point 3"]').fill('7');
+  await s.page.locator('body').click({ position: { x: 5, y: 5 } });
+  await settle(s);
+  pr = await getPr();
+  rec('project: the link is saved on the point',
+    pr?.checklist?.[2]?.releasesMilestoneIndex === 0 && pr?.checklist?.[2]?.releaseCollectWithinDays === 7,
+    JSON.stringify(pr?.checklist?.[2] || {}).slice(0, 160));
+
+  const paymentFor = async (mi) => ((await api(adminT, 'GET', '/api/payments')).json.payments || [])
+    .find((p) => String(p.salesOrderId) === String(so.json.salesOrder.id) && p.milestoneIndex === mi);
+  rec('project: a linked point that is not signed off asks Finance for nothing',
+    !(await paymentFor(0))?.raisedToFinance, JSON.stringify((await paymentFor(0))?.raisedToFinance || null));
+  await api(adminT, 'POST', `/api/projects/${pid}/checklist/2/tick`, { done: true });
+  rec('project: ticking alone does not ask Finance for the money',
+    !(await paymentFor(0))?.raisedToFinance, JSON.stringify((await paymentFor(0))?.raisedToFinance || null));
+  // This point is signed off by the CLIENT, so it carries their name and
+  // signature — the approval, whoever gives it, is what releases the money.
+  const appr = await api(adminT, 'POST', `/api/projects/${pid}/checklist/2/approve`,
+    { approverName: 'Mr Site Owner', signatureImage: 'data:image/png;base64,iVBORw0KGgo=' });
+  rec('project: the point is approved', appr.status === 200, `${appr.status} ${JSON.stringify(appr.json).slice(0, 80)}`);
+  const paid = await paymentFor(0);
+  rec('project: signing the point off sends its milestone to Finance, with the collect-by date',
+    !!paid?.raisedToFinance && !!paid.raisedToFinance.collectByDate,
+    JSON.stringify(paid?.raisedToFinance || null).slice(0, 180));
+
   const points = (pr?.checklist || []);
   const last = points.length - 1;
   // A CLIENT point needs the client's name and their signature; the rest are

@@ -32,6 +32,7 @@ const { requireCompanyContext, rejectClientSuppliedCompanyId } = require('../mid
  *   POST   /api/projects/:id/checklist/:i/photos                 add a photo
  *   POST   /api/projects/:id/checklist/:i/approve                 approve/sign
  *   POST   /api/projects/:id/checklist/:i/pm-sign                  PM counter-sign
+ *   PATCH  /api/projects/:id/checklist/:i/milestone-link       tie a point to the payment milestone it releases
  *   POST   /api/projects/:id/updates                            append an execution update
  *   POST   /api/projects/:id/delivery-challans                   create/append to a DC
  *   PATCH  /api/projects/:id/delivery-challans/:i                 edit one DC item
@@ -124,6 +125,16 @@ function createProjectRouter(deps) {
     handle(async (req, res) => {
       const link = await service.getProjectQuotationPdfLink(req.params.id, req.auth, deps);
       return res.status(200).json(link);
+    })
+  );
+
+  // Owner request (16 Nov 2026): tie a checklist point to the payment
+  // milestone it earns, so Finance is asked the moment it is signed off.
+  router.patch(
+    '/:id/checklist/:i/milestone-link',
+    handle(async (req, res) => {
+      const project = await service.setChecklistMilestoneLink(req.params.id, req.params.i, req.body, req.auth, deps);
+      return res.status(200).json({ project });
     })
   );
 

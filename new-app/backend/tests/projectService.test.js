@@ -753,3 +753,147 @@ test('completion still happens when returnable material is outstanding, and the 
   assert.ok(notes.some((n) => /still pending return to office/.test(n.text)),
     notes.map((n) => n.text).join(' | '));
 });
+
+/* ---------- a checklist point releases a payment milestone (owner request, 16 Nov 2026) ----------
+   "we can set or link those milestone on which stage (from the 13
+   checklists) the payment should be taken ... once the stage is complete the
+   milestone that is set to the payment will automatically go to finance." */
+
+const MILESTONES = [
+  { description: 'Advance 30%', amount: 300000, received: false },
+  { description: 'On delivery 50%', amount: 500000, received: false },
+  { description: 'After commissioning 20%', amount: 200000, received: false },
+];
+
+function linkStore(points, soOverrides) {
+  // Ticking a point needs a timeline, so every point carries a target date.
+  const dated = points.map((c) => ({ ...c, targetDate: c.targetDate || new Date('2026-02-01') }));
+  return createEnquiryFakeStore({
+    projects: [baseProject({ timelineSet: true, checklist: dated })],
+    salesOrders: [baseSalesOrder({ paymentMilestones: MILESTONES.map((m) => ({ ...m })), ...soOverrides })],
+  });
+}
+const raised = async (store, milestoneIndex) => {
+  const p = await store.paymentRepo.findBySalesOrderAndMilestone('co1', 'so1', milestoneIndex);
+  return !!(p && p.raisedToFinance);
+};
+
+test('a milestone linked to a point goes to Finance when that point is signed off', async () => {
+  const store = linkStore([chk({ text: 'Material at site' }), chk({ text: 'Commissioning' })]);
+  await service.setChecklistMilestoneLink('proj1', 0, { milestoneIndex: 0, collectWithinDays: 7 }, auth(), store);
+
+  await service.setChecklistItemDone('proj1', 0, true, auth(), store);
+  assert.equal(await raised(store, 0), false, 'ticked is not signed off');
+
+  await service.approveChecklistItem('proj1', 0, {}, auth(), store);
+  assert.equal(await raised(store, 0), true, 'done and approved releases it');
+
+  const payment = await store.paymentRepo.findBySalesOrderAndMilestone('co1', 'so1', 0);
+  assert.equal(payment.amount, 300000);
+  assert.match(payment.raisedToFinance.note, /Released by checklist point: Material at site/);
+  // "collect within 7 days" became a real collect-by date.
+  const expected = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+  assert.equal(payment.raisedToFinance.collectByDate, expected);
+});
+
+test('an unlinked point releases nothing, and a linked one releases only its own milestone', async () => {
+  const store = linkStore([chk({ text: 'One' }), chk({ text: 'Two' })]);
+  await service.setChecklistMilestoneLink('proj1', 1, { milestoneIndex: 2 }, auth(), store);
+
+  await service.setChecklistItemDone('proj1', 0, true, auth(), store);
+  await service.approveChecklistItem('proj1', 0, {}, auth(), store);
+  assert.equal(await raised(store, 0), false);
+  assert.equal(await raised(store, 2), false);
+
+  await service.setChecklistItemDone('proj1', 1, true, auth(), store);
+  await service.approveChecklistItem('proj1', 1, {}, auth(), store);
+  assert.equal(await raised(store, 2), true, 'its own milestone');
+  assert.equal(await raised(store, 0), false, 'and no other');
+  assert.equal(await raised(store, 1), false);
+});
+
+test('with no collect-by set, the milestone is still raised — just without a date', async () => {
+  const store = linkStore([chk({ text: 'One' })]);
+  await service.setChecklistMilestoneLink('proj1', 0, { milestoneIndex: 1 }, auth(), store);
+  await service.setChecklistItemDone('proj1', 0, true, auth(), store);
+  await service.approveChecklistItem('proj1', 0, {}, auth(), store);
+  const payment = await store.paymentRepo.findBySalesOrderAndMilestone('co1', 'so1', 1);
+  assert.ok(payment.raisedToFinance);
+  assert.equal(payment.raisedToFinance.collectByDate, null);
+});
+
+test('an engineer signing off a point releases the money — they are not raising it themselves', async () => {
+  const store = linkStore([chk({ text: 'One' })]);
+  await service.setChecklistMilestoneLink('proj1', 0, { milestoneIndex: 0 }, auth(), store);
+  const eng = auth({ role: 'engineer', userId: 'eng1' });
+  await service.setChecklistItemDone('proj1', 0, true, auth(), store);
+  await service.approveChecklistItem('proj1', 0, {}, eng, store);
+  assert.equal(await raised(store, 0), true);
+});
+
+test('the same milestone cannot be released by two different points', async () => {
+  const store = linkStore([chk({ text: 'One' }), chk({ text: 'Two' })]);
+  await service.setChecklistMilestoneLink('proj1', 0, { milestoneIndex: 1 }, auth(), store);
+  await assert.rejects(
+    () => service.setChecklistMilestoneLink('proj1', 1, { milestoneIndex: 1 }, auth(), store),
+    (err) => err.code === 'MILESTONE_ALREADY_LINKED' && err.status === 409
+  );
+  // Re-saving the same link on the same point is fine.
+  const ok = await service.setChecklistMilestoneLink('proj1', 0, { milestoneIndex: 1, collectWithinDays: 3 }, auth(), store);
+  assert.equal(ok.checklist[0].releaseCollectWithinDays, 3);
+});
+
+test('a link can be taken off again', async () => {
+  const store = linkStore([chk({ text: 'One' })]);
+  await service.setChecklistMilestoneLink('proj1', 0, { milestoneIndex: 0 }, auth(), store);
+  const cleared = await service.setChecklistMilestoneLink('proj1', 0, { milestoneIndex: null }, auth(), store);
+  assert.equal(cleared.checklist[0].releasesMilestoneIndex, null);
+  await service.setChecklistItemDone('proj1', 0, true, auth(), store);
+  await service.approveChecklistItem('proj1', 0, {}, auth(), store);
+  assert.equal(await raised(store, 0), false);
+});
+
+test('linking a point that is already signed off asks for the money at once', async () => {
+  const store = linkStore([chk({ text: 'One', done: true, approval: { approverName: 'Priya PM', approvedDate: new Date() } })]);
+  await service.setChecklistMilestoneLink('proj1', 0, { milestoneIndex: 0 }, auth(), store);
+  assert.equal(await raised(store, 0), true);
+});
+
+test('a milestone already raised by hand is not raised a second time', async () => {
+  const store = linkStore([chk({ text: 'One' })]);
+  const paymentService = require('../src/services/paymentService');
+  await paymentService.raiseToFinance('so1', 0, { note: 'by hand', dueByDate: '2026-12-01' }, auth(), store);
+  const before = await store.paymentRepo.findBySalesOrderAndMilestone('co1', 'so1', 0);
+
+  await service.setChecklistMilestoneLink('proj1', 0, { milestoneIndex: 0 }, auth(), store);
+  await service.setChecklistItemDone('proj1', 0, true, auth(), store);
+  await service.approveChecklistItem('proj1', 0, {}, auth(), store);
+
+  const after = await store.paymentRepo.findBySalesOrderAndMilestone('co1', 'so1', 0);
+  assert.equal(after.raisedToFinance.note, before.raisedToFinance.note, 'the hand-raised note stands');
+  assert.equal(after.raisedToFinance.collectByDate, '2026-12-01');
+});
+
+test('only a PM or admin may set a link, and only to a milestone that exists', async () => {
+  const store = linkStore([chk({ text: 'One' })]);
+  await assert.rejects(
+    () => service.setChecklistMilestoneLink('proj1', 0, { milestoneIndex: 0 }, auth({ role: 'engineer' }), store),
+    (err) => err.code === 'FORBIDDEN'
+  );
+  await assert.rejects(
+    () => service.setChecklistMilestoneLink('proj1', 0, { milestoneIndex: 9 }, auth(), store),
+    (err) => err.code === 'NOT_FOUND'
+  );
+  await assert.rejects(
+    () => service.setChecklistMilestoneLink('proj1', 0, { milestoneIndex: 0, collectWithinDays: 999 }, auth(), store),
+    (err) => err.code === 'VALIDATION_ERROR'
+  );
+});
+
+test('the project screen is given the sales order’s milestones to choose from', async () => {
+  const store = linkStore([chk({ text: 'One' })]);
+  const p = await service.getProject('proj1', auth(), store);
+  assert.deepEqual(p.paymentMilestones.map((m) => m.description),
+    ['Advance 30%', 'On delivery 50%', 'After commissioning 20%']);
+  assert.deepEqual(p.paymentMilestones.map((m) => m.index), [0, 1, 2]);
+});

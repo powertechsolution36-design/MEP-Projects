@@ -283,6 +283,16 @@ async function getProject(projectId, actorAuth, deps) {
   if (project.salesOrderId && deps.salesOrderRepo && deps.salesOrderRepo.findById) {
     const so = await deps.salesOrderRepo.findById(actorAuth.companyId, project.salesOrderId);
     project.salesOrderNumber = so ? so.orderNumber : null;
+    // Owner request (16 Nov 2026): the checklist screen offers each point the
+    // sales order's payment milestones to release, so it needs their names.
+    // Description and amount only -- the costing behind them stays on the
+    // sales order, under its own role gate.
+    project.paymentMilestones = ((so && so.paymentMilestones) || []).map((m, i) => ({
+      index: i,
+      description: m.description || '',
+      amount: m.amount || 0,
+      received: !!m.received,
+    }));
     // Owner request (14 Nov 2026): a Project Manager must see the quotation
     // the site was won on. Quotations themselves stay closed to PM logins;
     // what travels with the project is this read-only summary, reached the
@@ -616,6 +626,152 @@ async function setStage(projectId, input, actorAuth, deps) {
     }
     return updated;
   });
+}
+
+/* ============ A CHECKLIST POINT CAN RELEASE A PAYMENT MILESTONE ============
+   Owner request (16 Nov 2026): "we can set or link those milestone on which
+   stage (from the 13 checklists) the payment should be taken ... once the
+   stage is complete the milestone that is set to the payment will
+   automatically go to finance."
+
+   A point is signed off when it is both DONE and APPROVED -- the same bar
+   the project's own completion uses. Finance is then asked for that
+   milestone exactly as if a PM had pressed "Raise to Finance", which stays
+   on the sales order for anything unlinked or needed early. ============ */
+
+/** "Collect within N days" as the same YYYY-MM-DD the raise form sends. */
+function collectByFromToday(days) {
+  const d = todayDate();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Done AND approved: the point has been signed off, not merely ticked. */
+function pointIsSignedOff(point) {
+  return !!(point && point.done && point.approval && point.approval.approverName);
+}
+
+/**
+ * Tie a checklist point to one of the sales order's payment milestones, or
+ * untie it (`milestoneIndex: null`).
+ *
+ * One point, one milestone, and one milestone released by one point only --
+ * otherwise the same money would be asked for twice.
+ */
+async function setChecklistMilestoneLink(projectId, itemIndex, input, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  const project = await deps.projectRepo.findById(actorAuth.companyId, projectId);
+  if (!project) throw new ServiceError('Project not found.', 'NOT_FOUND', 404);
+  assertIsPM(actorAuth, project, "link a payment milestone to this project's checklist");
+
+  const idx = Number(itemIndex);
+  const item = (project.checklist || [])[idx];
+  if (!item) throw new ServiceError('Checklist item not found.', 'NOT_FOUND', 404);
+
+  const raw = (input || {}).milestoneIndex;
+  const clearing = raw === null || raw === undefined || raw === '';
+  const milestoneIndex = clearing ? null : Number(raw);
+
+  let collectWithinDays = null;
+  if (!clearing) {
+    if (!Number.isInteger(milestoneIndex) || milestoneIndex < 0) {
+      throw new ServiceError('A milestone is chosen by its position on the sales order.', 'VALIDATION_ERROR', 400);
+    }
+    if (!project.salesOrderId) {
+      throw new ServiceError('This project has no sales order, so it has no payment milestones.', 'VALIDATION_ERROR', 400);
+    }
+    const so = await deps.salesOrderRepo.findById(actorAuth.companyId, project.salesOrderId);
+    const milestones = (so && so.paymentMilestones) || [];
+    if (!milestones[milestoneIndex]) {
+      throw new ServiceError('That payment milestone is not on this project\'s sales order.', 'NOT_FOUND', 404);
+    }
+    // One milestone, one point. Re-linking the same point is fine.
+    const takenBy = (project.checklist || []).findIndex(
+      (c, i) => i !== idx && Number(c.releasesMilestoneIndex) === milestoneIndex
+    );
+    if (takenBy >= 0) {
+      throw new ServiceError(
+        `"${milestones[milestoneIndex].description}" is already released by checklist point ${takenBy + 1}.`,
+        'MILESTONE_ALREADY_LINKED',
+        409
+      );
+    }
+    const days = (input || {}).collectWithinDays;
+    if (days !== null && days !== undefined && days !== '') {
+      const n = Number(days);
+      if (!Number.isInteger(n) || n < 0 || n > 365) {
+        throw new ServiceError('Collect within must be a whole number of days, 0 to 365.', 'VALIDATION_ERROR', 400);
+      }
+      collectWithinDays = n;
+    }
+  }
+
+  const checklist = (project.checklist || []).map((c, i) => (i === idx
+    ? { ...c, releasesMilestoneIndex: milestoneIndex, releaseCollectWithinDays: collectWithinDays }
+    : c));
+  const saved = await deps.projectRepo.update(
+    actorAuth.companyId, projectId, { checklist }, undefined, { expectedRevision: project.revision }
+  );
+  // Linking a point that is ALREADY signed off should not leave the money
+  // waiting for a tick that has happened.
+  return releaseLinkedMilestones(saved, actorAuth, deps);
+}
+
+/**
+ * Ask Finance for every milestone whose point has just been signed off.
+ *
+ * Never raises the same milestone twice: a payment already carrying a
+ * `raisedToFinance` record is left exactly as it is, whether it was raised
+ * by hand or by an earlier pass of this.
+ *
+ * A failure here must not undo the tick or the approval that caused it --
+ * the work IS done, and that record matters more than the chase. A
+ * milestone that could not be raised is left for the manual button, and the
+ * reason is logged rather than thrown at whoever ticked the box.
+ */
+async function releaseLinkedMilestones(project, actorAuth, deps) {
+  if (!project || !project.salesOrderId) return project;
+  const points = (project.checklist || []);
+  const due = points.filter((c) => pointIsSignedOff(c)
+    && c.releasesMilestoneIndex !== null
+    && c.releasesMilestoneIndex !== undefined);
+  if (due.length === 0) return project;
+
+  // Required here rather than at the top of the file: paymentService is only
+  // needed on this path, and a lazy require keeps the two modules free to
+  // refer to each other.
+  const paymentService = require('./paymentService');
+
+  for (const point of due) {
+    const milestoneIndex = Number(point.releasesMilestoneIndex);
+    try {
+      /* eslint-disable no-await-in-loop */
+      const existing = await deps.paymentRepo.findBySalesOrderAndMilestone(
+        actorAuth.companyId, project.salesOrderId, milestoneIndex
+      );
+      if (existing && existing.raisedToFinance) continue; // already asked for
+      const collectBy = point.releaseCollectWithinDays === null || point.releaseCollectWithinDays === undefined
+        ? null
+        : collectByFromToday(Number(point.releaseCollectWithinDays));
+      await paymentService.raiseToFinance(
+        project.salesOrderId,
+        milestoneIndex,
+        {
+          note: `Released by checklist point: ${String(point.text).slice(0, 80)}`,
+          dueByDate: collectBy,
+          priority: 'Normal',
+        },
+        actorAuth,
+        deps,
+        { bySystem: true }
+      );
+      /* eslint-enable no-await-in-loop */
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[projectService.releaseLinkedMilestones]', err && err.message);
+    }
+  }
+  return project;
 }
 
 /**
@@ -985,8 +1141,10 @@ async function setChecklistItemDone(projectId, itemIndex, done, actorAuth, deps)
     return updated;
   });
 
-  // Owner decision (16 Nov 2026): the checklist is the project's stages,
-  // so the project finishes itself once every point is done and approved.
+  // Owner decision (16 Nov 2026): the checklist is the project's stages, so
+  // a signed-off point asks Finance for the milestone it releases, and the
+  // project finishes itself once every point is done and approved.
+  await releaseLinkedMilestones(saved, actorAuth, deps);
   return completeIfChecklistFinished(saved, actorAuth, deps);
 }
 
@@ -1091,8 +1249,10 @@ async function approveChecklistItem(projectId, itemIndex, input, actorAuth, deps
     return updated;
   });
 
-  // The last approval is usually what finishes the job (owner decision,
-  // 16 Nov 2026): a point counts only when it is both done and approved.
+  // The approval is what signs a point off (owner decision, 16 Nov 2026):
+  // only then is its milestone asked for, and only then does it count
+  // towards the project being finished.
+  await releaseLinkedMilestones(saved, actorAuth, deps);
   return completeIfChecklistFinished(saved, actorAuth, deps);
 }
 
@@ -1898,6 +2058,9 @@ module.exports = {
   listEngineerCandidates,
   getProjectQuotationPdfLink,
   completeIfChecklistFinished,
+  setChecklistMilestoneLink,
+  releaseLinkedMilestones,
+  pointIsSignedOff,
   // exported for tests / reuse
   computePendingReturnableMaterial,
   computeIncompleteOrUnapprovedChecklistCount,

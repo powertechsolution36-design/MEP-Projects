@@ -121,6 +121,13 @@ export default function ProjectDetail() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [proj, setProj] = useState(null);
+  /* A mutation answers with the project it just changed, but only
+     GET /api/projects/:id enriches it with the things the screen reads
+     alongside — the sales order number, its payment milestones, the
+     quotation the site was won on. Merging instead of replacing keeps those
+     on screen after a tick or an edit, rather than blanking them until the
+     next full load. */
+  const applyProject = (p) => setProj((prev) => (prev ? { ...prev, ...p } : p));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -182,7 +189,7 @@ export default function ProjectDetail() {
     setError(null);
     try {
       const data = await api.get(`/api/projects/${id}`);
-      setProj(data.project);
+      applyProject(data.project);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -249,6 +256,28 @@ export default function ProjectDetail() {
      (projectService.completeIfChecklistFinished). The stage is still shown
      above, as a label. */
 
+  /* ---------- A point releases a payment (owner request, 16 Nov 2026) ----------
+     The point is tied to one of the sales order's milestones. Once the point
+     is both ticked and approved, that milestone goes to Finance by itself. */
+  async function handleMilestoneLink(index, milestoneIndex, collectWithinDays) {
+    setBusy(true);
+    try {
+      const body = { milestoneIndex: milestoneIndex === '' ? null : Number(milestoneIndex) };
+      if (body.milestoneIndex !== null) {
+        const days = collectWithinDays === '' || collectWithinDays === null || collectWithinDays === undefined
+          ? null
+          : Number(collectWithinDays);
+        body.collectWithinDays = Number.isFinite(days) ? days : null;
+      }
+      const data = await api.patch(`/api/projects/${id}/checklist/${index}/milestone-link`, body);
+      applyProject(data.project);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   /* ---------- Vendor ---------- */
   function openVendorModal() {
     setVendorForm(proj.vendor || '');
@@ -259,7 +288,7 @@ export default function ProjectDetail() {
     setBusy(true);
     try {
       const data = await api.patch(`/api/projects/${id}/vendor`, { vendor: vendorForm });
-      setProj(data.project);
+      applyProject(data.project);
       setShowVendorModal(false);
     } catch (err) { alert(err.message); }
     finally { setBusy(false); }
@@ -287,7 +316,7 @@ export default function ProjectDetail() {
     setBusy(true);
     try {
       const data = await api.post(`/api/projects/${id}/engineers`, { engineerIds: engSelected });
-      setProj(data.project);
+      applyProject(data.project);
       setShowEngModal(false);
     } catch (err) { alert(err.message); }
     finally { setBusy(false); }
@@ -334,7 +363,7 @@ export default function ProjectDetail() {
       };
       if (timelineConfirmPartial) body.confirmPartialDates = true;
       const data = await api.post(`/api/projects/${id}/timeline`, body);
-      setProj(data.project);
+      applyProject(data.project);
       setShowTimelineModal(false);
     } catch (err) {
       if (err.code === 'PARTIAL_DATES_CONFIRMATION_REQUIRED') {
@@ -350,7 +379,7 @@ export default function ProjectDetail() {
     setBusy(true);
     try {
       const data = await api.post(`/api/projects/${id}/checklist`, { text: newPointText, signResponsibility: newPointSign });
-      setProj(data.project);
+      applyProject(data.project);
       setShowAddPoint(false);
       setNewPointText('');
       setNewPointSign('ENGINEER');
@@ -370,7 +399,7 @@ export default function ProjectDetail() {
     setBusy(true);
     try {
       const data = await api.patch(`/api/projects/${id}/checklist/${editPointIdx}`, { text: editPointText, signResponsibility: editPointSign });
-      setProj(data.project);
+      applyProject(data.project);
       setEditPointIdx(null);
     } catch (err) { alert(err.message); }
     finally { setBusy(false); }
@@ -382,7 +411,7 @@ export default function ProjectDetail() {
     setBusy(true);
     try {
       const data = await api.delete(`/api/projects/${id}/checklist/${idx}`);
-      setProj(data.project);
+      applyProject(data.project);
     } catch (err) { alert(err.message); }
     finally { setBusy(false); }
   }
@@ -392,7 +421,7 @@ export default function ProjectDetail() {
     setBusy(true);
     try {
       const data = await api.post(`/api/projects/${id}/checklist/${idx}/tick`, { done });
-      setProj(data.project);
+      applyProject(data.project);
     } catch (err) { alert(err.message); }
     finally { setBusy(false); }
   }
@@ -407,7 +436,7 @@ export default function ProjectDetail() {
     setBusy(true);
     try {
       const data = await api.patch(`/api/projects/${id}/checklist/${remarkIdx}/remark`, { remark: remarkText });
-      setProj(data.project);
+      applyProject(data.project);
       setRemarkIdx(null);
     } catch (err) { alert(err.message); }
     finally { setBusy(false); }
@@ -441,7 +470,7 @@ export default function ProjectDetail() {
             img.src = reader.result;
           });
           const data = await api.post(`/api/projects/${id}/checklist/${idx}/photos`, { photo });
-          setProj(data.project);
+          applyProject(data.project);
         } catch (err) { alert(err.message); }
         finally { setBusy(false); }
       };
@@ -463,7 +492,7 @@ export default function ProjectDetail() {
         targetDate: dateForm.targetDate || null,
         completedDate: dateForm.completedDate || undefined,
       });
-      setProj(data.project);
+      applyProject(data.project);
       setDateIdx(null);
     } catch (err) { alert(err.message); }
     finally { setBusy(false); }
@@ -484,7 +513,7 @@ export default function ProjectDetail() {
     setBusy(true);
     try {
       const data = await api.post(`/api/projects/${id}/checklist/apply`, { templateId: applyTplId, mode });
-      setProj(data.project);
+      applyProject(data.project);
       setShowApplyChk(false);
     } catch (err) { alert(err.message); }
     finally { setBusy(false); }
@@ -523,7 +552,7 @@ export default function ProjectDetail() {
     setBusy(true);
     try {
       const data = await api.post(`/api/projects/${id}/checklist/${approveIdx}/approve`, approveForm);
-      setProj(data.project);
+      applyProject(data.project);
       setApproveIdx(null);
     } catch (err) { alert(err.message); }
     finally { setBusy(false); }
@@ -534,7 +563,7 @@ export default function ProjectDetail() {
     setBusy(true);
     try {
       const data = await api.post(`/api/projects/${id}/checklist/${idx}/pm-sign`);
-      setProj(data.project);
+      applyProject(data.project);
     } catch (err) { alert(err.message); }
     finally { setBusy(false); }
   }
@@ -563,7 +592,7 @@ export default function ProjectDetail() {
     setBusy(true);
     try {
       const data = await api.post(`/api/projects/${id}/updates`, updateForm);
-      setProj(data.project);
+      applyProject(data.project);
       // The update just appended is the last one, so that is where its
       // photographs belong.
       const idx = (data.project.executionUpdates || []).length - 1;
@@ -597,7 +626,7 @@ export default function ProjectDetail() {
     setBusy(true);
     try {
       const data = await api.patch(`/api/projects/${id}/updates/${idx}/share`, { shared });
-      setProj(data.project);
+      applyProject(data.project);
     } catch (err) { alert(err.message); }
     finally { setBusy(false); }
   }
@@ -608,6 +637,7 @@ export default function ProjectDetail() {
   if (!proj) return <p className="muted">Project not found.</p>;
 
   const checklist = proj.checklist || [];
+  const milestones = proj.paymentMilestones || [];
   const updates = proj.executionUpdates || [];
   const tlReady = isTimelineReady(proj);
 
@@ -760,6 +790,9 @@ export default function ProjectDetail() {
                   <th>Dates / Status</th>
                   <th>Approved</th>
                   <th>PM</th>
+                  {/* Owner request (16 Nov 2026): which payment this point
+                      releases to Finance once it is signed off. */}
+                  <th>Releases payment</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -812,6 +845,54 @@ export default function ProjectDetail() {
                         ) : '—'}
                       </td>
                       <td>{c.pmSigned ? '✅' : '—'}</td>
+                      {/* Owner request (16 Nov 2026): the payment this point
+                          releases. A PM or Admin picks it; everyone else
+                          reads it. Signed off and raised, it says so. */}
+                      <td style={{ whiteSpace: 'normal', minWidth: 150 }}>
+                        {isPM ? (
+                          <>
+                            <select
+                              value={c.releasesMilestoneIndex === null || c.releasesMilestoneIndex === undefined ? '' : String(c.releasesMilestoneIndex)}
+                              onChange={(e) => handleMilestoneLink(i, e.target.value, c.releaseCollectWithinDays)}
+                              disabled={busy}
+                              aria-label={`Payment released by point ${i + 1}`}
+                              style={{ fontSize: 11, maxWidth: 148 }}
+                            >
+                              <option value="">— no payment —</option>
+                              {milestones.map((m) => (
+                                <option key={m.index} value={m.index}>
+                                  {m.index + 1}. {m.description || 'Milestone'} ({money(m.amount)})
+                                </option>
+                              ))}
+                            </select>
+                            {c.releasesMilestoneIndex !== null && c.releasesMilestoneIndex !== undefined && (
+                              <div style={{ fontSize: 11, marginTop: 2 }}>
+                                collect within{' '}
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  defaultValue={c.releaseCollectWithinDays ?? ''}
+                                  onBlur={(e) => handleMilestoneLink(i, String(c.releasesMilestoneIndex), e.target.value)}
+                                  placeholder="—"
+                                  aria-label={`Collect within days for point ${i + 1}`}
+                                  style={{ width: 38, fontSize: 11 }}
+                                /> days
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <span style={{ fontSize: 11 }}>
+                            {c.releasesMilestoneIndex === null || c.releasesMilestoneIndex === undefined
+                              ? '—'
+                              : (milestones[c.releasesMilestoneIndex]?.description || `Milestone ${Number(c.releasesMilestoneIndex) + 1}`)}
+                          </span>
+                        )}
+                        {c.releasesMilestoneIndex !== null && c.releasesMilestoneIndex !== undefined && (
+                          <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+                            {c.done && c.approval?.approverName ? '→ sent to Finance' : 'waits for sign-off'}
+                          </div>
+                        )}
+                      </td>
                       <td style={{ whiteSpace: 'nowrap' }}>
                         {canAct && notInService && (
                           <>
@@ -922,7 +1003,7 @@ export default function ProjectDetail() {
         projectId={id}
         canAct={canAct}
         notInService={notInService}
-        onProjectUpdated={setProj}
+        onProjectUpdated={applyProject}
       />
 
       {/* ====================== MODALS ====================== */}

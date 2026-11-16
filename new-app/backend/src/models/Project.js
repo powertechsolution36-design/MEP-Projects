@@ -52,6 +52,18 @@ const checklistExecutionItemSchema = new Schema(
     photos: { type: [String], default: [] }, // PWA FACT
     targetDate: { type: Date, default: null }, // PWA FACT
     approval: { type: approvalSchema, default: null }, // PWA FACT
+    // OWNER REQUEST (16 Nov 2026): a payment milestone can be tied to the
+    // point of work that earns it, so Finance is asked for the money the
+    // moment that work is signed off instead of somebody remembering to
+    // press "Raise to Finance". The index is the milestone's position in the
+    // sales order's own paymentMilestones array; null means this point
+    // releases no payment. Held on the POINT rather than on the milestone so
+    // that adding or removing points moves each link with its own point
+    // instead of sliding it quietly onto the next one.
+    releasesMilestoneIndex: { type: Number, default: null },
+    // "collect within N days of this point being signed off" -- becomes the
+    // collect-by date on the raise. Null leaves Finance to set their own.
+    releaseCollectWithinDays: { type: Number, default: null },
   },
   { _id: false }
 );

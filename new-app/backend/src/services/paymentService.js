@@ -455,13 +455,26 @@ const RAISE_ROLES = Object.freeze(['hvac_pm', 'solar_pm', 'mep_pm', 'admin']);
  * appropriate division PM (or admin) is now enforced here server-side. A PM
  * may only raise a milestone for their OWN division's SalesOrder.
  */
-async function raiseToFinance(salesOrderId, milestoneIndex, input, actorAuth, deps) {
+/**
+ * `options.bySystem` is for the app raising a milestone itself, because a
+ * checklist point that releases it has been signed off (owner request, 16
+ * Nov 2026 -- projectService.releaseLinkedMilestones). It skips the actor's
+ * role and division checks, since nobody is asking for anything: the work
+ * earned the money and the engineer who ticked the last point is not making
+ * a request on Finance.
+ *
+ * It is a separate ARGUMENT, never a field of `input`, so that nothing a
+ * caller sends in a request body can reach it.
+ */
+async function raiseToFinance(salesOrderId, milestoneIndex, input, actorAuth, deps, options = {}) {
   assertCompanyContext(actorAuth);
-  assertRole(actorAuth, RAISE_ROLES, 'raise a payment milestone to Finance');
+  if (!options.bySystem) {
+    assertRole(actorAuth, RAISE_ROLES, 'raise a payment milestone to Finance');
+  }
 
   const so = await deps.salesOrderRepo.findById(actorAuth.companyId, salesOrderId);
   if (!so) throw new ServiceError('SalesOrder not found.', 'NOT_FOUND', 404);
-  const requiredDivision = PM_DIVISION_FOR_ROLE[actorAuth.role];
+  const requiredDivision = options.bySystem ? null : PM_DIVISION_FOR_ROLE[actorAuth.role];
   if (requiredDivision && so.division !== requiredDivision) {
     throw new ServiceError(`Role "${actorAuth.role}" may only raise milestones for ${requiredDivision} sales orders.`, 'FORBIDDEN', 403);
   }
