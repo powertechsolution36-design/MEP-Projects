@@ -247,8 +247,13 @@ async function api(method, pathname, { token, body } = {}) {
 
     rec('client: the project page shows how far along it is',
       projPage.includes('50% complete') && projPage.includes('Installation'), projPage.slice(0, 240));
-    rec('client: every stage of their division is listed, in order',
-      ['Planning', 'Piping', 'Installation', 'Testing', 'Finishing', 'Completed'].every((st) => projPage.includes(st)));
+    // Owner request (16 Nov 2026): the client's progress IS the project's
+    // own checklist, not the six division stages.
+    rec('client: the project\u2019s own checklist points are the progress shown',
+      ['Material at site', 'Ducting erection', 'AHU installation', 'Testing and commissioning']
+        .every((pt) => projPage.includes(pt))
+      && !projPage.includes('Piping') && !projPage.includes('Finishing'),
+      projPage.slice(0, 300));
     rec('client: the published update is there, in the words the PM chose',
       projPage.includes('Ducting is about 80% done on your floor.'));
     rec('client: nothing internal is on the page',

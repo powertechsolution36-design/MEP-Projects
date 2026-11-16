@@ -1821,7 +1821,7 @@
   color: var(--ok-700);
 }
 .portal-step-body { display: flex; flex-direction: column; gap: var(--s-1); padding-top: var(--s-2); min-width: 0; }
-.portal-step-label { font-weight: var(--fw-semi); font-size: var(--fs-md); }
+.portal-step-label { font-weight: var(--fw-semi); font-size: var(--fs-md); overflow-wrap: anywhere; }
 .portal-step-when { font-size: var(--fs-md); color: var(--p-muted); }
 .portal-step.is-done .portal-step-when { color: var(--text-secondary); }
 

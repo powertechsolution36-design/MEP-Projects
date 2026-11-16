@@ -618,6 +618,99 @@ async function setStage(projectId, input, actorAuth, deps) {
   });
 }
 
+/**
+ * The project finishes itself when its checklist is finished.
+ *
+ * OWNER DECISION (16 Nov 2026): the checklist points ARE the project's
+ * stages, so "Change Stage" was taken off the project screen. Something
+ * still has to mark a project Completed — that status is what lets a
+ * finished site be converted into a warranty/AMC service project, and what
+ * shows the client a completion date — so the checklist does it. When every
+ * point is ticked AND approved (computeIncompleteOrUnapprovedChecklistCount,
+ * the same measure the old Change Stage dialog used), the project moves to
+ * its division's last stage and is marked Completed.
+ *
+ * Differences from the old by-hand path, deliberately:
+ *   · No PM role gate. Nobody is "doing" this — the project completed
+ *     itself because the work did. The engineer who ticked the last point
+ *     is not asking to change a stage, so they are not refused one.
+ *   · Returnable material still out does NOT block it. By hand that needed
+ *     a confirmation; here, blocking would strand the project with nobody
+ *     to ask, so instead the quantity is named in the notification and the
+ *     chase goes on separately.
+ *   · MEP keeps its own quirk: `status` is set to Completed only where the
+ *     division's last stage is literally "Completed", which MEP's
+ *     ("Delivered") is not. That asymmetry is preserved, not fixed.
+ *
+ * Returns the project, completed or not, so callers can return it onward.
+ */
+async function completeIfChecklistFinished(project, actorAuth, deps) {
+  if (!project) return project;
+  const points = project.checklist || [];
+  if (points.length === 0) return project;
+  if (computeIncompleteOrUnapprovedChecklistCount(project) > 0) return project;
+  if (project.status === 'Completed' || project.status === 'In Service') return project;
+
+  const stages = PROJECT_STAGES_BY_DIVISION[project.division] || [];
+  const terminal = stages[stages.length - 1];
+  if (!terminal || project.stage === terminal) return project;
+
+  const old = project.stage;
+  const projectId = project.id || project._id;
+  const patch = {
+    stage: terminal,
+    stageHistory: [
+      ...(project.stageHistory || []),
+      { stage: terminal, enteredAt: todayDate(), enteredByUserId: actorAuth.userId || null },
+    ],
+  };
+  const marksCompleted = terminal === 'Completed';
+  if (marksCompleted) {
+    patch.status = 'Completed';
+    patch.endDate = project.endDate || todayDate();
+  }
+
+  return deps.withTransaction(deps, async (txnDeps) => {
+    const { session } = txnDeps;
+    const updated = await txnDeps.projectRepo.update(
+      actorAuth.companyId, projectId, patch, session, { expectedRevision: project.revision }
+    );
+    const today = todayDate();
+    const so = project.salesOrderId
+      ? await txnDeps.salesOrderRepo.findById(actorAuth.companyId, project.salesOrderId)
+      : null;
+    const soSuffix = so ? ` (SO-${so.orderNumber}).` : '.';
+
+    await txnDeps.notificationRepo.create({
+      companyId: actorAuth.companyId,
+      text: `Project stage update: "${project.name}" moved ${old} -> ${terminal}${so ? ` (SO-${so.orderNumber}). Check payment milestone due as per SO terms.` : '.'}`,
+      date: today,
+      targetRoles: ['finance'],
+      readByUserIds: [],
+    }, session);
+    await txnDeps.notificationRepo.create({
+      companyId: actorAuth.companyId,
+      text: `"${project.name}" stage: ${old} -> ${terminal} (every checklist point done and approved)`,
+      date: today,
+      targetRoles: ['admin'],
+      readByUserIds: [],
+    }, session);
+
+    if (marksCompleted) {
+      const pending = computePendingReturnableMaterial(project);
+      await txnDeps.notificationRepo.create({
+        companyId: actorAuth.companyId,
+        text: `Project "${project.name}" marked Completed${soSuffix} Approve commissioning to convert into 1-year warranty service project.`
+          + (pending > 0 ? ` NOTE: ${pending} returnable material qty is still pending return to office.` : ''),
+        date: today,
+        targetRoles: ['service_mgr'],
+        readByUserIds: [],
+      }, session);
+    }
+    return updated;
+  });
+}
+
 /** PWA FACT (`savePM`'s vendor field, free text, no notification). */
 async function setVendor(projectId, vendor, actorAuth, deps) {
   assertCompanyContext(actorAuth);
@@ -832,7 +925,7 @@ async function setChecklistItemDone(projectId, itemIndex, done, actorAuth, deps)
 
   const today = todayDate();
 
-  return deps.withTransaction(deps, async (txnDeps) => {
+  const saved = await deps.withTransaction(deps, async (txnDeps) => {
     const { session } = txnDeps;
     // FIX-6-01 (Stage 5 finding F2): re-fetch the Project AND rebuild the
     // checklist array fresh, inside the transaction, on every attempt
@@ -891,6 +984,10 @@ async function setChecklistItemDone(projectId, itemIndex, done, actorAuth, deps)
     }
     return updated;
   });
+
+  // Owner decision (16 Nov 2026): the checklist is the project's stages,
+  // so the project finishes itself once every point is done and approved.
+  return completeIfChecklistFinished(saved, actorAuth, deps);
 }
 
 /**
@@ -977,7 +1074,7 @@ async function approveChecklistItem(projectId, itemIndex, input, actorAuth, deps
   };
   const checklist = project.checklist.map((c, i) => (i === Number(itemIndex) ? { ...c, approval } : c));
 
-  return deps.withTransaction(deps, async (txnDeps) => {
+  const saved = await deps.withTransaction(deps, async (txnDeps) => {
     const { session } = txnDeps;
     const updated = await txnDeps.projectRepo.update(actorAuth.companyId, projectId, { checklist }, session, { expectedRevision: project.revision });
     const pmRole = DIVISION_PM_ROLE[project.division];
@@ -993,6 +1090,10 @@ async function approveChecklistItem(projectId, itemIndex, input, actorAuth, deps
     );
     return updated;
   });
+
+  // The last approval is usually what finishes the job (owner decision,
+  // 16 Nov 2026): a point counts only when it is both done and approved.
+  return completeIfChecklistFinished(saved, actorAuth, deps);
 }
 
 /**
@@ -1796,6 +1897,7 @@ module.exports = {
   isEligibleForServiceConversion,
   listEngineerCandidates,
   getProjectQuotationPdfLink,
+  completeIfChecklistFinished,
   // exported for tests / reuse
   computePendingReturnableMaterial,
   computeIncompleteOrUnapprovedChecklistCount,

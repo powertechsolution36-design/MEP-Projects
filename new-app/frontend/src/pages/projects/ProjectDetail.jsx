@@ -80,12 +80,6 @@ function readPhotoFiles(files) {
 }
 
 /* PWA FACT (STAGES, §5) */
-const STAGES_BY_DIVISION = {
-  HVAC: ['Planning', 'Piping', 'Installation', 'Testing', 'Finishing', 'Completed'],
-  Solar: ['Planning', 'Fabrication', 'Installation', 'Wiring', 'Net Metering', 'Completed'],
-  MEP: ['Concept', 'Design In Progress', 'Internal Review', 'Client Review', 'Delivered'],
-};
-
 /* PWA FACT (SIGN_ROLES, §9) — reachable sign-responsibility values */
 const SIGN_RESPONSIBILITIES = ['ENGINEER', 'CLIENT', 'SALES', 'SERVICE'];
 
@@ -138,10 +132,6 @@ export default function ProjectDetail() {
   const notInService = proj && proj.status !== 'In Service';
 
   /* ---------- Modal states ---------- */
-  const [showStageModal, setShowStageModal] = useState(false);
-  const [stageForm, setStageForm] = useState('');
-  const [stageConfirmMat, setStageConfirmMat] = useState(false);
-  const [stageConfirmChk, setStageConfirmChk] = useState(false);
 
   const [showVendorModal, setShowVendorModal] = useState(false);
   const [vendorForm, setVendorForm] = useState('');
@@ -251,34 +241,13 @@ export default function ProjectDetail() {
     }
   }
 
-  /* ---------- Stage ---------- */
-  function openStageModal() {
-    setStageForm(proj.stage);
-    setStageConfirmMat(false);
-    setStageConfirmChk(false);
-    setShowStageModal(true);
-  }
-
-  async function handleStageSubmit() {
-    setBusy(true);
-    try {
-      const body = { stage: stageForm };
-      if (stageConfirmMat) body.confirmPendingMaterial = true;
-      if (stageConfirmChk) body.confirmIncompleteChecklist = true;
-      const data = await api.post(`/api/projects/${id}/stage`, body);
-      setProj(data.project);
-      setShowStageModal(false);
-    } catch (err) {
-      // If confirmation required, show the message but keep modal open
-      if (err.code === 'PENDING_MATERIAL_CONFIRMATION_REQUIRED' || err.code === 'INCOMPLETE_CHECKLIST_CONFIRMATION_REQUIRED') {
-        alert(err.message);
-      } else {
-        alert(err.message);
-      }
-    } finally {
-      setBusy(false);
-    }
-  }
+  /* ---------- Stage ----------
+     Owner decision (16 Nov 2026): the checklist points ARE the project's
+     stages, so there is no Change Stage dialog any more. The project moves
+     to its last stage, and is marked Completed, by itself once every
+     checklist point is done and approved
+     (projectService.completeIfChecklistFinished). The stage is still shown
+     above, as a label. */
 
   /* ---------- Vendor ---------- */
   function openVendorModal() {
@@ -640,7 +609,6 @@ export default function ProjectDetail() {
 
   const checklist = proj.checklist || [];
   const updates = proj.executionUpdates || [];
-  const stages = STAGES_BY_DIVISION[proj.division] || [];
   const tlReady = isTimelineReady(proj);
 
   return (
@@ -715,10 +683,9 @@ export default function ProjectDetail() {
           </div>
         </div>
 
-        {/* PM Actions: Stage, Vendor, Engineers, Timeline */}
+        {/* PM Actions: Vendor, Engineers, Timeline, Checklist */}
         {isPM && (
           <div className="detail-actions">
-            <button className="btn sec sm" onClick={openStageModal}>📋 Change Stage</button>
             <button className="btn sec sm" onClick={openVendorModal}>🏢 Edit Vendor</button>
             <button className="btn sec sm" onClick={openEngModal}>👷 Assign Engineers</button>
             <button className="btn sec sm" onClick={openTimelineModal}>📅 {proj.timelineSet ? 'Edit' : 'Set'} Timeline</button>
@@ -959,35 +926,6 @@ export default function ProjectDetail() {
       />
 
       {/* ====================== MODALS ====================== */}
-
-      {/* Stage Modal */}
-      {showStageModal && (
-        <div className="modal-overlay" onClick={() => setShowStageModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <h3>Change Stage</h3>
-            <div className="filter-field">
-              <label>Stage</label>
-              <select value={stageForm} onChange={e => setStageForm(e.target.value)}>
-                {stages.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-            {stageForm === 'Completed' && proj.status !== 'In Service' && (
-              <>
-                <div style={{ marginTop: 8 }}>
-                  <label><input type="checkbox" checked={stageConfirmMat} onChange={e => setStageConfirmMat(e.target.checked)} /> Confirm: override pending returnable material</label>
-                </div>
-                <div>
-                  <label><input type="checkbox" checked={stageConfirmChk} onChange={e => setStageConfirmChk(e.target.checked)} /> Confirm: override incomplete/unapproved checklist</label>
-                </div>
-              </>
-            )}
-            <div className="modal-actions">
-              <button className="btn sec sm" onClick={() => setShowStageModal(false)}>Cancel</button>
-              <button className="btn pri sm" onClick={handleStageSubmit} disabled={busy}>Save</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Vendor Modal */}
       {showVendorModal && (

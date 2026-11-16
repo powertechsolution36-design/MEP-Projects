@@ -383,6 +383,36 @@ async function listAttachmentsForStaff(companyId, serviceCallId, deps) {
  * predate stage history show their timeline with no dates rather than dates
  * this application invented.
  */
+/**
+ * The client's view of progress, as the project's OWN checklist.
+ *
+ * OWNER REQUEST (16 Nov 2026): "the 13 checklists are the stages of the
+ * project so Client should see these 13 checklists/stages in the client
+ * progress". The six division stages were a coarse summary of work the
+ * checklist already describes properly, so the checklist is what the client
+ * is shown when the project has one.
+ *
+ * Only the wording of each point and whether it is done leaves the office.
+ * The engineer's remark on a point, its photographs, who approved it, whose
+ * signature it needs and its target date all stay inside, exactly as before
+ * -- a client reading their progress is not reading our site paperwork.
+ *
+ * Points are reported in the order they are planned in. `reached` is the
+ * point's own `done` flag, not a position, because points are ticked in
+ * whatever order the work actually happens; `current` is the first one still
+ * outstanding.
+ */
+function buildChecklistTimeline(project) {
+  const points = (project.checklist || []).filter((c) => c && c.text);
+  const firstOpen = points.findIndex((c) => !c.done);
+  return points.map((c, i) => ({
+    stage: String(c.text),
+    reached: !!c.done,
+    current: i === firstOpen,
+    at: c.done ? (c.completedDate || null) : null,
+  }));
+}
+
 function buildStageTimeline(project) {
   const stages = PROJECT_STAGES_BY_DIVISION[project.division] || [];
   const currentIndex = stages.indexOf(project.stage);
@@ -419,8 +449,11 @@ function buildStageTimeline(project) {
  * is what the portal calls finished — and the status still counts, because
  * 'In Service' is finished too.
  */
-function projectIsFinished(project, timeline) {
+function projectIsFinished(project, timeline, fromChecklist) {
   if (project.status === 'Completed' || project.status === 'In Service') return true;
+  // A checklist is ticked in whatever order the work happens, so the last
+  // point being done says nothing on its own -- every point must be.
+  if (fromChecklist) return timeline.length > 0 && timeline.every((t) => t.reached);
   return timeline.length > 0 && timeline[timeline.length - 1].reached;
 }
 
@@ -430,9 +463,8 @@ function stageProgressPercent(project, timeline) {
   if (total === 0) return 0;
   const reached = timeline.filter((t) => t.reached).length;
   if (reached === 0) return 0;
-  // Stages reached out of stages there are. Standing on the last stage of
-  // the division's list is finished work, even when `status` has already
-  // moved on to 'In Service'.
+  // Steps done out of steps there are -- checklist points when the project
+  // has a checklist, the division's stages when it does not.
   return Math.round((reached / total) * 100);
 }
 
@@ -471,7 +503,12 @@ function customerPhoto(p) {
  * deliberate act; nothing arrives here by inheritance.
  */
 function customerProjectView(project, { withUpdates = false } = {}) {
-  const timeline = buildStageTimeline(project);
+  // The project's own checklist is the client's progress. A project with no
+  // checklist chosen yet falls back to its division's stages, so nobody is
+  // shown an empty card while the plan is still being set up.
+  const checklistTimeline = buildChecklistTimeline(project);
+  const fromChecklist = checklistTimeline.length > 0;
+  const timeline = fromChecklist ? checklistTimeline : buildStageTimeline(project);
   const updates = sharedUpdates(project);
   const view = {
     id: String(project.id || project._id),
@@ -483,7 +520,7 @@ function customerProjectView(project, { withUpdates = false } = {}) {
     status: project.status || '',
     // What the client's screen reads. See projectIsFinished: the stage and
     // the status are two different things and both can mean "done".
-    finished: projectIsFinished(project, timeline),
+    finished: projectIsFinished(project, timeline, fromChecklist),
     startDate: project.startDate || null,
     // Only a date somebody actually recorded. A finished site whose office
     // paperwork is not done yet gets "finished" with no date, never a date

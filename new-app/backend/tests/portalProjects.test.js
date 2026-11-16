@@ -184,6 +184,101 @@ test('portal projects: once staff link it, the client sees the stage it has reac
   } finally { h.server.close(); }
 });
 
+/* ----------- the checklist is the client's progress (16 Nov 2026) ----------- */
+
+/** Gives prjA1 a real checklist, the way a project with a template chosen has. */
+function withChecklist(state, points) {
+  const prj = state.projects.find((x) => x.id === 'prjA1');
+  prj.checklistTemplateName = 'HVAC Installation — standard';
+  prj.checklist = points;
+  return prj;
+}
+
+const POINTS = [
+  { text: 'Site takeover with all details from Sales Team', signResponsibility: 'ENGINEER', done: true, completedDate: new Date('2026-11-14'), targetDate: new Date('2026-11-03'), remark: 'handover notes in the folder', photos: ['x'], approval: { approverName: 'Amol', approvedDate: new Date('2026-11-14') } },
+  { text: 'Entire project schedule planned and approved', signResponsibility: 'ENGINEER', done: true, completedDate: new Date('2026-11-14'), targetDate: new Date('2026-11-12'), remark: '', photos: [], approval: null },
+  { text: 'Material at site', signResponsibility: 'ENGINEER', done: false, completedDate: null, targetDate: new Date('2026-11-20'), remark: 'awaiting ducting', photos: [], approval: null },
+  { text: 'Testing and commissioning', signResponsibility: 'CLIENT', done: false, completedDate: null, targetDate: null, remark: '', photos: [], approval: null },
+];
+
+test('portal projects: the client sees the project\u2019s own checklist points, not the division stages', async () => {
+  const h = await harness();
+  try {
+    withChecklist(h.state, POINTS.map((x) => ({ ...x })));
+    const c = await h.activeClient();
+    const mgr = await h.staffToken('mgr');
+    await h.call('PUT', `/api/customer-accounts/${c.accountId}/projects`, { token: mgr, body: { projectIds: ['prjA1'] } });
+
+    const detail = await h.call('GET', '/api/portal/projects/prjA1', { token: c.token });
+    assert.equal(detail.status, 200);
+    const steps = detail.json.project.stages;
+
+    assert.deepEqual(steps.map((s) => s.stage), [
+      'Site takeover with all details from Sales Team',
+      'Entire project schedule planned and approved',
+      'Material at site',
+      'Testing and commissioning',
+    ]);
+    assert.deepEqual(steps.map((s) => s.reached), [true, true, false, false]);
+    assert.equal(steps.find((s) => s.current).stage, 'Material at site');
+    assert.equal(new Date(steps[0].at).toISOString().slice(0, 10), '2026-11-14');
+    assert.equal(steps[2].at, null);
+    // Two of four done.
+    assert.equal(detail.json.project.progressPercent, 50);
+  } finally { h.server.close(); }
+});
+
+test('portal projects: a checklist point gives up its wording and nothing else', async () => {
+  const h = await harness();
+  try {
+    withChecklist(h.state, POINTS.map((x) => ({ ...x })));
+    const c = await h.activeClient();
+    const mgr = await h.staffToken('mgr');
+    await h.call('PUT', `/api/customer-accounts/${c.accountId}/projects`, { token: mgr, body: { projectIds: ['prjA1'] } });
+
+    const detail = await h.call('GET', '/api/portal/projects/prjA1', { token: c.token });
+    for (const step of detail.json.project.stages) {
+      assert.deepEqual(Object.keys(step).sort(), ['at', 'current', 'reached', 'stage']);
+    }
+    const body = JSON.stringify(detail.json);
+    for (const secret of ['handover notes in the folder', 'awaiting ducting', 'ENGINEER', 'approverName', 'Amol', 'signResponsibility', 'targetDate', 'pmSigned']) {
+      assert.ok(!body.includes(secret), `a client must not be shown ${secret}`);
+    }
+  } finally { h.server.close(); }
+});
+
+test('portal projects: every point done reads as finished; the last one alone does not', async () => {
+  const h = await harness();
+  try {
+    const points = POINTS.map((x) => ({ ...x }));
+    points[points.length - 1].done = true; // last ticked, two in the middle not
+    withChecklist(h.state, points);
+    const c = await h.activeClient();
+    const mgr = await h.staffToken('mgr');
+    await h.call('PUT', `/api/customer-accounts/${c.accountId}/projects`, { token: mgr, body: { projectIds: ['prjA1'] } });
+
+    let detail = await h.call('GET', '/api/portal/projects/prjA1', { token: c.token });
+    assert.equal(detail.json.project.finished, false, 'the last point alone is not the whole job');
+
+    h.state.projects.find((x) => x.id === 'prjA1').checklist.forEach((pt) => { pt.done = true; });
+    detail = await h.call('GET', '/api/portal/projects/prjA1', { token: c.token });
+    assert.equal(detail.json.project.finished, true);
+    assert.equal(detail.json.project.progressPercent, 100);
+  } finally { h.server.close(); }
+});
+
+test('portal projects: a project with no checklist yet still shows its division stages', async () => {
+  const h = await harness();
+  try {
+    const c = await h.activeClient();
+    const mgr = await h.staffToken('mgr');
+    await h.call('PUT', `/api/customer-accounts/${c.accountId}/projects`, { token: mgr, body: { projectIds: ['prjA1'] } });
+    const detail = await h.call('GET', '/api/portal/projects/prjA1', { token: c.token });
+    assert.deepEqual(detail.json.project.stages.map((s) => s.stage),
+      ['Planning', 'Piping', 'Installation', 'Testing', 'Finishing', 'Completed']);
+  } finally { h.server.close(); }
+});
+
 test('portal projects: one client cannot see another client of the same company', async () => {
   const h = await harness();
   try {

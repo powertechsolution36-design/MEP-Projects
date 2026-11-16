@@ -640,3 +640,116 @@ test('FIX-6-07 — tenant isolation: a company\'s export never includes another 
   const csv = await service.exportProjectsCsv(auth({ role: 'admin' }), {}, store);
   assert.ok(!csv.includes('Other Co Project'));
 });
+
+/* ---------- the checklist finishes the project (owner decision, 16 Nov 2026) ----------
+   "Change Stage" was taken off the project screen because the checklist
+   points ARE the stages. Something still has to mark a project Completed —
+   that status is what lets it become a warranty/AMC service project and what
+   shows the client a completion date — so the checklist now does it. */
+
+function pt(text, done, approved) {
+  return {
+    text,
+    signResponsibility: 'ENGINEER',
+    done: !!done,
+    completedDate: done ? new Date('2026-02-01') : null,
+    approval: approved ? { approverName: 'Priya PM', approvedDate: new Date('2026-02-01') } : null,
+    pmSigned: false,
+    remark: '',
+    photos: [],
+    targetDate: new Date('2026-02-01'),
+  };
+}
+
+function checklistStore(points, projectOverrides) {
+  return createEnquiryFakeStore({
+    projects: [baseProject({ timelineSet: true, checklist: points, ...projectOverrides })],
+    salesOrders: [baseSalesOrder()],
+  });
+}
+
+test('the project completes itself when the last checklist point is approved', async () => {
+  const store = checklistStore([pt('One', true, true), pt('Two', true, false)]);
+  const before = await service.getProject('proj1', auth(), store);
+  assert.equal(before.status, 'Ongoing');
+  assert.equal(before.stage, 'Planning');
+
+  const after = await service.approveChecklistItem('proj1', 1, {}, auth(), store);
+  assert.equal(after.stage, 'Completed', 'it moves to the division’s last stage');
+  assert.equal(after.status, 'Completed');
+  assert.ok(after.endDate, 'a completion date is recorded');
+  // The stage move is recorded, so the client portal can date it.
+  assert.equal((after.stageHistory || []).slice(-1)[0].stage, 'Completed');
+});
+
+test('it does not complete while any point is unticked or unapproved', async () => {
+  for (const points of [
+    [pt('One', true, true), pt('Two', false, false)],
+    [pt('One', true, true), pt('Two', true, false)],
+  ]) {
+    const store = checklistStore(points);
+    // eslint-disable-next-line no-await-in-loop
+    const p = await service.getProject('proj1', auth(), store);
+    assert.equal(p.status, 'Ongoing');
+  }
+  // Ticking the last point but leaving it unapproved is still not finished.
+  const store = checklistStore([pt('One', true, true), pt('Two', false, false)]);
+  const after = await service.setChecklistItemDone('proj1', 1, true, auth(), store);
+  assert.equal(after.status, 'Ongoing', 'done but not approved is not finished');
+  assert.equal(after.stage, 'Planning');
+});
+
+test('ticking the last point completes it when that point needs no further approval', async () => {
+  const store = checklistStore([pt('One', true, true), pt('Two', false, true)]);
+  const after = await service.setChecklistItemDone('proj1', 1, true, auth(), store);
+  assert.equal(after.status, 'Completed');
+  assert.equal(after.stage, 'Completed');
+});
+
+test('an engineer who is not a PM can finish the job — the project completes itself, nobody changes a stage', async () => {
+  const store = checklistStore([pt('One', true, true), pt('Two', true, false)],
+    { assignedEngineerIds: ['eng1'] });
+  const after = await service.approveChecklistItem('proj1', 1, {}, auth({ role: 'engineer', userId: 'eng1' }), store);
+  assert.equal(after.status, 'Completed');
+});
+
+test('a project with no checklist is never completed by this route', async () => {
+  const store = checklistStore([]);
+  const p = await service.getProject('proj1', auth(), store);
+  assert.equal(p.status, 'Ongoing');
+  assert.equal(p.stage, 'Planning');
+});
+
+test('MEP keeps its own quirk: it reaches Delivered, and status is not set to Completed', async () => {
+  const store = checklistStore([pt('One', true, true), pt('Two', true, false)], { division: 'MEP', stage: 'Concept' });
+  const after = await service.approveChecklistItem('proj1', 1, {}, auth({ role: 'mep_pm' }), store);
+  assert.equal(after.stage, 'Delivered');
+  assert.equal(after.status, 'Ongoing', 'MEP’s last stage is not literally "Completed", so status is untouched');
+});
+
+test('an already-completed project is not completed a second time', async () => {
+  const store = checklistStore([pt('One', true, true), pt('Two', true, true)],
+    { stage: 'Completed', status: 'Completed' });
+  const notifsBefore = (await store.notificationRepo.listForRole('co1', 'service_mgr', {})).length;
+  await service.approveChecklistItem('proj1', 1, {}, auth(), store);
+  const notifsAfter = (await store.notificationRepo.listForRole('co1', 'service_mgr', {})).length;
+  assert.equal(notifsAfter, notifsBefore, 'no second completion notification');
+});
+
+test('a project In Service is left alone', async () => {
+  const store = checklistStore([pt('One', true, true), pt('Two', true, false)],
+    { stage: 'Completed', status: 'In Service' });
+  const after = await service.approveChecklistItem('proj1', 1, {}, auth(), store);
+  assert.equal(after.status, 'In Service');
+});
+
+test('completion still happens when returnable material is outstanding, and the notification says so', async () => {
+  const store = checklistStore([pt('One', true, true), pt('Two', true, false)], {
+    deliveryChallans: [{ challanNumber: '1', date: new Date('2026-01-05'), materialName: 'Scaffold', quantity: 10, unit: 'nos', returnable: true, returnedQuantity: 3 }],
+  });
+  const after = await service.approveChecklistItem('proj1', 1, {}, auth(), store);
+  assert.equal(after.status, 'Completed', 'outstanding material must not strand the project');
+  const notes = await store.notificationRepo.listForRole('co1', 'service_mgr', {});
+  assert.ok(notes.some((n) => /still pending return to office/.test(n.text)),
+    notes.map((n) => n.text).join(' | '));
+});

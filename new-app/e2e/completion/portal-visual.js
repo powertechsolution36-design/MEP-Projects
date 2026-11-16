@@ -324,8 +324,13 @@ async function shoot(page, name) {
         (await page.locator('body').innerText()).includes('% complete'));
       rec(`project @${w.name}: the meter is labelled for a screen reader`,
         (await page.locator('.portal-meter[aria-label]').count()) > 0);
-      rec(`project @${w.name}: each stage says whether it is done, not just by colour`,
-        (await page.locator('.portal-step .portal-sr').count()) >= 6);
+      // The steps are the project's own checklist points now (owner request,
+      // 16 Nov 2026), so the count is the project's, not a fixed six. What
+      // matters is that EVERY step states its state in words.
+      const stepCount = await page.locator('.portal-step').count();
+      rec(`project @${w.name}: each step says whether it is done, not just by colour`,
+        stepCount > 0 && (await page.locator('.portal-step .portal-sr').count()) === stepCount,
+        `${stepCount} steps`);
       rec(`project @${w.name}: the photographs of the work are on the page`,
         (await page.locator('.portal-photo img').count()) === 2);
       rec(`project @${w.name}: each photograph can be opened from the keyboard`,

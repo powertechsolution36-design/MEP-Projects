@@ -588,15 +588,19 @@ function ProjectRow({ p }) {
 function StageTrail({ stages, finished = false }) {
   return (
     <ol className="portal-steps">
-      {stages.map((st) => {
+      {stages.map((st, i) => {
         // Once the work is finished nothing is still "happening now" — the
         // last stage carried a clock and the words "Happening now" on a site
         // that was done (owner report, 2 Nov 2026).
         const done = finished ? st.reached : st.reached && !st.current;
+        // Nothing is still "happening now" on finished work. A project can
+        // be finished with points left unticked -- the office marked it so
+        // -- and those read "Not yet", never as work in hand.
+        const current = st.current && !finished;
         return (
           <li
-            key={st.stage}
-            className={`portal-step${st.reached ? ' is-done' : ''}${st.current && !finished ? ' is-current' : ''}`}
+            key={`${i}-${st.stage}`}
+            className={`portal-step${st.reached ? ' is-done' : ''}${current ? ' is-current' : ''}`}
           >
             <span className="portal-step-mark" aria-hidden="true">
               {/* A stage still in hand is NOT finished, so it must not carry
@@ -606,7 +610,7 @@ function StageTrail({ stages, finished = false }) {
             <span className="portal-step-body">
               <span className="portal-step-label">{st.stage}</span>
               <span className="portal-step-when">
-                {st.at ? fmtLong(st.at) : done ? 'Done' : st.current ? 'Happening now' : 'Not yet'}
+                {st.at ? fmtLong(st.at) : done ? 'Done' : current ? 'Happening now' : 'Not yet'}
               </span>
             </span>
             <span className="portal-sr">{done ? 'Done' : 'Not done yet'}</span>

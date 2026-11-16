@@ -681,13 +681,36 @@ async function group6g(browser) {
   const rep = await download(s, s.page.locator('button:has-text("Project Report (CSV)")'));
   rec('project: Project Report (CSV) downloads the report', csvOk(rep, pname), rep ? rep.name : 'no download');
 
-  // Stage -> Completed (overriding the open checklist / returnables), then convert to a warranty contract.
-  await s.page.locator('button:has-text("Change Stage")').click();
-  await field(modal(), 'Stage').selectOption('Completed');
-  for (const cb of await modal().locator('input[type=checkbox]').all()) await cb.check();
-  await modal().locator('button:has-text("Save")').click(); await settle(s);
+  // Owner decision (16 Nov 2026): there is no Change Stage dialog any more —
+  // the checklist points ARE the stages, so the project completes itself once
+  // every point is ticked AND approved. Driven through the API because a long
+  // checklist is a lot of clicking; the rule under test is the server's.
+  rec('project: the Change Stage button is gone from the project screen',
+    (await s.page.locator('button:has-text("Change Stage")').count()) === 0);
+
+  const points = (pr?.checklist || []);
+  const last = points.length - 1;
+  // A CLIENT point needs the client's name and their signature; the rest are
+  // approved by whoever is entitled to sign them.
+  const approvalFor = (pt) => (pt.signResponsibility === 'CLIENT'
+    ? { approverName: 'Mr Site Owner', signatureImage: 'data:image/png;base64,iVBORw0KGgo=' }
+    : {});
+  for (let i = 0; i < last; i += 1) {
+    await api(adminT, 'POST', `/api/projects/${pid}/checklist/${i}/tick`, { done: true });
+    await api(adminT, 'POST', `/api/projects/${pid}/checklist/${i}/approve`, approvalFor(points[i]));
+  }
   pr = await getPr();
-  rec('project: Change Stage -> Completed (POST /:id/stage)', pr?.status === 'Completed' && pr?.stage === 'Completed', `${pr?.stage}/${pr?.status}${noAlerts(s)}`);
+  rec(`project: still Ongoing with ${last} of ${points.length} points finished`,
+    pr?.status === 'Ongoing', `${pr?.stage}/${pr?.status}`);
+
+  await api(adminT, 'POST', `/api/projects/${pid}/checklist/${last}/tick`, { done: true });
+  pr = await getPr();
+  rec('project: ticking every point is not enough on its own — the last one is unapproved',
+    pr?.status === 'Ongoing', `${pr?.stage}/${pr?.status}`);
+  await api(adminT, 'POST', `/api/projects/${pid}/checklist/${last}/approve`, approvalFor(points[last]));
+  pr = await getPr();
+  rec('project: the project completes itself once every point is done and approved',
+    pr?.status === 'Completed' && pr?.stage === 'Completed', `${pr?.stage}/${pr?.status}${noAlerts(s)}`);
   await open(s, `/projects/${pid}`);
   await s.page.locator('button:has-text("Convert to Service")').click(); await settle(s);
   pr = await getPr();
