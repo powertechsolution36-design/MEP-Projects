@@ -191,8 +191,13 @@ async function runCreationCascade({ draft, orderNumber, companyId, enquiryId, qu
     {
       companyId,
       orderNumber,
-      enquiryId: enquiryId || null,
-      quotationId: quotationId || null,
+      // DEFECT FIX (16 Nov 2026): the link is left OFF the document when
+      // there is none, never written as null. MongoDB's sparse unique index
+      // skips an absent field but indexes an explicit null, so a null here
+      // made the second order without a lead collide with the first. See
+      // models/SalesOrder.js.
+      ...(enquiryId ? { enquiryId } : {}),
+      ...(quotationId ? { quotationId } : {}),
       division: draft.division,
       projectName: draft.projectName,
       startDate: draft.startDate,

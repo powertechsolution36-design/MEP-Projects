@@ -45,11 +45,22 @@ const salesOrderSchema = new Schema(
     // to the originating Enquiry: populated automatically by the conversion cascade
     // (src/services/enquiryService.js convertEnquiryToSalesOrder), never client-editable,
     // and enforced unique below so at most one SalesOrder can ever link to a given Enquiry.
-    enquiryId: { type: Schema.Types.ObjectId, ref: 'Enquiry', default: null },
+    //
+    // DEFECT FIX (16 Nov 2026): no `default: null`. A MongoDB sparse index
+    // skips a document only when the field is ABSENT -- an explicit null IS
+    // indexed. With a default of null, the first order raised without a lead
+    // put null in the unique index and every order after it collided, which
+    // is what broke "+ New SO" and the conversion of a quotation that had no
+    // lead behind it. The field is therefore left off the document entirely
+    // when there is no lead (see salesOrderCascade.js), and reads report it
+    // as null so the API shape is unchanged.
+    enquiryId: { type: Schema.Types.ObjectId, ref: 'Enquiry' },
     // Owner request (14 Nov 2026): the flow is enquiry -> quotation -> sales
     // order, so an order records the quotation it was accepted from. Null on
     // the two older paths — a walk-in order, or an enquiry converted direct.
-    quotationId: { type: Schema.Types.ObjectId, ref: 'Quotation', default: null },
+    // Left off the document when there is none, for the same reason as
+    // enquiryId above.
+    quotationId: { type: Schema.Types.ObjectId, ref: 'Quotation' },
     division: { type: String, enum: DIVISIONS, required: true }, // PWA FACT
     projectName: { type: String, required: true }, // PWA FACT
     startDate: { type: Date, required: true }, // PWA FACT
@@ -81,12 +92,16 @@ const salesOrderSchema = new Schema(
 salesOrderSchema.index({ companyId: 1, orderNumber: 1 }, { unique: true });
 salesOrderSchema.index({ companyId: 1, division: 1 });
 // Locked decisions #19=B / #20=D: at most one SalesOrder per Enquiry,
-// enforced at the database level (sparse — only applies when enquiryId is
-// set) so a concurrent duplicate conversion attempt fails with a
-// MongoDB duplicate-key error even if the service-layer pre-check races.
+// enforced at the database level so a concurrent duplicate conversion fails
+// even if the service-layer pre-check races.
+//
+// Sparse, and the field is absent on an order that has no lead -- an
+// explicit null would be indexed and would collide with the next such
+// order (see the note on enquiryId above). The index options are left
+// exactly as they were on purpose: changing them would need the live index
+// dropped first, and correcting what is written needs no migration.
 salesOrderSchema.index({ enquiryId: 1 }, { unique: true, sparse: true });
-// One sales order per quotation, enforced the same way: accepting a
-// quotation twice cannot produce two orders.
+// One sales order per quotation, enforced and written the same way.
 salesOrderSchema.index({ quotationId: 1 }, { unique: true, sparse: true });
 
 module.exports = model('SalesOrder', salesOrderSchema);

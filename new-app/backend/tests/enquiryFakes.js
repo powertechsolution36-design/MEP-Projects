@@ -139,60 +139,86 @@ function createEnquiryFakeStore(seed = {}) {
     },
   };
 
+  /**
+   * The two links are absent on an order that has none, and reads report
+   * them as null -- the same shape the Mongoose adapter returns.
+   */
+  const withSoLinks = (so) => (so ? {
+    ...so,
+    enquiryId: so.enquiryId === undefined ? null : so.enquiryId,
+    quotationId: so.quotationId === undefined ? null : so.quotationId,
+  } : so);
+
+  /**
+   * DEFECT FIX (16 Nov 2026): this fake used to collide only on a truthy
+   * enquiryId, so it never reproduced what MongoDB actually does -- a unique
+   * SPARSE index skips a document whose field is ABSENT, but indexes one
+   * whose field is an explicit null, and two nulls collide. That gap let a
+   * defect through to production: every sales order raised without a lead
+   * after the first was refused. The index is modelled properly here now, so
+   * writing a null into either link fails these tests the way it fails live.
+   */
+  function assertSparseUnique(data) {
+    for (const key of ['enquiryId', 'quotationId']) {
+      if (!(key in data)) continue; // absent -> the sparse index skips it
+      const clash = state.salesOrders.find((s) => (key in s) && String(s[key]) === String(data[key]));
+      if (!clash) continue;
+      const err = new Error(key === 'quotationId'
+        ? 'This quotation has already become a sales order.'
+        : 'This Enquiry has already been converted to a SalesOrder.');
+      err.code = 'DUPLICATE_CONVERSION';
+      err.status = 409;
+      throw err;
+    }
+  }
+
   const salesOrderRepo = {
     async findByQuotationId(companyId, quotationId) {
+      if (quotationId === null || quotationId === undefined) return null;
       const doc = state.salesOrders.find(
         (s) => String(s.companyId) === String(companyId) && String(s.quotationId) === String(quotationId)
       );
-      return doc ? { ...doc } : null;
+      return doc ? withSoLinks({ ...doc }) : null;
     },
     async findByEnquiryId(companyId, enquiryId) {
+      if (enquiryId === null || enquiryId === undefined) return null;
       const doc = state.salesOrders.find(
         (s) => String(s.companyId) === String(companyId) && String(s.enquiryId) === String(enquiryId)
       );
-      return doc ? { ...doc } : null;
+      return doc ? withSoLinks({ ...doc }) : null;
     },
     async create(data) {
-      const dupe =
-        data.enquiryId &&
-        state.salesOrders.find(
-          (s) => String(s.companyId) === String(data.companyId) && String(s.enquiryId) === String(data.enquiryId)
-        );
-      if (dupe) {
-        const err = new Error('This Enquiry has already been converted to a SalesOrder.');
-        err.code = 'DUPLICATE_CONVERSION';
-        throw err;
-      }
-      const doc = { id: nextId('so'), enquiryId: null, ...data };
+      assertSparseUnique(data);
+      const doc = { id: nextId('so'), ...data };
       state.salesOrders.push(doc);
-      return { ...doc };
+      return withSoLinks({ ...doc });
     },
     async findById(companyId, id) {
       const doc = state.salesOrders.find((s) => matchesId(s, id) && String(s.companyId) === String(companyId));
-      return doc ? cloneDeep(doc) : null;
+      return doc ? withSoLinks(cloneDeep(doc)) : null;
     },
     async listByCompany(companyId) {
-      return state.salesOrders.filter((s) => String(s.companyId) === String(companyId)).map((s) => cloneDeep(s));
+      return state.salesOrders.filter((s) => String(s.companyId) === String(companyId)).map((s) => withSoLinks(cloneDeep(s)));
     },
     async update(companyId, id, patch) {
       const doc = state.salesOrders.find((s) => matchesId(s, id) && String(s.companyId) === String(companyId));
       if (!doc) return null;
       Object.assign(doc, patch);
-      return cloneDeep(doc);
+      return withSoLinks(cloneDeep(doc));
     },
     async setMilestoneAmount(companyId, id, milestoneIndex, amount) {
       const doc = state.salesOrders.find((s) => matchesId(s, id) && String(s.companyId) === String(companyId));
       if (!doc) return null;
       doc.paymentMilestones = doc.paymentMilestones || [];
       if (doc.paymentMilestones[milestoneIndex]) doc.paymentMilestones[milestoneIndex].amount = amount;
-      return cloneDeep(doc);
+      return withSoLinks(cloneDeep(doc));
     },
     async setMilestoneReceived(companyId, id, milestoneIndex, received) {
       const doc = state.salesOrders.find((s) => matchesId(s, id) && String(s.companyId) === String(companyId));
       if (!doc) return null;
       doc.paymentMilestones = doc.paymentMilestones || [];
       if (doc.paymentMilestones[milestoneIndex]) doc.paymentMilestones[milestoneIndex].received = received;
-      return cloneDeep(doc);
+      return withSoLinks(cloneDeep(doc));
     },
     // FIX-6-03 (B2 -- Company deletion/cascade).
     async deleteManyByCompany(companyId) {

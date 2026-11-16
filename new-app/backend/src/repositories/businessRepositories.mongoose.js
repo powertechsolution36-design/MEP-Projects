@@ -116,6 +116,21 @@ const enquiryRepo = {
 
 const DUPLICATE_KEY_ERROR_CODE = 11000;
 
+/**
+ * The two links are left off a document that has none (see
+ * models/SalesOrder.js), so reads report them as null to keep the shape the
+ * API has always had: `enquiryId` and `quotationId` are present and null on
+ * a walk-in order rather than missing.
+ */
+function withSalesOrderLinks(so) {
+  if (!so) return so;
+  return {
+    ...so,
+    enquiryId: so.enquiryId === undefined ? null : so.enquiryId,
+    quotationId: so.quotationId === undefined ? null : so.quotationId,
+  };
+}
+
 const salesOrderRepo = {
   // FIX-6-03 (B2 -- Company deletion/cascade): part of the PWA's
   // literal 8-collection cascade list (delCompany, index.html:1811-1817).
@@ -124,13 +139,13 @@ const salesOrderRepo = {
   },
   async findByEnquiryId(companyId, enquiryId) {
     const doc = await SalesOrder.findOne({ companyId, enquiryId }).lean();
-    return toPlainLean(doc);
+    return withSalesOrderLinks(toPlainLean(doc));
   },
   // Owner request (14 Nov 2026): the duplicate-conversion guard for the
   // quotation path, the twin of findByEnquiryId above.
   async findByQuotationId(companyId, quotationId) {
     const doc = await SalesOrder.findOne({ companyId, quotationId }).lean();
-    return toPlainLean(doc);
+    return withSalesOrderLinks(toPlainLean(doc));
   },
   /**
    * #20=D (durable reference + enforcement): relies on SalesOrder.js's
@@ -138,36 +153,46 @@ const salesOrderRepo = {
    * race-safe guard against a second conversion of the same Enquiry — a
    * concurrent duplicate raises a MongoDB duplicate-key error (code 11000),
    * translated here into the same DUPLICATE_CONVERSION error the
-   * pre-check in enquiryService.js raises. Also used, with `enquiryId:
-   * null`, for the standalone "+ New SO" creation path
-   * (src/services/salesOrderService.js) — the same unique+sparse index
-   * never blocks two SOs both having `enquiryId: null` (sparse).
+   * pre-check raises.
+   *
+   * DEFECT FIX (16 Nov 2026): two things were wrong here. The comment
+   * claimed a sparse index "never blocks two SOs both having enquiryId:
+   * null" -- it does, because sparse skips an ABSENT field, not a null one;
+   * the write side now leaves the field off entirely (salesOrderCascade.js).
+   * And the error thrown was a bare Error with no status, so the route could
+   * not recognise it and answered a generic 500 "Internal error." instead of
+   * saying what had happened. It is a ServiceError (409) now, and it names
+   * whichever link actually collided.
    */
   async create(data, session) {
     try {
       const [doc] = await SalesOrder.create([data], { session });
-      return toPlain(doc);
+      return withSalesOrderLinks(toPlain(doc));
     } catch (err) {
       if (err && err.code === DUPLICATE_KEY_ERROR_CODE) {
-        const dup = new Error('This Enquiry has already been converted to a SalesOrder.');
-        dup.code = 'DUPLICATE_CONVERSION';
-        throw dup;
+        const key = Object.keys((err && err.keyPattern) || {}).join(',');
+        const message = key.includes('quotationId')
+          ? 'This quotation has already become a sales order.'
+          : key.includes('enquiryId')
+            ? 'This Enquiry has already been converted to a SalesOrder.'
+            : 'A sales order with these details already exists.';
+        throw new ServiceError(message, 'DUPLICATE_CONVERSION', 409);
       }
       throw err;
     }
   },
   async findById(companyId, id) {
     const doc = await SalesOrder.findOne({ _id: id, companyId }).lean();
-    return toPlainLean(doc);
+    return withSalesOrderLinks(toPlainLean(doc));
   },
   async listByCompany(companyId) {
     const docs = await SalesOrder.find({ companyId }).lean();
-    return docs.map((d) => ({ ...d, id: String(d._id) }));
+    return docs.map((d) => withSalesOrderLinks({ ...d, id: String(d._id) }));
   },
   /** Plain field merge — PWA FACT (`saveSO`'s edit branch): no cascade re-run on edit. */
   async update(companyId, id, patch) {
     const doc = await SalesOrder.findOneAndUpdate({ _id: id, companyId }, { $set: patch }, { new: true }).lean();
-    return toPlainLean(doc);
+    return withSalesOrderLinks(toPlainLean(doc));
   },
   /**
    * Payment-side milestone amount edit writes FORWARD onto the SO's own
@@ -180,7 +205,7 @@ const salesOrderRepo = {
       { $set: { [`paymentMilestones.${milestoneIndex}.amount`]: amount } },
       { new: true, session }
     ).lean();
-    return toPlainLean(doc);
+    return withSalesOrderLinks(toPlainLean(doc));
   },
   /**
    * `syncPayStatus`'s write-back of the milestone `rcv` flag (PWA FACT) —
@@ -193,7 +218,7 @@ const salesOrderRepo = {
       { $set: { [`paymentMilestones.${milestoneIndex}.received`]: received } },
       { new: true, session }
     ).lean();
-    return toPlainLean(doc);
+    return withSalesOrderLinks(toPlainLean(doc));
   },
 };
 
