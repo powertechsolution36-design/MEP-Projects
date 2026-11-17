@@ -228,6 +228,11 @@ async function createQuotation(companyId, data, actorId, deps) {
     customerPhone: data.customerPhone || '',
     customerEmail: data.customerEmail || '',
     customerGst: data.customerGst || '',
+    // Owner request (17 Nov 2026): which person at the client this offer is
+    // for. Their number is already in customerPhone; these carry who it was,
+    // and the PDF prints them as "Kind Attn:".
+    contactName: data.contactName || '',
+    contactDesignation: data.contactDesignation || '',
     subject: data.subject || '',
     system: data.system || '',
     capacity: data.capacity || '',
@@ -284,7 +289,8 @@ async function updateQuotation(companyId, quotationId, data, actorId, deps) {
   const patch = {};
   const simpleFields = [
     'status', 'division', 'customerName', 'customerAddress', 'customerPhone',
-    'customerEmail', 'customerGst', 'subject', 'system', 'capacity',
+    'customerEmail', 'customerGst', 'contactName', 'contactDesignation',
+    'subject', 'system', 'capacity',
     'siteDescription', 'summaryText', 'technicalDescription', 'designApproval',
     'solarKw', 'solarTariffPerUnit',
     'benefitsOfSystem', 'designBy', 'systemApprovedBy', 'offerType',

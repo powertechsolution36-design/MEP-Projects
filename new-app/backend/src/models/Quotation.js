@@ -92,6 +92,14 @@ const quotationSchema = new Schema(
     customerPhone: { type: String, default: '' },
     customerEmail: { type: String, default: '' },
     customerGst: { type: String, default: '' },
+    // Owner request (17 Nov 2026): WHICH person at the client this offer is
+    // for, chosen from the people on their record rather than typed. Their
+    // number goes in customerPhone, which is the field the team already
+    // dials; these two are what the document says in its "Kind Attn:" line.
+    // Blank on a quotation raised without picking anyone, and the line is
+    // simply not printed then.
+    contactName: { type: String, default: '' },
+    contactDesignation: { type: String, default: '' },
 
     // Project/Subject
     subject: { type: String, default: '' },

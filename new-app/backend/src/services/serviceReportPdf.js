@@ -13,6 +13,7 @@
  */
 
 const path = require('path');
+const { kindAttn } = require('./kindAttn');
 const PDFDocument = require('pdfkit');
 
 const FONT_REGULAR = path.join(__dirname, '..', '..', 'assets', 'fonts', 'DejaVuSans.ttf');
@@ -183,6 +184,13 @@ function buildServiceReportPdf({ company, serviceCall, engineerName }) {
       ['Registered', fmtDate(sc.registeredDate)],
       ['Appointment', [fmtDate(sc.appointmentDate), sc.appointmentTime].filter((x) => x && x !== '—').join(' ') || '—'],
       ['Engineer', engineerName],
+      // Owner request (17 Nov 2026): WHO at the client reported it, picked
+      // from the people on their record. The row is left out altogether on a
+      // call where nobody was picked, so every older report prints exactly
+      // as it did — it is not another empty field to read past.
+      ...(kindAttn(sc.contactName, sc.contactDesignation)
+        ? [['Kind Attn', kindAttn(sc.contactName, sc.contactDesignation)]]
+        : []),
     ]);
     if (sc.type !== 'PM' && sc.complaintDescription) block('Complaint', sc.complaintDescription);
 

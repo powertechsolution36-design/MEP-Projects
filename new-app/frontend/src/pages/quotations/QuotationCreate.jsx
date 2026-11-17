@@ -8,6 +8,7 @@ import LineItemsEditor, { EMPTY_LINE } from './LineItemsEditor';
 import { GstSelect } from '../../components/AmountInput';
 import DraftBar, { useDrafts } from '../../components/DraftBar';
 import ClientSelect from '../../components/ClientSelect';
+import ContactPick from '../../components/ContactPick';
 import { quotationTotals } from './quotationTotals';
 
 /**
@@ -38,7 +39,13 @@ export default function QuotationCreate() {
     benefitsOfSystem: '', designBy: '', systemApprovedBy: '',
     gstPercent: 18, offerValidity: '', delivery: '', notes: '', date: today(),
     clientId: null,
+    // Owner request (17 Nov 2026): which person at the client this offer is
+    // for. Picked from their record, printed as "Kind Attn:".
+    contactName: '', contactDesignation: '',
   });
+  // The client whose people the picker offers. Held only while the form is
+  // open — what is SAVED is the person's name, designation and number.
+  const [pickedClient, setPickedClient] = useState(null);
   const [equipmentItems, setEquipmentItems] = useState([{ ...EMPTY_LINE }]);
   const [accessoriesItems, setAccessoriesItems] = useState([]);
   const [paymentTerms, setPaymentTerms] = useState([]);
@@ -396,17 +403,33 @@ export default function QuotationCreate() {
               required
               value={form.customerName}
               onType={(v) => setField('customerName', v)}
-              onPick={(c) => setForm((f) => ({
+              onPick={(c) => {
+                setPickedClient(c);
+                setForm((f) => ({
+                  ...f,
+                  // Owner request (17 Nov 2026): record WHICH client, so their
+                  // history is exact rather than matched on a typed name.
+                  clientId: c.id,
+                  customerName: c.companyName || c.clientName || f.customerName,
+                  customerPhone: f.customerPhone || c.phone || '',
+                  customerEmail: f.customerEmail || c.email || '',
+                  customerAddress: f.customerAddress || c.address || '',
+                  customerGst: f.customerGst || c.gst || '',
+                }));
+              }}
+            />
+            {/* Owner request (17 Nov 2026): and WHO at that client. Their
+                number fills the phone field the team already dials. */}
+            <ContactPick
+              client={pickedClient}
+              picked={form.contactName ? { name: form.contactName, phone: form.customerPhone } : null}
+              onPick={(person) => setForm((f) => ({
                 ...f,
-                // Owner request (17 Nov 2026): record WHICH client, so their
-                // history is exact rather than matched on a typed name.
-                clientId: c.id,
-                customerName: c.companyName || c.clientName || f.customerName,
-                customerPhone: f.customerPhone || c.phone || '',
-                customerEmail: f.customerEmail || c.email || '',
-                customerAddress: f.customerAddress || c.address || '',
-                customerGst: f.customerGst || c.gst || '',
+                contactName: person ? person.name : '',
+                contactDesignation: person ? person.designation : '',
+                customerPhone: person ? (person.phone || f.customerPhone) : f.customerPhone,
               }))}
+              label="Kind Attn — who at the client?"
             />
             <label className="filter-field">
               Customer Address

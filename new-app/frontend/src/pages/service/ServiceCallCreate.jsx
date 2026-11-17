@@ -4,6 +4,8 @@ import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { today } from '../../utils/format';
 import ClientPicker, { coverageOf, COVERAGE_TEXT } from './ClientPicker';
+import ClientSelect from '../../components/ClientSelect';
+import ContactPick from '../../components/ContactPick';
 import useMyDivisions from '../../hooks/useMyDivisions';
 
 /**
@@ -46,7 +48,16 @@ export default function ServiceCallCreate() {
     // A call against an AMC / Warranty client takes that client's division
     // on the server; this is for a walk-in with no client behind it.
     division: '',
+    // Owner request (17 Nov 2026): the directory client this is for, and
+    // which person at them reported it. The number goes in `phone` above.
+    clientId: null,
+    contactName: '',
+    contactDesignation: '',
   });
+  // Whose people the picker offers: the AMC client when there is one, and
+  // otherwise the directory client chosen below. Held only while the form is
+  // open; what is SAVED is the client's id and the person's name.
+  const [directoryClient, setDirectoryClient] = useState(null);
   const myDivisions = useMyDivisions();
   const [contract, setContract] = useState(null);
   // Complaint path: the AMC / Warranty client it is for, or Chargeable.
@@ -79,10 +90,42 @@ export default function ServiceCallCreate() {
   function pickClient(c) {
     setClient(c);
     setChargeable(false);
+    setDirectoryClient(null);
     if (c) {
-      setForm(prev => ({ ...prev, customer: c.customer || '', phone: c.phone || '', site: c.site || '' }));
+      setForm(prev => ({
+        ...prev,
+        customer: c.customer || '',
+        phone: c.phone || '',
+        site: c.site || '',
+        // A different client means a different set of people.
+        clientId: null,
+        contactName: '',
+        contactDesignation: '',
+      }));
     }
   }
+
+  /**
+   * Owner request (17 Nov 2026): a complaint from somebody who is NOT on an
+   * AMC was typed out in full every time, even for a client we have worked
+   * for all year. Picking them from the directory fills their name, number
+   * and address, and records WHICH client it was.
+   */
+  function pickFromDirectory(c) {
+    setDirectoryClient(c);
+    setForm(prev => ({
+      ...prev,
+      clientId: c.id,
+      customer: c.companyName || c.clientName || prev.customer,
+      phone: prev.phone || c.phone || '',
+      site: prev.site || c.address || '',
+      contactName: '',
+      contactDesignation: '',
+    }));
+  }
+
+  /** Whichever record the people on the form should come from. */
+  const peopleSource = client || directoryClient;
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -109,9 +152,12 @@ export default function ServiceCallCreate() {
         }
         const body = {
           contractId: client ? client.id : undefined,
+          clientId: form.clientId || undefined,
           customer: form.customer,
           phone: form.phone || undefined,
           site: form.site || undefined,
+          contactName: form.contactName || undefined,
+          contactDesignation: form.contactDesignation || undefined,
           appointmentDate: form.appointmentDate || undefined,
           appointmentTime: form.appointmentTime || undefined,
           complaintDescription: form.complaintDescription || undefined,
@@ -170,6 +216,34 @@ export default function ServiceCallCreate() {
                 Service type will default to: <strong>{COVERAGE_TEXT[coverageOf(client)]}</strong>
               </div>
             )}
+            {/* Owner request (17 Nov 2026): not an AMC client is not the same
+                as a stranger. Pick them from the client list and their name,
+                number and address fill in. A name that is not on the list is
+                still simply typed below, exactly as before. */}
+            {chargeable && (
+              <div style={{ marginTop: 10 }}>
+                <ClientSelect
+                  label="Client (from the client list)"
+                  placeholder="Search the client list, or leave blank and type below"
+                  value={directoryClient ? (directoryClient.companyName || directoryClient.clientName || '') : form.customer}
+                  onType={(v) => { setDirectoryClient(null); onChange('customer', v); onChange('clientId', null); }}
+                  onPick={pickFromDirectory}
+                />
+              </div>
+            )}
+            {/* And WHO at them reported it. Their number fills the phone the
+                engineer rings; their name prints on the service report. */}
+            <ContactPick
+              client={peopleSource}
+              picked={form.contactName ? { name: form.contactName, phone: form.phone } : null}
+              onPick={(person) => setForm(prev => ({
+                ...prev,
+                contactName: person ? person.name : '',
+                contactDesignation: person ? person.designation : '',
+                phone: person ? (person.phone || prev.phone) : prev.phone,
+              }))}
+              label="Who reported it?"
+            />
           </div>
         )}
         <div className="panel">

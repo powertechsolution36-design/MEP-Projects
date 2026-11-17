@@ -65,6 +65,19 @@ const serviceCallSchema = new Schema(
     division: { type: String, enum: DIVISIONS },
     phone: { type: String }, // PWA FACT
     site: { type: String }, // PWA FACT
+    // Owner request (17 Nov 2026): the client this call is for, and WHICH
+    // person at them reported it, chosen from the people on their record
+    // rather than typed. The number goes in `phone` above, which is the
+    // field the engineer already rings; these carry who it was, and the
+    // service report prints them as its "Kind Attn:" line.
+    //
+    // clientId is the directory record (models/Client.js), NOT the AMC
+    // contract — a call can have both, one, or neither. Absent on every
+    // call taken before this, which the client page matches by name and
+    // number instead (clientService).
+    clientId: { type: Schema.Types.ObjectId, ref: 'Client' },
+    contactName: { type: String },
+    contactDesignation: { type: String },
     appointmentDate: { type: Date }, // PWA FACT
     appointmentTime: { type: String }, // PWA FACT
     complaintDescription: { type: String }, // PWA FACT

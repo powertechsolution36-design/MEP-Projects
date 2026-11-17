@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import useMyDivisions from '../../hooks/useMyDivisions';
 import ContactsField from '../../components/ContactsField';
 import ClientSelect from '../../components/ClientSelect';
+import ContactPick from '../../components/ContactPick';
 
 /**
  * New Enquiry form — PWA `mEnq()` exact reproduction.
@@ -28,6 +29,11 @@ export default function EnquiryCreate() {
     // Owner request (5 Nov 2026): the other people at the site.
     contacts: [],
   });
+  // The client whose people the picker offers, and which of them the main
+  // number belongs to. Neither is saved: the enquiry keeps the number in
+  // `phone` and everyone in `contacts`, exactly as it always has.
+  const [pickedClient, setPickedClient] = useState(null);
+  const [picked, setPicked] = useState(null);
 
   function setField(key, value) {
     setForm(prev => ({ ...prev, [key]: value }));
@@ -68,12 +74,37 @@ export default function EnquiryCreate() {
               required
               value={form.name}
               onType={(v) => setField('name', v)}
-              onPick={(c) => setForm((f) => ({
-                ...f,
-                name: c.companyName || c.clientName || f.name,
-                phone: f.phone || c.phone || '',
-                contacts: (f.contacts || []).some((r) => r.name) ? f.contacts : (c.contacts || []),
-              }))}
+              onPick={(c) => {
+                setPickedClient(c);
+                setPicked(null);
+                setForm((f) => ({
+                  ...f,
+                  name: c.companyName || c.clientName || f.name,
+                  phone: f.phone || c.phone || '',
+                  contacts: (f.contacts || []).some((r) => r.name) ? f.contacts : (c.contacts || []),
+                }));
+              }}
+            />
+            {/* Owner request (17 Nov 2026): whose number is the one to ring.
+                Everyone at the client is already copied into Contacts below;
+                this says which of them the main number belongs to. */}
+            <ContactPick
+              client={pickedClient}
+              picked={picked}
+              onPick={(person) => {
+                setPicked(person);
+                if (!person) return;
+                setForm((f) => ({
+                  ...f,
+                  phone: person.phone || f.phone,
+                  contacts: (f.contacts || []).some(
+                    (r) => (r.name || '') === person.name && (r.phone || '') === person.phone
+                  ) ? f.contacts : [...(f.contacts || []), {
+                    name: person.name, designation: person.designation, phone: person.phone,
+                  }].slice(0, 10),
+                }));
+              }}
+              label="Whose number is this?"
             />
             <div className="filter-field">
               <label>Site Type</label>

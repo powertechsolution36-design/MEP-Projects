@@ -1324,7 +1324,104 @@ async function group6l(browser) {
     refused.status === 403, String(refused.status));
 }
 
-const GROUPS = { '6a': group6a, '6b': group6b, '6c': group6c, '6d': group6d, '6e': group6e, '6f': group6f, '6g': group6g, '6h': group6h, '6i': group6i, '6j': group6j, '6k': group6k, '6l': group6l };
+
+/* ------------------------------------------------ 6m the client's PEOPLE fill the
+   forms (owner request, 17 Nov 2026) */
+async function group6m(browser) {
+  const adminT = await apiToken('admin');
+  const tag = uniq();
+  const name = `Peoplecorp ${tag}`;
+
+  // A client with an owner and two more people on their record.
+  const made = await api(adminT, 'POST', '/api/clients', {
+    companyName: name,
+    clientName: 'Mr. Owner Patil',
+    designation: 'Director',
+    phone: '9800000001',
+    address: 'Bhosari, Pune',
+    gst: '27ZZZZZ9999Z1Z1',
+    contacts: [
+      { name: 'Mrs. Kavita Rao', designation: 'Purchase Manager', phone: '9800000002' },
+      { name: 'Mr. Rahul Deshmukh', designation: 'Maintenance In-charge', phone: '9800000003' },
+    ],
+  });
+  rec('6m: a client can hold the owner and more people', made.status === 201 || made.status === 200,
+    String(made.status));
+
+  const qField = (page, text) => page.locator(
+    `label.filter-field:has-text("${text}") :is(input, select), `
+    + `.filter-field:has(> label:text-is("${text}")) :is(input, select)`
+  ).first();
+  /** Click the chip for one of the client's people. */
+  const person = (page, who) => page.locator(`.contact-pick button:has-text("${who}")`).first();
+
+  // --- the quotation ---
+  const s = await session(browser, 'sales');
+  await open(s, '/quotations/new');
+  await qField(s.page, 'Customer Name *').fill(name);
+  await s.page.waitForTimeout(600);
+  await s.page.locator(`.client-suggestions button:has-text("${name}")`).first().click();
+  await settle(s);
+  rec('6m: picking the client brings their GST and address with them',
+    (await qField(s.page, 'Customer GST').inputValue()) === '27ZZZZZ9999Z1Z1'
+    && (await qField(s.page, 'Customer Address').inputValue()) === 'Bhosari, Pune');
+  rec('6m: and their people are offered', (await s.page.locator('.contact-pick button').count()) === 3,
+    String(await s.page.locator('.contact-pick button').count()));
+
+  await person(s.page, 'Mrs. Kavita Rao').click();
+  await s.page.waitForTimeout(200);
+  rec('6m: picking a person fills their number, not the company’s',
+    (await qField(s.page, 'Customer Phone').inputValue()) === '9800000002',
+    await qField(s.page, 'Customer Phone').inputValue());
+
+  await qField(s.page, 'Division *').selectOption('HVAC');
+  await s.page.locator('button:has-text("Create Quotation")').click();
+  await s.page.waitForURL(/\/quotations\/(?!new$)[^/]+$/, { timeout: 15000 }).catch(() => {});
+  await settle(s);
+  const quoted = ((await api(adminT, 'GET', '/api/quotations')).json.quotations || [])
+    .find((q) => q.customerName === name);
+  rec('6m: the quotation records WHO it is for, for the Kind Attn line',
+    !!quoted && quoted.contactName === 'Mrs. Kavita Rao'
+    && quoted.contactDesignation === 'Purchase Manager',
+    JSON.stringify(quoted && { n: quoted.contactName, d: quoted.contactDesignation }));
+  rec('6m: and WHICH client, so their history is exact', !!quoted && !!quoted.clientId);
+  rec('6m: quotation: no errors', s.errors.length === 0, s.errors.join('|') + noAlerts(s));
+  await s.ctx.close();
+
+  // --- the complaint ---
+  const a = await session(browser, 'admin');
+  await open(a, '/service-calls/new');
+  await a.page.locator('button:has-text("Not an AMC / Warranty client")').click();
+  await a.page.waitForTimeout(200);
+  await qField(a.page, 'Client (from the client list)').fill(name);
+  await a.page.waitForTimeout(600);
+  await a.page.locator(`.client-suggestions button:has-text("${name}")`).first().click();
+  await settle(a);
+  rec('6m: a complaint for a non-AMC client fills from the client list',
+    (await qField(a.page, 'Customer *').inputValue()) === name,
+    await qField(a.page, 'Customer *').inputValue());
+
+  await person(a.page, 'Mr. Rahul Deshmukh').click();
+  await a.page.waitForTimeout(200);
+  rec('6m: and the number is the person’s, not the company’s',
+    (await qField(a.page, 'Phone').inputValue()) === '9800000003',
+    await qField(a.page, 'Phone').inputValue());
+
+  await a.page.locator('.filter-field:has(> label:text-is("Description")) textarea').fill('Indoor unit leaking');
+  await a.page.locator('button:has-text("Register Complaint")').last().click();
+  await a.page.waitForURL(/\/service-calls\/(?!new$)[^/]+$/, { timeout: 15000 }).catch(() => {});
+  await settle(a);
+  const call = ((await api(adminT, 'GET', '/api/service-calls')).json.serviceCalls || [])
+    .find((c) => c.customer === name);
+  rec('6m: the call records who reported it and which client they are',
+    !!call && call.contactName === 'Mr. Rahul Deshmukh'
+    && call.contactDesignation === 'Maintenance In-charge' && !!call.clientId,
+    JSON.stringify(call && { n: call.contactName, d: call.contactDesignation, c: !!call.clientId }));
+  rec('6m: complaint: no errors', a.errors.length === 0, a.errors.join('|') + noAlerts(a));
+  await a.ctx.close();
+}
+
+const GROUPS = { '6a': group6a, '6b': group6b, '6c': group6c, '6d': group6d, '6e': group6e, '6f': group6f, '6g': group6g, '6h': group6h, '6i': group6i, '6j': group6j, '6k': group6k, '6l': group6l, '6m': group6m };
 
 (async () => {
   const want = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(GROUPS);

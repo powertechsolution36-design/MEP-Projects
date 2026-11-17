@@ -239,6 +239,10 @@ test('audit-correction scope guard: only authorized routes and services exist', 
     'formDraftService.js',
     'inventoryService.js',
     'itemNameService.js',
+    // The one "Kind Attn:" line both documents print (owner request,
+    // 17 Nov 2026). Its own file so the quotation and the service report
+    // cannot word it differently, and so the wording can be tested.
+    'kindAttn.js',
     'notificationService.js',
     'paymentService.js',
     'portalAuthService.js',

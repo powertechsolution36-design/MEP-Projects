@@ -5,6 +5,8 @@ import { today } from '../../utils/format';
 import useMyDivisions from '../../hooks/useMyDivisions';
 import TeamSelect, { useTeamCandidates } from '../../components/TeamSelect';
 import DraftBar, { useDrafts } from '../../components/DraftBar';
+import ClientSelect from '../../components/ClientSelect';
+import ContactPick from '../../components/ContactPick';
 
 /**
  * Standalone SalesOrder Create — PWA `mSO()` with no enquiry, exact reproduction.
@@ -44,7 +46,36 @@ export default function SalesOrderCreate() {
     lowSideActualExpense: 0,
     termsAndConditions: DEFAULT_TERMS,
     paymentMilestones: [{ description: '', amount: '' }],
+    // Owner request (17 Nov 2026): which client in the directory this order
+    // is for, when one was picked. Null on an order typed from scratch.
+    clientId: null,
   });
+  // Whose people the picker offers. Held only while the form is open.
+  const [pickedClient, setPickedClient] = useState(null);
+
+  /**
+   * Owner request (17 Nov 2026): pick the client and their people instead of
+   * retyping both. A person goes into the first contact slot that is empty —
+   * a sales order has exactly two (PWA FACT) — and never overwrites a name
+   * already typed there.
+   */
+  function useContact(person) {
+    if (!person) return;
+    setForm(prev => {
+      const contacts = [...prev.contacts];
+      const already = contacts.some((c) => (c.name || '') === person.name && (c.phone || '') === person.phone);
+      if (already) return prev;
+      const slot = contacts.findIndex((c) => !c.name && !c.phone);
+      if (slot === -1) return prev;
+      contacts[slot] = {
+        ...contacts[slot],
+        name: person.name,
+        designation: person.designation,
+        phone: person.phone,
+      };
+      return { ...prev, contacts };
+    });
+  }
 
   /* Save as Draft (owner request, 14 Nov 2026). Nothing is created while the
      form sits here -- no SO number, no project, no payment records and no
@@ -136,10 +167,24 @@ export default function SalesOrderCreate() {
                 {DIVISIONS.map(d => <option key={d}>{d}</option>)}
               </select>
             </div>
-            <div className="filter-field">
-              <label>Project Name *</label>
-              <input value={form.projectName} onChange={e => setField('projectName', e.target.value)} />
-            </div>
+            {/* Owner request (17 Nov 2026): pick a client we already have and
+                their address comes with them. A name that is not on the list
+                is simply typed, exactly as before. */}
+            <ClientSelect
+              label="Project Name"
+              required
+              value={form.projectName}
+              onType={(v) => { setPickedClient(null); setForm(f => ({ ...f, projectName: v, clientId: null })); }}
+              onPick={(c) => {
+                setPickedClient(c);
+                setForm(f => ({
+                  ...f,
+                  clientId: c.id,
+                  projectName: c.companyName || c.clientName || f.projectName,
+                  siteAddress: f.siteAddress || c.address || '',
+                }));
+              }}
+            />
             <div className="filter-field">
               <label>Start Date</label>
               <input type="date" value={form.startDate} onChange={e => setField('startDate', e.target.value)} />
@@ -155,6 +200,9 @@ export default function SalesOrderCreate() {
           </div>
 
           <h3>Contacts</h3>
+          {/* And who at them. Each one picked drops into the first empty slot
+              below; both can still be typed over afterwards. */}
+          <ContactPick client={pickedClient} picked={null} onPick={useContact} label="Add a person from the client" />
           {[0, 1].map(ci => (
             <div key={ci} className="form-grid">
               <div className="filter-field"><label>Name {ci + 1}</label><input value={form.contacts[ci].name} onChange={e => setContact(ci, 'name', e.target.value)} /></div>

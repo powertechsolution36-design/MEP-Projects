@@ -427,6 +427,13 @@ async function registerComplaint(input, actorAuth, deps) {
 
   const site = (input && input.site) || (contract && contract.site) || '';
   const phone = (input && input.phone) || (contract && contract.phone) || '';
+  // Owner request (17 Nov 2026): the directory client this call is for, and
+  // WHICH person at them reported it, both picked on the form rather than
+  // typed. The number is already in `phone` above. A walk-in has neither and
+  // is stored exactly as it always was: the keys are left off the document.
+  const clientId = (input && input.clientId) ? String(input.clientId) : '';
+  const contactName = String((input && input.contactName) || '').trim().slice(0, 120);
+  const contactDesignation = String((input && input.contactDesignation) || '').trim().slice(0, 120);
   // Accepts the frontend's field name (complaintDescription) as well as the
   // PWA-derived name (complaint).
   const complaintDescription = (input && (input.complaint || input.complaintDescription)) || '';
@@ -441,6 +448,9 @@ async function registerComplaint(input, actorAuth, deps) {
         type: 'Complaint',
         customer,
         ...(division ? { division } : {}),
+        ...(clientId ? { clientId } : {}),
+        ...(contactName ? { contactName } : {}),
+        ...(contactDesignation ? { contactDesignation } : {}),
         phone,
         site,
         appointmentDate: null,

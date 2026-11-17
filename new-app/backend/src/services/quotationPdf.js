@@ -34,6 +34,7 @@
 const path = require('path');
 const PDFDocument = require('pdfkit');
 const { getFixedPages, getSharedPages } = require('./quotationPresets');
+const { kindAttn } = require('./kindAttn');
 
 /*
  * Fonts, chosen to match the company's own quotation workbooks (owner
@@ -560,6 +561,13 @@ function buildQuotationPdf({ company, quotation }) {
     };
 
     coverLabel('Quote To -', q.customerName, { always: true });
+    // Owner request (17 Nov 2026): WHO at the client this offer is for,
+    // picked from the people on their record. It sits immediately under the
+    // company's name, which is where the trade writes it, and is simply not
+    // printed on a quotation where nobody was picked — every older document
+    // reads exactly as it did.
+    const attn = kindAttn(q.contactName, q.contactDesignation);
+    coverPara(attn ? `Kind Attn: ${attn}` : '', { tight: true, size: 9 });
     coverPara(q.customerAddress, { tight: true });
     const custLine = [
       hasText(q.customerPhone) ? `Phone: ${str(q.customerPhone)}` : '',

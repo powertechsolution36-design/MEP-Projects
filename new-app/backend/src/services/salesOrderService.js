@@ -186,7 +186,14 @@ async function createSalesOrder(input, actorAuth, deps) {
   return deps.withTransaction(deps, async (txnDeps) => {
     const { session } = txnDeps;
     const orderNumber = await txnDeps.counterRepo.getNextSequence(companyId, 'salesOrder', session);
-    return cascade.runCreationCascade({ draft, orderNumber, companyId, enquiryId: null, session, deps: txnDeps });
+    // Owner request (17 Nov 2026): an order raised after picking a client
+    // from the directory records WHICH client, so their history is exact
+    // rather than matched on a typed project name. Left off otherwise, the
+    // same as every order raised before this.
+    const clientId = input && input.clientId ? String(input.clientId) : null;
+    return cascade.runCreationCascade({
+      draft, orderNumber, companyId, enquiryId: null, clientId, session, deps: txnDeps,
+    });
   });
 }
 
