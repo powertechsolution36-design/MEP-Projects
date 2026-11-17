@@ -32,6 +32,7 @@ module.exports = {
   // Stage 7 commercial-document collections (quotations, item-name
   // library, AMC document templates, payment-term templates).
   Quotation: require('./Quotation'),
+  Client: require('./Client'),
   FormDraft: require('./FormDraft'),
   ItemName: require('./ItemName'),
   AmcTemplate: require('./AmcTemplate'),

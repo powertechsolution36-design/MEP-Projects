@@ -145,7 +145,17 @@ async function createEnquiry(input, actorAuth, deps) {
     followUpLog: [],
   };
 
-  return deps.enquiryRepo.create(data);
+  const enquiry = await deps.enquiryRepo.create(data);
+
+  // Owner decision (16 Nov 2026): a client met while raising a lead joins
+  // the client directory by itself, so the dropdown fills from real work.
+  // A side effect of this save, never allowed to fail it.
+  await require('./clientService').rememberClient(
+    { companyName: name, phone, contacts, source: 'enquiry' },
+    actorAuth,
+    deps
+  );
+  return enquiry;
 }
 
 async function getEnquiry(id, actorAuth, deps) {

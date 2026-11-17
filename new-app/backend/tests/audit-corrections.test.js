@@ -180,7 +180,11 @@ test('audit-correction scope guard: only authorized routes and services exist', 
   // explicitly requested by the owner and added as its own module.
   // Any OTHER route/service file still fails this guard.
   assert.deepEqual(routeFiles, [
-    'amcDocumentRoutes.js', 'authRoutes.js', 'checklistTemplateRoutes.js', 'companyRoutes.js', 'contractRoutes.js',
+    'amcDocumentRoutes.js', 'authRoutes.js', 'checklistTemplateRoutes.js',
+    // UPDATE (owner request, 16 Nov 2026): the client directory -- the people
+    // we work for, kept once instead of retyped into every record.
+    'clientRoutes.js',
+    'companyRoutes.js', 'contractRoutes.js',
     // UPDATE (owner decision, 27 Oct 2026): the staff side of the customer
     // portal — approving a client's login, and reading the photographs they
     // attached to a complaint.
@@ -217,6 +221,9 @@ test('audit-correction scope guard: only authorized routes and services exist', 
     // print layout; a pure helper of amcDocumentService.
     'amcOfferPdf.js',
     'checklistTemplateService.js',
+    // UPDATE (owner request, 16 Nov 2026): the client directory, and the
+    // remembering of a client met while raising an enquiry or a quotation.
+    'clientService.js',
     'companyService.js',
     'contractService.js',
     // UPDATE (owner decision, 27 Oct 2026): the customer portal — the

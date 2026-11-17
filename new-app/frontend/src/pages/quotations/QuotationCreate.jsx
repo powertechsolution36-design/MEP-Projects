@@ -7,6 +7,7 @@ import { quotationProblem } from './quotationValidation';
 import LineItemsEditor, { EMPTY_LINE } from './LineItemsEditor';
 import { GstSelect } from '../../components/AmountInput';
 import DraftBar, { useDrafts } from '../../components/DraftBar';
+import ClientSelect from '../../components/ClientSelect';
 import { quotationTotals } from './quotationTotals';
 
 /**
@@ -387,10 +388,22 @@ export default function QuotationCreate() {
               Date
               <input type="date" value={form.date} onChange={e => setField('date', e.target.value)} />
             </label>
-            <label className="filter-field">
-              Customer Name *
-              <input value={form.customerName} onChange={e => setField('customerName', e.target.value)} required />
-            </label>
+            {/* Owner request (16 Nov 2026): pick a client we already have
+                and their number, GST and address come with them. */}
+            <ClientSelect
+              label="Customer Name"
+              required
+              value={form.customerName}
+              onType={(v) => setField('customerName', v)}
+              onPick={(c) => setForm((f) => ({
+                ...f,
+                customerName: c.companyName || c.clientName || f.customerName,
+                customerPhone: f.customerPhone || c.phone || '',
+                customerEmail: f.customerEmail || c.email || '',
+                customerAddress: f.customerAddress || c.address || '',
+                customerGst: f.customerGst || c.gst || '',
+              }))}
+            />
             <label className="filter-field">
               Customer Address
               <input value={form.customerAddress} onChange={e => setField('customerAddress', e.target.value)} />

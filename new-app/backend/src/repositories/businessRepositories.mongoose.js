@@ -22,6 +22,7 @@ const {
   Quotation,
   ItemName,
   FormDraft,
+  Client,
   AmcTemplate,
   PaymentTermTemplate,
   QuotationTemplate,
@@ -1436,6 +1437,41 @@ const projectPhotoRepo = {
   },
 };
 
+/* --------------------------------------------------------------- clients */
+// Owner request (16 Nov 2026): the people we work for, kept once instead of
+// retyped into every enquiry, quotation and AMC record.
+const clientRepo = {
+  async create(data) {
+    return toPlain(await Client.create(data));
+  },
+  async findById(companyId, id) {
+    if (!mongoose.isValidObjectId(id)) return null;
+    return toPlainLean(await Client.findOne({ _id: id, companyId }).lean());
+  },
+  async findByNormalizedName(companyId, normalizedName) {
+    if (!normalizedName) return null;
+    return toPlainLean(await Client.findOne({ companyId, normalizedName }).lean());
+  },
+  async listByCompany(companyId) {
+    const docs = await Client.find({ companyId }).sort({ normalizedName: 1 }).lean();
+    return docs.map(toPlainLean);
+  },
+  async update(companyId, id, patch) {
+    if (!mongoose.isValidObjectId(id)) return null;
+    return toPlainLean(
+      await Client.findOneAndUpdate({ _id: id, companyId }, { $set: patch }, { new: true }).lean()
+    );
+  },
+  async deleteById(companyId, id) {
+    if (!mongoose.isValidObjectId(id)) return false;
+    const res = await Client.deleteOne({ _id: id, companyId });
+    return res.deletedCount > 0;
+  },
+  async deleteManyByCompany(companyId, session) {
+    await Client.deleteMany({ companyId }, { session });
+  },
+};
+
 /* ---------------------------------------------------------------- drafts */
 // Owner request (14 Nov 2026): a half-filled quotation or sales order can be
 // put away and finished later. See models/FormDraft.js for why a draft is
@@ -1472,6 +1508,7 @@ const formDraftRepo = {
 };
 
 module.exports = {
+  clientRepo,
   formDraftRepo,
   enquiryRepo,
   projectPhotoRepo,

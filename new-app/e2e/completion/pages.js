@@ -813,7 +813,13 @@ async function group5e(browser) {
 async function group5f(browser) {
   const adminT = await apiToken('admin');
   const getQ = async (id) => (await api(adminT, 'GET', `/api/quotations/${id}`)).json?.quotation;
-  const field = (page, text) => page.locator(`label.filter-field:has-text("${text}") :is(input, select)`).first();
+  // The quotation screen wraps its input inside the label, except where a
+  // shared component (ClientSelect, 16 Nov 2026) puts the label above it.
+  // Match either shape rather than pinning the test to one of them.
+  const field = (page, text) => page.locator(
+    `label.filter-field:has-text("${text}") :is(input, select), `
+    + `.filter-field:has(> label:text-is("${text}")) :is(input, select)`
+  ).first();
   // Owner request (14 Nov 2026): amounts are plain text boxes with no
   // spinner, and GST is picked from a list.
   const fillRow = async (panel, i, { desc, qty, supply, gst }) => {
@@ -931,7 +937,11 @@ async function group5f(browser) {
       const s = await session(browser, user, vp);
       await open(s, path);
       if (click) { await s.page.locator(`button:has-text("${click}")`).click(); await s.page.waitForTimeout(200); }
-      const box = async (t) => s.page.locator(`label.filter-field:has-text("${t}") :is(input, select)`).first().boundingBox();
+      // Either field shape (see the note on `field` in group 5f).
+      const box = async (t) => s.page.locator(
+        `label.filter-field:has-text("${t}") :is(input, select), `
+        + `.filter-field:has(> label:text-is("${t}")) :is(input, select)`
+      ).first().boundingBox();
       const A = await box(a); const B = await box(b);
       const ok = A && B && (vn === 'desktop' ? Math.abs(A.y - B.y) < 4 : Math.abs(A.x - B.x) < 2 && A.width >= 300 && B.width >= 300);
       rec(`${path} [${vn}]: "${a}" and "${b}" fields ${vn === 'desktop' ? 'sit side by side' : 'stack full-width'}`, !!ok,

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import useMyDivisions from '../../hooks/useMyDivisions';
 import ContactsField from '../../components/ContactsField';
+import ClientSelect from '../../components/ClientSelect';
 
 /**
  * New Enquiry form — PWA `mEnq()` exact reproduction.
@@ -59,10 +60,21 @@ export default function EnquiryCreate() {
         <h2>New Enquiry</h2>
         <form onSubmit={handleSubmit}>
           <div className="form-grid">
-            <div className="filter-field">
-              <label>Project Name *</label>
-              <input value={form.name} onChange={e => setField('name', e.target.value)} />
-            </div>
+            {/* Owner request (16 Nov 2026): pick a client we already have
+                and their details come with them. A name that is not on the
+                list is simply typed, and joins the list on save. */}
+            <ClientSelect
+              label="Project Name"
+              required
+              value={form.name}
+              onType={(v) => setField('name', v)}
+              onPick={(c) => setForm((f) => ({
+                ...f,
+                name: c.companyName || c.clientName || f.name,
+                phone: f.phone || c.phone || '',
+                contacts: (f.contacts || []).some((r) => r.name) ? f.contacts : (c.contacts || []),
+              }))}
+            />
             <div className="filter-field">
               <label>Site Type</label>
               <select value={form.siteType} onChange={e => setField('siteType', e.target.value)}>

@@ -34,6 +34,7 @@ export const MENUS = {
   ],
   admin: [
     ['dash', '🏠 Dashboard', '/'],
+    ['clients', '🏢 Clients', '/clients'],
     ['enquiries', '📋 Enquiries', '/enquiries'],
     ['sos', '🧾 Sales Orders', '/sales-orders'],
     ['lost', '❌ Lost Enquiries', '/enquiries/lost'],
@@ -50,12 +51,14 @@ export const MENUS = {
   ],
   sales: [
     ['dash', '🏠 Dashboard', '/'],
+    ['clients', '🏢 Clients', '/clients'],
     ['enquiries', '📋 Enquiries', '/enquiries'],
     ['sos', '🧾 Sales Orders', '/sales-orders'],
     ['lost', '❌ Lost Enquiries', '/enquiries/lost'],
   ],
   hvac_pm: [
     ['dash', '🏠 Dashboard', '/'],
+    ['clients', '🏢 Clients', '/clients'],
     ['projects', '🏗️ Projects', '/projects'],
     ['sos', '🧾 Sales Orders', '/sales-orders'],
     ['stock', '📦 Stock', '/inventory/stock'],
@@ -70,6 +73,7 @@ export const MENUS = {
    */
   solar_pm: [
     ['dash', '🏠 Dashboard', '/'],
+    ['clients', '🏢 Clients', '/clients'],
     ['enquiries', '📋 Enquiries', '/enquiries'],
     ['sos', '🧾 Sales Orders', '/sales-orders'],
     ['lost', '❌ Lost Enquiries', '/enquiries/lost'],
@@ -81,6 +85,7 @@ export const MENUS = {
   ],
   mep_pm: [
     ['dash', '🏠 Dashboard', '/'],
+    ['clients', '🏢 Clients', '/clients'],
     ['projects', '🏗️ Projects', '/projects'],
     ['sos', '🧾 Sales Orders', '/sales-orders'],
     ['checklists', '✅ Checklist Template', '/checklists'],
@@ -92,6 +97,7 @@ export const MENUS = {
   ],
   inventory: [
     ['dash', '🏠 Dashboard', '/'],
+    ['clients', '🏢 Clients', '/clients'],
     ['stock', '📦 Stock', '/inventory/stock'],
     ['invissue', '📤 Issue Material', '/inventory/issue'],
     ['invreturn', '📥 Material Returns', '/inventory/returns'],
@@ -101,6 +107,7 @@ export const MENUS = {
   ],
   service_mgr: [
     ['dash', '🏠 Dashboard', '/'],
+    ['clients', '🏢 Clients', '/clients'],
     ['service', '🛠️ Service Calls', '/service-calls'],
     ['pmlist', '🔁 AMC / PM List', '/contracts'],
     ['stock', '📦 Stock', '/inventory/stock'],
@@ -112,6 +119,7 @@ export const MENUS = {
   ],
   finance: [
     ['dash', '🏠 Dashboard', '/'],
+    ['clients', '🏢 Clients', '/clients'],
     ['payments', '💰 Pending Payments', '/payments'],
     ['sos', '🧾 Sales Orders', '/sales-orders'],
   ],

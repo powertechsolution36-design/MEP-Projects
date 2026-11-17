@@ -95,7 +95,9 @@ const rec = (name, ok, detail = '') => {
     // Create one from a preset so there is a real quotation to open.
     await page.locator('.offer-type:has-text("Split AC offer")').click();
     await page.waitForTimeout(300);
-    await page.locator('label.filter-field:has-text("Customer Name") input').fill('Preset E2E Customer');
+    // Customer Name is a ClientSelect since 16 Nov 2026: the label sits
+    // above the input rather than wrapping it.
+    await page.locator('.filter-field:has(> label:text-is("Customer Name *")) input').first().fill('Preset E2E Customer');
     await page.locator('button[type=submit]:has-text("Create Quotation")').click();
     await page.waitForURL(/\/quotations\/(?!new$)[^/]+$/, { timeout: 10000 });
     await page.waitForTimeout(1200);

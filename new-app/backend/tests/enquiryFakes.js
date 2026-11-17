@@ -45,6 +45,7 @@ function createEnquiryFakeStore(seed = {}) {
     subscriptions: seed.subscriptions || [],
     itemNames: seed.itemNames || [],
     formDrafts: seed.formDrafts || [],
+    clients: seed.clients || [],
     quotations: seed.quotations || [],
     amcTemplates: seed.amcTemplates || [],
     paymentTermTemplates: seed.paymentTermTemplates || [],
@@ -78,6 +79,7 @@ function createEnquiryFakeStore(seed = {}) {
     state.inventoryItems = snap.inventoryItems;
     state.inventoryIssues = snap.inventoryIssues;
     state.inventoryTransactions = snap.inventoryTransactions;
+    state.clients = snap.clients;
     state.formDrafts = snap.formDrafts;
     state.plans = snap.plans;
     state.subscriptions = snap.subscriptions;
@@ -859,6 +861,45 @@ function createEnquiryFakeStore(seed = {}) {
 
   const sameCompany = (r, companyId) => String(r.companyId) === String(companyId);
 
+  // Owner request (16 Nov 2026): the people we work for, kept once.
+  const clientRepo = {
+    async create(data) {
+      const now = new Date().toISOString();
+      const doc = { id: nextId('client'), createdAt: now, updatedAt: now, contacts: [], ...data };
+      state.clients.push(doc);
+      return cloneDeep(doc);
+    },
+    async findById(companyId, id) {
+      const doc = state.clients.find((c) => matchesId(c, id) && sameCompany(c, companyId));
+      return doc ? cloneDeep(doc) : null;
+    },
+    async findByNormalizedName(companyId, normalizedName) {
+      if (!normalizedName) return null;
+      const doc = state.clients.find((c) => sameCompany(c, companyId) && c.normalizedName === normalizedName);
+      return doc ? cloneDeep(doc) : null;
+    },
+    async listByCompany(companyId) {
+      return state.clients
+        .filter((c) => sameCompany(c, companyId))
+        .sort((a, b) => String(a.normalizedName).localeCompare(String(b.normalizedName)))
+        .map(cloneDeep);
+    },
+    async update(companyId, id, patch) {
+      const doc = state.clients.find((c) => matchesId(c, id) && sameCompany(c, companyId));
+      if (!doc) return null;
+      Object.assign(doc, patch, { updatedAt: new Date().toISOString() });
+      return cloneDeep(doc);
+    },
+    async deleteById(companyId, id) {
+      const before = state.clients.length;
+      state.clients = state.clients.filter((c) => !(matchesId(c, id) && sameCompany(c, companyId)));
+      return state.clients.length < before;
+    },
+    async deleteManyByCompany(companyId) {
+      state.clients = state.clients.filter((c) => !sameCompany(c, companyId));
+    },
+  };
+
   // Owner request (14 Nov 2026): half-filled quotation and sales-order forms.
   const formDraftRepo = {
     async create(data) {
@@ -1379,6 +1420,7 @@ function createEnquiryFakeStore(seed = {}) {
     subscriptionRepo,
     itemNameRepo,
     formDraftRepo,
+    clientRepo,
     quotationRepo,
     quotationTemplateRepo,
     customerAccountRepo,

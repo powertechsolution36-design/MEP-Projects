@@ -390,6 +390,11 @@ async function deleteCompany(companyId, actorAuth, deps) {
     if (txnDeps.formDraftRepo && typeof txnDeps.formDraftRepo.deleteManyByCompany === 'function') {
       await txnDeps.formDraftRepo.deleteManyByCompany(companyId, session);
     }
+    // The client directory belongs to the company too (owner request, 16 Nov
+    // 2026). Guarded like the repositories above.
+    if (txnDeps.clientRepo && typeof txnDeps.clientRepo.deleteManyByCompany === 'function') {
+      await txnDeps.clientRepo.deleteManyByCompany(companyId, session);
+    }
     // NEW-APP-only record (no PWA counterpart): the company's subscription
     // must not outlive the company.
     if (txnDeps.subscriptionRepo && typeof txnDeps.subscriptionRepo.deleteByCompany === 'function') {

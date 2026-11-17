@@ -194,6 +194,23 @@ async function createQuotation(companyId, data, actorId, deps) {
   const accessoriesItems = calculateLineTotals(data.accessoriesItems || [], data.division);
   const totals = calculateTotals(equipmentItems, accessoriesItems, data.gstPercent, data.division);
 
+  // Owner decision (16 Nov 2026): a client quoted for joins the client
+  // directory by itself. A side effect, never allowed to fail the save.
+  await require('./clientService').rememberClient(
+    {
+      companyName: data.customerName,
+      phone: data.customerPhone,
+      email: data.customerEmail,
+      address: data.customerAddress,
+      gst: data.customerGst,
+      source: 'quotation',
+    },
+    // createQuotation is given a companyId and an actor id, not an auth
+    // object; rememberClient needs only the company.
+    { companyId },
+    deps
+  );
+
   const quotation = await deps.quotationRepo.create({
     companyId,
     quotationNumber,

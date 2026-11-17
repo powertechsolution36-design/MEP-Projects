@@ -965,9 +965,11 @@ async function group6j(browser) {
     (await s.page.locator('text=Solar Manager').count()) >= 1);
 
   const menu = (await s.page.locator('nav#main-nav a').allInnerTexts()).map((t) => t.trim());
-  const want = ['Dashboard', 'Enquiries', 'Sales Orders', 'Lost Enquiries', 'Projects',
+  // Owner decision (16 Nov 2026): Clients joins the nine screens of 14 Nov,
+  // so the Solar Manager can reach the client directory like everyone else.
+  const want = ['Dashboard', 'Clients', 'Enquiries', 'Sales Orders', 'Lost Enquiries', 'Projects',
     'Service Calls', 'AMC / PM List', 'Issue Material', 'Checklists'];
-  rec('Solar Manager: the menu is the nine screens asked for',
+  rec('Solar Manager: the menu is the screens asked for, Clients included',
     want.every((w) => menu.some((m) => m.includes(w))) && menu.length === want.length,
     menu.join(' | '));
 
@@ -1182,7 +1184,13 @@ async function group6l(browser) {
 
   // The quotation screen wraps its input inside the label; the sales order
   // screen puts the label above it.
-  const qField = (page, text) => page.locator(`label.filter-field:has-text("${text}") :is(input, select)`).first();
+  // The quotation screen wraps its input inside the label, except where a
+  // shared component (ClientSelect, 16 Nov 2026) puts the label above it.
+  // Match either shape rather than pinning the test to one of them.
+  const qField = (page, text) => page.locator(
+    `label.filter-field:has-text("${text}") :is(input, select), `
+    + `.filter-field:has(> label:text-is("${text}")) :is(input, select)`
+  ).first();
   const countQuotations = async () => ((await api(adminT, 'GET', '/api/quotations')).json.quotations || []).length;
   const countOrders = async () => ((await api(adminT, 'GET', '/api/sales-orders')).json.salesOrders || []).length;
   const countProjects = async () => ((await api(adminT, 'GET', '/api/projects')).json.projects || []).length;
