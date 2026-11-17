@@ -287,12 +287,16 @@ async function createManualContract(input, actorAuth, deps) {
   if (scope && asked && asked !== scope) {
     throw new ServiceError(`This login can only register ${scope} clients.`, 'FORBIDDEN', 403);
   }
+  // The field is an enum with no blank member. A client registered without a
+  // division leaves it OFF the document rather than writing '', which the
+  // schema refuses outright — the same rule the service calls follow, and
+  // the same shape every client registered before 14 Nov already has.
   const division = scope || asked || '';
 
   const contract = await deps.contractRepo.create({
     companyId: actorAuth.companyId,
     customer: (input && input.customer) || '',
-    division,
+    ...(division ? { division } : {}),
     phone: primaryPhone((input && input.phone) || '', contacts),
     contacts,
     email: (input && input.email) || '',
@@ -357,7 +361,7 @@ async function convertProjectToContract(projectId, actorAuth, deps) {
         customer: project.customer || project.name,
         // Owner request (14 Nov 2026): the warranty inherits the division of
         // the project it came out of — nobody re-chooses what is known.
-        division: project.division || '',
+        ...(project.division ? { division: project.division } : {}),
         phone: '', // PWA QUIRK (Decision 6 of PROJECT_DECISION_LOCK.md / audit §4/§18 #7): hardcoded blank, never copied.
         email: '', // ditto.
         site: project.name,
@@ -899,7 +903,9 @@ async function editContract(contractId, input, actorAuth, deps) {
       if (scope && next && next !== scope) {
         throw new ServiceError(`This login can only manage ${scope} clients.`, 'FORBIDDEN', 403);
       }
-      patch.division = next;
+      // Clearing it REMOVES the field; '' is not one of the three and the
+      // update runs the schema validators, so writing a blank fails.
+      patch.division = next || undefined;
     } else if (key === 'category') {
       if (!['AMC', 'Warranty'].includes(src.category)) {
         throw new ServiceError('Cover must be AMC or Warranty.', 'VALIDATION_ERROR', 400);

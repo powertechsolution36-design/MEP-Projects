@@ -406,6 +406,14 @@ async function registerComplaint(input, actorAuth, deps) {
   const scope = divisionScope(actorAuth);
   const asked = readDivision(input && input.division);
   const fromContract = contract && contract.division ? contract.division : '';
+  // The field is an enum with no blank member, and a client whose AMC was
+  // never tagged with a division leaves nothing to put in it. Writing '' is
+  // rejected by the schema, which is how a customer raising a complaint from
+  // the client app against an untagged contract was shown
+  // "`` is not a valid enum value for path `division`" and could not report
+  // the fault at all (17 Nov 2026). The field is left OFF the document
+  // instead, which is exactly how every call taken before the field existed
+  // is already stored, and how every read here already treats it.
   const division = scope || fromContract || asked || '';
   if (scope && fromContract && fromContract !== scope) {
     throw new ServiceError(`That client is a ${fromContract} client, not ${scope}.`, 'FORBIDDEN', 403);
@@ -432,7 +440,7 @@ async function registerComplaint(input, actorAuth, deps) {
         complaintNumber: nextPsc,
         type: 'Complaint',
         customer,
-        division,
+        ...(division ? { division } : {}),
         phone,
         site,
         appointmentDate: null,
@@ -550,6 +558,8 @@ async function schedulePM(contractId, input, actorAuth, deps) {
   if (pmScope && contract.division && contract.division !== pmScope) {
     throw new ServiceError(`That client is a ${contract.division} client, not ${pmScope}.`, 'FORBIDDEN', 403);
   }
+  // Same rule as a complaint: an untagged client leaves the field off the
+  // visit rather than writing a blank the schema refuses.
   const pmDivision = contract.division || pmScope || '';
 
   const rawCustomer = (input && input.customer !== undefined ? input.customer : contract.customer) || '';
@@ -574,7 +584,7 @@ async function schedulePM(contractId, input, actorAuth, deps) {
         complaintNumber: nextPsc,
         type: 'PM',
         customer,
-        division: pmDivision,
+        ...(pmDivision ? { division: pmDivision } : {}),
         phone,
         site,
         appointmentDate,

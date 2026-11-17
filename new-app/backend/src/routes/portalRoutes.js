@@ -33,13 +33,37 @@ function createPortalRouter(deps) {
   /** The caller's address, for rate limiting only. */
   const ipOf = (req) => String(req.ip || (req.connection && req.connection.remoteAddress) || 'unknown');
 
+  /**
+   * The person at the other end of this router is a CUSTOMER, not a member of
+   * staff, so a database message is never an answer for them. Every sentence
+   * the services raise here is written for a client to read, and those are
+   * passed through untouched; a schema complaint is not, and becomes a plain
+   * sentence with the detail left in the server log.
+   *
+   * Written after a client was shown "`` is not a valid enum value for path
+   * `division`" on the complaint form (17 Nov 2026). The cause of that one is
+   * fixed in serviceCallService; this is so the NEXT one is not read by a
+   * customer either.
+   */
+  const portalError = (res, err, tag) => {
+    if (err && err.name === 'ValidationError') {
+      // eslint-disable-next-line no-console
+      console.error(`[${tag}] validation`, err);
+      return res.status(400).json({
+        error: 'Sorry — we could not save that. Please call us and we will take the details.',
+        code: 'VALIDATION_ERROR',
+      });
+    }
+    return sendError(res, err, tag);
+  };
+
   /* ---------------- No login required ---------------- */
 
   router.post('/auth/register', async (req, res) => {
     try {
       return res.status(202).json(await registerCustomer(req.body, deps, { ip: ipOf(req) }));
     } catch (err) {
-      return sendError(res, err, 'portalRoutes');
+      return portalError(res, err, 'portalRoutes');
     }
   });
 
@@ -47,7 +71,7 @@ function createPortalRouter(deps) {
     try {
       return res.json(await loginCustomer(req.body, deps, { ip: ipOf(req) }));
     } catch (err) {
-      return sendError(res, err, 'portalRoutes');
+      return portalError(res, err, 'portalRoutes');
     }
   });
 
@@ -57,7 +81,7 @@ function createPortalRouter(deps) {
     try {
       return res.json(await logoutCustomer(req.portal.sessionId, deps));
     } catch (err) {
-      return sendError(res, err, 'portalRoutes');
+      return portalError(res, err, 'portalRoutes');
     }
   });
 
@@ -79,7 +103,7 @@ function createPortalRouter(deps) {
     try {
       return res.json(await getPortalProfile(req.portal, deps));
     } catch (err) {
-      return sendError(res, err, 'portalRoutes');
+      return portalError(res, err, 'portalRoutes');
     }
   });
 
@@ -94,7 +118,7 @@ function createPortalRouter(deps) {
       const key = portalPush.publicKey();
       return res.json({ enabled: Boolean(key), publicKey: key });
     } catch (err) {
-      return sendError(res, err, 'portalRoutes');
+      return portalError(res, err, 'portalRoutes');
     }
   });
 
@@ -102,7 +126,7 @@ function createPortalRouter(deps) {
     try {
       return res.json(await portalPush.subscribe(req.portal, req.body, deps));
     } catch (err) {
-      return sendError(res, err, 'portalRoutes');
+      return portalError(res, err, 'portalRoutes');
     }
   });
 
@@ -110,7 +134,7 @@ function createPortalRouter(deps) {
     try {
       return res.json(await portalPush.unsubscribe(req.portal, req.body, deps));
     } catch (err) {
-      return sendError(res, err, 'portalRoutes');
+      return portalError(res, err, 'portalRoutes');
     }
   });
 
@@ -123,7 +147,7 @@ function createPortalRouter(deps) {
     try {
       return res.json({ projects: await listMyProjects(req.portal, deps) });
     } catch (err) {
-      return sendError(res, err, 'portalRoutes');
+      return portalError(res, err, 'portalRoutes');
     }
   });
 
@@ -131,7 +155,7 @@ function createPortalRouter(deps) {
     try {
       return res.json({ project: await getMyProject(req.portal, req.params.id, deps) });
     } catch (err) {
-      return sendError(res, err, 'portalRoutes');
+      return portalError(res, err, 'portalRoutes');
     }
   });
 
@@ -149,7 +173,7 @@ function createPortalRouter(deps) {
       res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
       return res.send(Buffer.isBuffer(file.data) ? file.data : Buffer.from(file.data));
     } catch (err) {
-      return sendError(res, err, 'portalRoutes');
+      return portalError(res, err, 'portalRoutes');
     }
   });
 
@@ -157,7 +181,7 @@ function createPortalRouter(deps) {
     try {
       return res.json({ complaints: await listMyComplaints(req.portal, deps) });
     } catch (err) {
-      return sendError(res, err, 'portalRoutes');
+      return portalError(res, err, 'portalRoutes');
     }
   });
 
@@ -165,7 +189,7 @@ function createPortalRouter(deps) {
     try {
       return res.status(201).json({ complaint: await createMyComplaint(req.portal, req.body, deps) });
     } catch (err) {
-      return sendError(res, err, 'portalRoutes');
+      return portalError(res, err, 'portalRoutes');
     }
   });
 
@@ -173,7 +197,7 @@ function createPortalRouter(deps) {
     try {
       return res.json({ complaint: await getMyComplaint(req.portal, req.params.id, deps) });
     } catch (err) {
-      return sendError(res, err, 'portalRoutes');
+      return portalError(res, err, 'portalRoutes');
     }
   });
 
@@ -192,7 +216,7 @@ function createPortalRouter(deps) {
       res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
       return res.send(Buffer.isBuffer(file.data) ? file.data : Buffer.from(file.data));
     } catch (err) {
-      return sendError(res, err, 'portalRoutes');
+      return portalError(res, err, 'portalRoutes');
     }
   });
 

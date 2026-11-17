@@ -661,9 +661,11 @@ test('createManualContract — the division is stored, and must be one of the th
     /Division must be one of/
   );
 
-  // Left out entirely, it stays blank — nothing is guessed.
+  // Left out entirely, the field is left OFF the record — nothing is
+  // guessed, and nothing blank is written: '' is not one of the three and
+  // the schema refuses it (17 Nov 2026, untaggedClientComplaint.test.js).
   const untagged = await service.createManualContract({ site: 'Old client' }, auth(), store);
-  assert.equal(untagged.division, '');
+  assert.ok(!('division' in untagged) || untagged.division === undefined);
 });
 
 test('createManualContract — the Solar Manager registers solar clients, and only solar', async () => {

@@ -433,9 +433,23 @@ const contractRepo = {
   },
   /** Owner request (22 Oct 2026): payment and renewal on the AMC client. */
   async update(companyId, id, patch, session) {
+    // A key set to undefined means REMOVE the field, not "leave it alone":
+    // $set would drop it silently and the caller's clear would do nothing.
+    // Contract.division is the field that needs this — it is an enum with no
+    // blank member, so clearing it has to take the key off the document.
+    const set = {};
+    const unset = {};
+    for (const [key, value] of Object.entries(patch || {})) {
+      if (value === undefined) unset[key] = '';
+      else set[key] = value;
+    }
+    const write = {};
+    if (Object.keys(set).length) write.$set = set;
+    if (Object.keys(unset).length) write.$unset = unset;
+    if (!Object.keys(write).length) return toPlainLean(await Contract.findOne({ _id: id, companyId }).lean());
     const doc = await Contract.findOneAndUpdate(
       { _id: id, companyId },
-      { $set: patch },
+      write,
       { new: true, runValidators: true, session }
     ).lean();
     return toPlainLean(doc);

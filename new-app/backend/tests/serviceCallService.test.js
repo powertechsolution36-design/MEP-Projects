@@ -929,9 +929,11 @@ test('registerComplaint — a walk-in is asked, and the answer is checked', asyn
     /Division must be one of/
   );
 
-  // Not asked at all, it stays blank rather than being guessed.
+  // Not asked at all, the field is left OFF the call rather than guessed —
+  // and rather than written blank, which the schema refuses outright
+  // (17 Nov 2026, untaggedClientComplaint.test.js).
   const { serviceCall: blank } = await service.registerComplaint({ customer: 'Y' }, auth(), store);
-  assert.equal(blank.division, '');
+  assert.ok(!('division' in blank) || blank.division === undefined);
 });
 
 test('registerComplaint — the Solar Manager gets its own division, and is refused another', async () => {
