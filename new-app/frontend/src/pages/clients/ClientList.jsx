@@ -159,9 +159,18 @@ export default function ClientList() {
                     className="clickable-row"
                     onClick={() => navigate(`/clients/${c.id}`)}
                   >
-                    <td>{c.companyName || '—'}</td>
+                    {/* Owner request (17 Nov 2026): "if i click on their
+                        name it will open". Both names are the link — a
+                        record may be known by the firm or by the person. */}
                     <td>
-                      {c.clientName || '—'}
+                      {c.companyName
+                        ? <button type="button" className="name-link" onClick={() => navigate(`/clients/${c.id}`)}>{c.companyName}</button>
+                        : '—'}
+                    </td>
+                    <td>
+                      {c.clientName
+                        ? <button type="button" className="name-link" onClick={() => navigate(`/clients/${c.id}`)}>{c.clientName}</button>
+                        : '—'}
                       {c.designation && <div className="muted" style={{ fontSize: 11 }}>{c.designation}</div>}
                     </td>
                     <td style={{ whiteSpace: 'nowrap' }}>{c.phone || '—'}</td>

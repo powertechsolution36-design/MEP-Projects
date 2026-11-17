@@ -199,6 +199,23 @@
 .data-table tr.clickable-row, .data-table tr.click { cursor: pointer; }
 .data-table tr.clickable-row:hover, .data-table tr.click:hover { background: var(--accent-50); }
 
+/* A name in a table that opens its own page (owner request, 17 Nov 2026:
+   "if i click on their name it will open"). It is a real button, so it
+   takes the keyboard and a screen reader announces it, but it reads as the
+   name it is rather than as a control. */
+.data-table .name-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--primary);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.data-table .name-link:hover { text-decoration: underline; }
+.data-table .name-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
 /* Numeric / money columns. */
 .data-table td.num, .data-table th.num { text-align: right; }
 

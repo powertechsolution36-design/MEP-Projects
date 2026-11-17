@@ -1109,10 +1109,20 @@ async function group6j(browser) {
   await a.page.waitForTimeout(400);
   rec('Clients: the list offers no Open button',
     (await a.page.locator('.data-table button:text-is("Open")').count()) === 0);
-  await a.page.locator(`tr.clickable-row:has-text("${client.companyName}")`).first().click();
+  // The NAME is the link ("if i click on their name it will open"), and the
+  // row around it opens too.
+  await a.page.locator(`.name-link:text-is("${client.companyName}")`).first().click();
   await a.page.waitForURL(/\/clients\/(?!$)[^/]+$/, { timeout: 10000 }).catch(() => {});
   await a.page.waitForTimeout(400);
-  rec('Clients: clicking the row opens that client',
+  rec('Clients: clicking the client’s name opens them',
+    new URL(a.page.url()).pathname === `/clients/${client.id}`, a.page.url());
+
+  await open(a, '/clients');
+  await a.page.waitForTimeout(400);
+  await a.page.locator(`tr.clickable-row:has-text("${client.companyName}") td:nth-child(3)`).first().click();
+  await a.page.waitForURL(/\/clients\/(?!$)[^/]+$/, { timeout: 10000 }).catch(() => {});
+  await a.page.waitForTimeout(400);
+  rec('Clients: so does the rest of the row',
     new URL(a.page.url()).pathname === `/clients/${client.id}`, a.page.url());
 
   await open(a, `/clients/${client.id}`);
