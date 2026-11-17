@@ -1103,6 +1103,18 @@ async function group6j(browser) {
       c: (records.json.contracts || []).length,
     }));
 
+  // Owner request (17 Nov 2026): clicking the client opens them — the row
+  // is the link, and there is no Open button to find first.
+  await open(a, '/clients');
+  await a.page.waitForTimeout(400);
+  rec('Clients: the list offers no Open button',
+    (await a.page.locator('.data-table button:text-is("Open")').count()) === 0);
+  await a.page.locator(`tr.clickable-row:has-text("${client.companyName}")`).first().click();
+  await a.page.waitForURL(/\/clients\/(?!$)[^/]+$/, { timeout: 10000 }).catch(() => {});
+  await a.page.waitForTimeout(400);
+  rec('Clients: clicking the row opens that client',
+    new URL(a.page.url()).pathname === `/clients/${client.id}`, a.page.url());
+
   await open(a, `/clients/${client.id}`);
   await a.page.waitForTimeout(400);
   const page = await a.page.locator('body').innerText();

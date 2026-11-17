@@ -150,7 +150,15 @@ export default function ClientList() {
                   <tr><td colSpan={6} className="muted">No clients yet. Add one, or bring in the AMC / PM list.</td></tr>
                 )}
                 {clients.map((c) => (
-                  <tr key={c.id}>
+                  // Owner request (17 Nov 2026): clicking the client opens
+                  // them. The row IS the link, the same as the service call,
+                  // project and sales order registers — there is no Open
+                  // button to find first.
+                  <tr
+                    key={c.id}
+                    className="clickable-row"
+                    onClick={() => navigate(`/clients/${c.id}`)}
+                  >
                     <td>{c.companyName || '—'}</td>
                     <td>
                       {c.clientName || '—'}
@@ -165,11 +173,9 @@ export default function ClientList() {
                         </div>
                       ))}
                     </td>
-                    <td style={{ whiteSpace: 'nowrap' }}>
-                      {/* Owner request (17 Nov 2026): everything we hold on
-                          them — their calls, projects, quotations and the
-                          rest — on their own page. */}
-                      <button className="btn sec sm" onClick={() => navigate(`/clients/${c.id}`)}>Open</button>
+                    {/* Edit and Remove act on the row they sit in, so they
+                        must not also open it. */}
+                    <td style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
                       <button className="btn sec sm" onClick={() => setForm({ ...BLANK, ...c })}>Edit</button>
                       {canDelete && (
                         <button className="btn danger sm" onClick={() => remove(c)} disabled={busy}>Remove</button>
