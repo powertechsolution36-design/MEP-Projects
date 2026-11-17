@@ -54,12 +54,15 @@ const rec = (name, ok, detail = '') => {
       JSON.stringify(types));
     await page.screenshot({ path: path.join(SHOTS, '1-types.png'), fullPage: true });
 
-    // Ducted: headings, sub-rows and its own accessory list.
+    // Ducted: one equipment line, sub-rows and its own accessory list.
     await page.locator('.offer-type:has-text("Ducted AC offer")').click();
     await page.waitForTimeout(400);
     const ducted = await shown();
-    rec('ducted fills in its own rows, headings included',
-      ducted.includes('OUTDOOR UNITS') && ducted.includes('INDOOR UNITS') && ducted.includes('24 G') && ducted.includes('Jet Nozzle'));
+    rec('ducted fills in its own rows, the ductable unit and the full low side',
+      ducted.includes('17 TR Ductable Split Air Conditioner')
+      && ducted.includes('Machine Installation')
+      && ducted.includes('Ducting 24G')
+      && ducted.includes('Duct Jet Nozzle'));
     rec('picking a type sets its division',
       (await page.locator('label.filter-field:has-text("Division") select').first().inputValue()) === 'HVAC');
     rec('no price is ever prefilled', !/\b42600\b|\b271980\b|\b844800\b/.test(ducted));
@@ -70,7 +73,10 @@ const rec = (name, ok, detail = '') => {
     await page.waitForTimeout(400);
     const vrf = await shown();
     rec('switching to VRF replaces the rows rather than mixing them',
-      vrf.includes('Copper Refnet Joints') && !vrf.includes('Jet Nozzle'));
+      vrf.includes('Copper Refnet Joints')
+      && vrf.includes('HP ODU')
+      && !vrf.includes('17 TR Ductable Split Air Conditioner')
+      && !vrf.includes('Machine Installation'));
 
     // Solar is a different division and a different table shape.
     await page.locator('.offer-type:has-text("Solar on-grid offer")').click();

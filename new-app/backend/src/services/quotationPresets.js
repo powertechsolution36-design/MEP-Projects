@@ -20,6 +20,22 @@
  *   2. Section headings stay "Equipment" / "Accessories" app-wide rather
  *      than the workbooks' "HIGH SIDE" / "Low side".
  *
+ * REVISED 17 Nov 2026 (owner request): the Ducted and VRF offers were
+ * re-issued with much fuller low-side descriptions and a new "<what> - "
+ * label on every row, and Ducted's equipment table collapsed from the old
+ * OUTDOOR/INDOOR specification pair to a single 17 TR ductable-unit line.
+ * Both presets now carry that wording verbatim. Two further departures, same
+ * rule as above:
+ *   3. The revised Ducted sheet numbers four consecutive low-side rows "4"
+ *      and leaves two group rows numbered but blank. Row numbers here are
+ *      produced by the app, not stored, so the printed offer comes out 1-12
+ *      with nothing renumbered by hand.
+ *   4. The return-grille row is headed "Duct Grill Return" in both sheets but
+ *      its body still reads "Supply Air ... supply air plenum", carried over
+ *      from the supply row above it. That says "supply" on a return grille in
+ *      a customer document, so it reads "Return Air ... return air plenum"
+ *      here. Nothing else in the row changed.
+ *
  * NOT carried over, on purpose:
  *   · the workbooks' cost/margin columns J, K and L — those sit outside every
  *     print area and are internal working, not customer content;
@@ -92,6 +108,30 @@ const acBenefits = (compressor) => [
   '3) Best part load efficiency in the industry. It can deliver greater cooling for the part cooling loads, resulting in lesser electric bill.',
 ].join('\n');
 
+/**
+ * Low-side rows that the Ducted and VRF workbooks now word IDENTICALLY
+ * (owner's revised workbooks, 17 Nov 2026). They are named once here so the
+ * two offers cannot drift apart again: the old presets carried two different
+ * paraphrases of the same scope, which is how the ducting and insulation
+ * rows ended up saying different things in the two offers.
+ *
+ * The leading "<what> - " label is the workbooks' own new convention and is
+ * kept: it is what the estimator scans down the printed column.
+ */
+const COPPER_PIPE = 'Copper Pipe - Supply, Installation of Copper Refrigerant Piping copper pipes, complete with or without GI slotted channel supports with GI Clamps, Anchor Fastners for Slabs & Walls, Threaded Rods for supporting the slotted channels etc., The piping should be insulated using Nitrile Rubber tube section Insulation. The vendor should ensure that the refrigerant piping should not be allowed to directly be in contact to any other metal surfaces to avoid galvanic corrosion';
+const COMMUNICATION_CABLE = 'Communication Cable - Supply, Installation of Two runs of Control Cabling between Indoor & Outdoor Units. And for CRC. The Control Cable used shall be minimum Shielded multistranded cable, properly protected in a GI Conduit with proper Junctions, end Flexible connections of 300mm for final connections with the Indoor Units with proper Glands etc.,';
+const GAS_WORK = 'Gas Work - Carrying out pressure testing of the complete brazed copper refrigerant piping network using dry oxygen-free nitrogen (OFN) at 550 PSI for 24 hours with soap-solution leak checks on all joints, followed by deep vacuuming of the entire system using a two-stage vacuum pump down to 500 microns (verified via digital micron gauge) to ensure complete moisture removal, and subsequent supply and charging of pure R-410A refrigerant gas in liquid phase by weight (as per OEM piping calculations), including final system commissioning and running parameter checks.';
+const LIFTING_SHIFTING = 'Lifting & Shifting and Transport of Outdoors and Indoors as per site requirement';
+const DRAIN_PIPING = 'Drain Piping - Supply, Installation, Testing of PVC - Drain Piping complete with proper fittings (Elbows, Bends, Tees etc.,) properly installed using GI Slotted Channel / GI Split Clamp Supports. All joints to be properly sealed using SOLVENT CEMENT and allowing a resting period of 24 Hrs for every sealed joint to ensure proper fusion. (Finolex / Equivalent Make Only). The Drain Piping should be properly Insulated with 9mm/10mm thick Nitrile Rubber Insulation.';
+const DUCTING_24G = 'Ducting 24G - Fabrication, supply, and installation of rectangular Galvanized Iron (GI) sheet metal ducting of 24 Gauge (0.63 mm) thickness, complete with standard corner pieces, cleats, gaskets, nuts, bolts, and standard GI angle/threaded rod supports as required at site.';
+const DUCTING_22G = 'Ducting 22G - Fabrication, supply, and installation of rectangular Galvanized Iron (GI) sheet metal ducting of 22 Gauge (0.82 mm) thickness, complete with standard corner pieces, cleats, gaskets, nuts, bolts, and standard GI angle/threaded rod supports as required at site.';
+const CANVAS_CONNECTION = 'Canvas Connection - Supply, Installation flexible vibration-isolating joint consisting of coated fabric (canvas/PVC-coated polyester/neoprene) mechanically locked and double-stitched between two strips of galvanized steel (0.4 mm / 28 gauge thickness) on either side.';
+const THERMAL_INSULATION = "Duct Insulation - Thermal Insulation for Ducting (13 mm Thick Nitrile Rubber): Supply and installation of 13 mm thick closed-cell elastomeric Nitrile Rubber (NBR) thermal insulation sheet (density 45–60 kg/m³, thermal conductivity ≤ 0.036 W/m⋅K at 20°C, Class 'O' / Class 1 fire rated as per BS 476 Part 6 & 7) on external or Internal surfaces of supply and return air GI ducts, pasted using approved synthetic rubber contact adhesive (or factory-applied self-adhesive backing) after thorough surface cleaning, with all longitudinal and transverse joints sealed using wide self-adhesive nitrile rubber / reinforced aluminum foil tape to ensure an airtight, continuous vapor barrier against condensation.";
+const ACOUSTIC_INSULATION = "Duct Insulation - Acoustic Insulation for Ducting: Supply and installation of 10 mm / 15 mm thick (adjust thickness as required) open-cell elastomeric Nitrile Rubber acoustic insulation sheet (density 140–180 kg/m³, Noise Reduction Coefficient NRC ≥ 0.45, Class 'O' / Class 1 fire rated as per BS 476 Part 6 & 7) pasted internally inside supply and return air GI ducts (up to 3–5 meters from AHU/FCU discharge and inlet) using approved synthetic rubber contact adhesive, with all joints properly sealed and leading edges secured with 24G/26G GI sheet nosing to prevent air erosion and peeling.";
+const GRILL_SUPPLY = 'Duct Grill Supply - Supply Air Linear Bar Grill: Supply and installation of extruded aluminum powder-coated Linear Bar Grille (minimum 1.2 mm section thickness) featuring fixed horizontal blades set at 0° / 15° deflection (adjust angle as required), complete with an opposed-blade aluminum Volume Control Damper (VCD) operable from the front face, concealed mounting arrangement / sub-frame, and gasket sealing at the collar to ensure airtight fixing with the supply air plenum / GI ducting.';
+const GRILL_RETURN = 'Duct Grill Return - Return Air Linear Bar Grill: Supply and installation of extruded aluminum powder-coated Linear Bar Grille (minimum 1.2 mm section thickness) featuring fixed horizontal blades set at 0° / 15° deflection (adjust angle as required), complete without an opposed-blade aluminum Volume Control Damper (VCD) operable from the front face, concealed mounting arrangement / sub-frame, and gasket sealing at the collar to ensure airtight fixing with the return air plenum / GI ducting.';
+const JET_NOZZLE = 'Duct Jet Nozzle - Supply Air Jet Nozzle (Eyeball Type): Supply and installation of spun/extruded aluminum powder-coated Long-Throw Jet Nozzle (Eyeball type) finished in standard RAL 9010 / 9016 pure white powder coating, engineered for high-velocity, long-throw air distribution in large spaces with adjustable ±30° swivel/deflection core, low noise generation, and aerodynamic profile, complete with peripheral foam gasket, mounting flange/collar, and opposed-blade Volume Control Damper (VCD) (optional/as required) for airtight fixing onto GI ducting or plenum boxes.';
+
 const PRESETS = [
   {
     code: 'split',
@@ -128,7 +168,7 @@ const PRESETS = [
     code: 'ducted',
     name: 'Ducted AC offer',
     division: 'HVAC',
-    description: 'Ductable units — equipment specifications, ducting, insulation and grills.',
+    description: 'Ductable units — one equipment line, full low-side scope with ducting, insulation and grills.',
     subject: 'Ducted Air-conditioning Offer',
     summaryText: OPENING_PARAGRAPH,
     system: 'Air-Conditioning Ducted System.',
@@ -142,30 +182,24 @@ const PRESETS = [
       term(1, 100, 'Advance along with Work Order For Equipment', 'Equipment'),
     ],
     equipmentItems: [
-      heading('OUTDOOR UNITS'),
-      spec('Supply of Ducted Outdoor machines for air conditioning system, based on variable refrigerant mass flow, comprising of Minimum of One compressor, condenser coil & fins, necessary accessories for oil separation, moisture removal, flow control, interconnecting piping, condenser air fan, electrical and microprocessor based panel, interconnecting cabling, all housed inside a weather-proof cabinet suitable for exposed installation on terrace.'),
-      heading('INDOOR UNITS'),
-      spec('Supply of Indoor Units of following types complete with Evaporator Cooling Coil, Blower with Blower Motor, Electronic Expansion Valve, Drain Pump, Inbuilt Controller for communication with the main microprocessor in the out door unit.\nInstallation, Testing of VRV/ VRF Indoor Units of following type & capacities complete with Anchor Fastners, Threaded Rods, Rubber Gourments, GI Nuts & Bolts, Canvass for Hide Away Units etc.,'),
-      sub('17 TR Ductable Units (R410a)', 'Nos'),
+      item('17 TR Ductable Split Air Conditioner (Make: Blue Star): Supply and delivery at site of 17 TR air-cooled ceiling-suspended ductable split AC unit operating on R-410A refrigerant and 415V, 3-Phase, 50 Hz power supply, comprising a ceiling-suspended Indoor Unit (IDU) with DX copper cooling coil, DIDW centrifugal blower, washable air filter, and wired LCD room controller, paired with a weatherproof Outdoor Condensing Unit (ODU) housing hermetically sealed scroll compressors, copper-tube aluminum-fin condenser coil, propeller fans, and standard safety controls.', 'Nos'),
     ],
     accessoriesItems: [
-      item('Installation Testing Commissioning Indoor & Outdoor units', 'Nos'),
-      item('Supply, Installation of Copper Refrigerant Piping copper pipes, complete with GI slotted channel supports with GI Clamps, Anchor Fastners for Slabs & Walls, Threaded Rods for supporting the slotted channels etc., The piping should be insulated using Nitrile Rubber tube section Insulation. The vendor should ensure that the refrigerant piping should not be allowed to directly be in contact to any other metal surfaces to avoid galvanic corrosion', 'Rmt'),
+      item('Machine Installation - Installation Testing Commissioning Indoor & Outdoor units', 'Nos'),
+      item(COPPER_PIPE, 'Rmt'),
       item('Supporting materials (for Hang Indoor unit with fabricated support on shade channel and Outdoor units on fabricated table top stand also)', 'Nos'),
-      item('Lifting & Shifting of ODUs as per site requirement', 'Lot'),
-      item('Supply, Installation of Two runs of Control Cabling between Indoor & Outdoor Units. And for CRC. The Control Cable used shall be minimum Shielded multistranded cable, properly protected in a GI Conduit with proper Junctions, end Flexible connections of 300mm for final connections with the Indoor Units with proper Glands etc.,', 'Rmt'),
-      item('Nitrogen Pressure testing, vacuuming and R410a Gas Charging', 'Lot'),
-      item('Supply, Installation, Testing of PVC - SCHEDULE 40 Drain Piping complete with proper fittings (Elbows, Bends, Tees etc.,) properly installed using GI Slotted Channel / GI Split Clamp Supports. All joints to be properly sealed using SOLVENT CEMENT and allowing a resting period of 24 Hrs for every sealed joint to ensure proper fusion. (Finolex / Equivalent Make Only). The Drain Piping should be properly Insulated with 9mm/10mm thick Nitrile Rubber Insulation.', 'Rmt'),
-      item('Supply & Installation of Ducting & Accessories'),
-      sub('24 G', 'Sq.m'),
-      sub('22 G', 'Sq.m'),
-      sub('Canvas Connection', 'Nos'),
-      item('Supply & Installation Of Insulation'),
-      sub('Thermal Insulation - 13 mm Thick Nitrile Rubber', 'Sq.m'),
-      sub('Acoustic Insulation - 19mm Thick Armasound', 'Sq.m'),
-      item('Supply & Installation of Supply Air Grills with Damper', 'Sq.m'),
-      item('Supply & Installation of return Air Grills without Damper', 'Sq.m'),
-      item('Supply & Installation of Jet Nozzle', 'Nos'),
+      item(LIFTING_SHIFTING, 'Lot'),
+      item(COMMUNICATION_CABLE, 'Rmt'),
+      item(GAS_WORK, 'Lot'),
+      item(DRAIN_PIPING, 'Rmt'),
+      item(DUCTING_24G, 'Sq.m'),
+      sub(DUCTING_22G, 'Sq.m'),
+      sub(CANVAS_CONNECTION, 'Nos'),
+      item(THERMAL_INSULATION, 'Sq.m'),
+      sub(ACOUSTIC_INSULATION, 'Sq.m'),
+      item(GRILL_SUPPLY, 'Sq.m'),
+      item(GRILL_RETURN, 'Sq.m'),
+      item(JET_NOZZLE, 'Nos'),
     ],
   },
 
@@ -173,7 +207,7 @@ const PRESETS = [
     code: 'vrf',
     name: 'VRF AC offer',
     division: 'HVAC',
-    description: 'VRF — outdoor and indoor unit tables, refnet joints, ducting, insulation.',
+    description: 'VRF — outdoor and indoor unit tables, refnet joints, ducting, insulation and grills.',
     subject: 'VRF Air-conditioning Offer',
     summaryText: OPENING_PARAGRAPH,
     system: 'SAMSUNG Air-Conditioning VRF System.',
@@ -193,7 +227,7 @@ const PRESETS = [
       sub('28 HP ODU', 'Nos'),
       sub('22 HP ODU', 'Nos'),
       heading('INDOOR UNITS'),
-      spec('Supply of VRV/ VRF Indoor Units of following types complete with Evaporator Cooling Coil, Blower with Blower Motor, Electronic Expansion Valve, Drain Pump, Inbuilt Controller for communication with the main microprocessor in the out door unit.'),
+      spec('Supply of VRV/ VRF Indoor Units of following types complete with Evaporator Cooling Coil, Blower with Blower Motor, Electronic Expansion Valve, Drain Pump, Inbuilt Controller for communication with the main microprocessor in the out door unit.\nInstallation, Testing of VRV/ VRF Indoor Units of following type & capacities complete with Anchor Fastners, Threaded Rods, Rubber Gourments, GI Nuts & Bolts, Canvass for Hide Away Units etc.,'),
       sub('0.6 TR 4-way Compact Cassette units', 'Nos'),
       sub('0.8 TR 4-way Compact Cassette units', 'Nos'),
       sub('1 TR 4-way Compact Cassette units', 'Nos'),
@@ -201,21 +235,22 @@ const PRESETS = [
       sub('4 TR 4-way Cassette units', 'Nos'),
     ],
     accessoriesItems: [
-      item('Supply, Installation of Copper Refnet Joints for the VRV/ VRF Indoor Units as per the site layout requirements and as per the manufacturers design standard requirements.', 'Nos'),
-      item('Supply, Installation, Testing & Commissioning of Copper Refnet T Joints for joining two outdoor unit', 'Nos'),
-      item("Supply, Installation of VRV/ VRF Outdoor Units Stands fabricated out of Mild Steel (MS) 'C' Channel Section of suitable size complete with minimum 300mm long legs made of the same 'C' channel with 8mm thick MS Plate at the bottom", 'Nos'),
-      item('Supply, Installation of Control Cabling between VRV/ VRF Indoor & Outdoor Units. And for CRC. The Control Cable used shall be minimum Shielded multistranded cable, properly protected in a GI Conduit with proper Junctions, end Flexible connections of 300mm for final connections with the Indoor Units with proper Glands etc.,', 'Rmt'),
-      item('Supply, Installation of Copper Refrigerant Piping Hard Drawn copper pipes, complete with GI slotted channel supports with GI Clamps, Anchor Fastners for Slabs & Walls, Threaded Rods for supporting the slotted channels etc., The piping should be insulated using Nitrile Rubber tube section Insulation.', 'Rmt'),
-      item('Pressure Testing of the entire system upto 600 PSI, and holding the same for minimum 48 Hours. Flushing the system, Refrigerant Gas Charging in the system and final commissioning of the system.', 'Lot'),
-      item('Lifting & Shifting of ODUs as per site requirement', 'Lot'),
-      item('Supply, Installation, Testing of PVC - SCHEDULE 40 Drain Piping complete with proper fittings (Elbows, Bends, Tees etc.,) properly installed using GI Slotted Channel / GI Split Clamp Supports. All joints to be properly sealed using SOLVENT CEMENT and allowing a resting period of 24 Hrs for every sealed joint to ensure proper fusion. (Finolex / Equivalent Make Only). The Drain Piping should be properly Insulated with 9mm/10mm thick Nitrile Rubber Insulation.', 'Rmt'),
-      item('Supply & Installation of Ducting & Accessories'),
-      sub('24 G', 'Sq.m'),
-      sub('22 G', 'Sq.m'),
-      sub('Canvas Connection', 'Nos'),
-      item('Supply & Installation Of Insulation'),
-      sub('Thermal Insulation - 9 mm Thick Nitrile Rubber', 'Sq.m'),
-      item('Supply & Installation of Grills, Dampers & Diffusers', 'Sq.m'),
+      item('Ref Joint - Supply, Installation of Copper Refnet Joints for the VRV/ VRF Indoor Units as per the site layout requirements and as per the manufacturers design standard requirements.', 'Nos'),
+      item('T Joint - Supply, Installation, Testing & Commissioning of Copper Refnet T Joints for joining two outdoor unit', 'Nos'),
+      item("Stand - Supply, Installation of VRV/ VRF Outdoor Units Stands fabricated out of Mild Steel (MS) 'C' Channel Section of suitable size complete with minimum 300mm long legs made of the same 'C' channel with 8mm thick MS Plate at the bottom of the legs.", 'Nos'),
+      item(COMMUNICATION_CABLE, 'Rmt'),
+      item(COPPER_PIPE, 'Rmt'),
+      item(GAS_WORK, 'Lot'),
+      item(LIFTING_SHIFTING, 'Lot'),
+      item(DRAIN_PIPING, 'Rmt'),
+      item(DUCTING_24G, 'Sq.m'),
+      sub(DUCTING_22G, 'Sq.m'),
+      sub(CANVAS_CONNECTION, 'Nos'),
+      item(THERMAL_INSULATION, 'Sq.m'),
+      sub(ACOUSTIC_INSULATION, 'Sq.m'),
+      item(GRILL_SUPPLY, 'Sq.m'),
+      item(GRILL_RETURN, 'Sq.m'),
+      item(JET_NOZZLE, 'Nos'),
     ],
   },
 

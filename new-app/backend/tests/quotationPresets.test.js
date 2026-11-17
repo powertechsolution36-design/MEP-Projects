@@ -91,8 +91,8 @@ test('presets: the spelling corrections the owner asked for are in place', () =>
   for (const typo of ['Inddor', 'Outoor', 'Communnication', 'Acostic', 'Jet Nozzel', 'Electrinic', 'vaccuming', 'Shealded']) {
     assert.ok(!text.includes(typo), `"${typo}" should have been corrected`);
   }
-  assert.ok(text.includes('Acoustic Insulation - 19mm Thick Armasound'));
-  assert.ok(text.includes('Supply & Installation of Jet Nozzle'));
+  assert.ok(text.includes('Duct Insulation - Acoustic Insulation for Ducting'));
+  assert.ok(text.includes('Duct Jet Nozzle - Supply Air Jet Nozzle'));
 });
 
 test('presets: Ducted and VRF are not interchangeable — each has its own rows', () => {
@@ -100,19 +100,55 @@ test('presets: Ducted and VRF are not interchangeable — each has its own rows'
   const v = getPreset('vrf');
   const dAcc = d.accessoriesItems.map((i) => i.description);
   const vAcc = v.accessoriesItems.map((i) => i.description);
+  const dEq = d.equipmentItems.map((i) => i.description);
+  const vEq = v.equipmentItems.map((i) => i.description);
   assert.notDeepEqual(dAcc, vAcc);
-  // Refnet joints belong to VRF only; the ducting grills/nozzle block to Ducted only.
+  // The refrigerant-side rows are what separate the two offers (17 Nov 2026
+  // workbooks): refnet joints and ODU/IDU tables are VRF's, the single
+  // ductable-unit line and its machine installation are Ducted's.
   assert.ok(vAcc.some((t) => t.includes('Copper Refnet Joints')));
   assert.ok(!dAcc.some((t) => t.includes('Copper Refnet Joints')));
-  assert.ok(dAcc.some((t) => t.includes('Jet Nozzle')));
-  assert.ok(!vAcc.some((t) => t.includes('Jet Nozzle')));
-  // Insulation thickness differs between the two workbooks.
-  assert.ok(dAcc.some((t) => t.includes('13 mm Thick Nitrile Rubber')));
-  assert.ok(vAcc.some((t) => t.includes('9 mm Thick Nitrile Rubber')));
+  assert.ok(vEq.some((t) => t.includes('HP ODU')));
+  assert.ok(dEq.some((t) => t.includes('17 TR Ductable Split Air Conditioner')));
+  assert.ok(dAcc.some((t) => t.startsWith('Machine Installation -')));
+  assert.ok(!vAcc.some((t) => t.startsWith('Machine Installation -')));
+});
+
+test('presets: the low-side rows the two workbooks share are worded identically', () => {
+  // The revised workbooks word these rows the same in both offers. The old
+  // presets carried two paraphrases of each, which is how the ducting and
+  // insulation rows came to say different things in the two documents.
+  const pick = (code) => new Map(
+    getPreset(code).accessoriesItems.map((i) => [i.description.split(' - ')[0], i])
+  );
+  const d = pick('ducted');
+  const v = pick('vrf');
+  const shared = ['Copper Pipe', 'Communication Cable', 'Gas Work', 'Drain Piping',
+    'Ducting 24G', 'Ducting 22G', 'Canvas Connection', 'Duct Grill Supply',
+    'Duct Grill Return', 'Duct Jet Nozzle'];
+  for (const key of shared) {
+    assert.ok(d.has(key), `ducted should carry the ${key} row`);
+    assert.ok(v.has(key), `vrf should carry the ${key} row`);
+    assert.equal(d.get(key).description, v.get(key).description, `${key} must read the same in both offers`);
+    assert.equal(d.get(key).unit, v.get(key).unit, `${key} must use the same unit in both offers`);
+  }
+  // Both carry the 13 mm thermal and the acoustic sheet, in that order.
+  for (const code of ['ducted', 'vrf']) {
+    const acc = getPreset(code).accessoriesItems;
+    const t = acc.findIndex((i) => i.description.includes('Thermal Insulation for Ducting (13 mm'));
+    assert.ok(t > -1, `${code} should carry the 13 mm thermal insulation row`);
+    assert.equal(acc[t].rowType, 'item');
+    assert.ok(acc[t + 1].description.includes('Acoustic Insulation for Ducting'));
+    assert.equal(acc[t + 1].rowType, 'sub', 'acoustic insulation sits under the thermal row');
+  }
 });
 
 test('presets: Ducted and VRF keep their heading and specification rows, which carry no price', () => {
-  for (const code of ['ducted', 'vrf']) {
+  const ductedEq = getPreset('ducted').equipmentItems;
+  // Ducted's revised workbook has one priced equipment line and no headings.
+  assert.equal(ductedEq.length, 1);
+  assert.equal(ductedEq[0].rowType, 'item');
+  for (const code of ['vrf']) {
     const eq = getPreset(code).equipmentItems;
     assert.ok(eq.some((i) => i.rowType === 'heading' && i.description === 'OUTDOOR UNITS'));
     assert.ok(eq.some((i) => i.rowType === 'heading' && i.description === 'INDOOR UNITS'));
@@ -147,8 +183,13 @@ test('presets: no preset carries a price — a rate is always entered for the jo
 
 test('presets: the workbooks\u2019 internal cost and margin working never appears', () => {
   const text = JSON.stringify(PRESET_CODES.map(getPreset));
-  // Column J/K/L markers and the sample cost figures behind them.
-  for (const leak of ['itc', 'tpt', '40000/1.28', '271980', '844800', '42600']) {
+  // Column J/K/L markers and the sample cost figures behind them. The column
+  // markers are matched as whole words: "itc" as a substring also occurs
+  // inside ordinary English ("double-stitched" in the canvas-connection row).
+  for (const leak of ['itc', 'tpt']) {
+    assert.ok(!new RegExp(`\\b${leak}\\b`, 'i').test(text), `internal working "${leak}" must not reach a preset`);
+  }
+  for (const leak of ['40000/1.28', '271980', '844800', '42600']) {
     assert.ok(!text.includes(leak), `internal working "${leak}" must not reach a preset`);
   }
 });
