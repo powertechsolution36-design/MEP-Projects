@@ -36,6 +36,17 @@ const STATUS_NOTE = {
 
 const MANAGE_ROLES = ['admin', 'service_mgr', 'solar_pm'];
 
+/* Owner request (17 Nov 2026): a call still Registered 48 hours after it was
+   taken has had nobody sent to it, and the register says so. The server
+   works out `unattended` and `unattendedHours` (serviceCallService); this
+   only has to put them on the screen. */
+function waitedText(hours) {
+  if (hours === null || hours === undefined) return '';
+  if (hours < 48) return '';
+  const days = Math.floor(hours / 24);
+  return days >= 2 ? `waiting ${days} days` : `waiting ${hours}h`;
+}
+
 function statusClass(status) {
   if (status === 'Registered') return 'status-pending';
   if (status === 'Assigned') return 'status-open';
@@ -266,15 +277,27 @@ export default function ServiceCallList() {
                       <span className={`status-badge ${statusClass(st)}`}>{st}</span>
                       <span className="sc-band-n">{rows.length}</span>
                       <span className="sc-band-note">{STATUS_NOTE[st]}</span>
+                      {rows.filter((c) => c.unattended).length > 0 && (
+                        <span className="sc-band-overdue">
+                          {rows.filter((c) => c.unattended).length} waiting over 48h
+                        </span>
+                      )}
                     </th>
                   </tr>
                   {rows.map(c => (
                     <tr
                       key={c.id || c._id}
-                      className="clickable-row"
+                      className={`clickable-row${c.unattended ? ' sc-overdue' : ''}`}
                       onClick={() => navigate(`/service-calls/${c.id || c._id}`)}
                     >
-                      <td>{c.complaintNumber || '—'}</td>
+                      <td>
+                        {c.complaintNumber || '—'}
+                        {c.unattended && (
+                          <span className="sc-waited" title={`Registered ${c.unattendedHours} hours ago and nobody has been sent`}>
+                            {waitedText(c.unattendedHours)}
+                          </span>
+                        )}
+                      </td>
                       <td>{c.type || '—'}</td>
                       <td>{c.customer || '—'}</td>
                       <td>{c.phone || '—'}</td>

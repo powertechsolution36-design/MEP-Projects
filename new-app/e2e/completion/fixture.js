@@ -141,6 +141,18 @@ function seedBusinessData(deps) {
     checklistItems: [], serviceType: '',
   });
 
+  // Owner request (17 Nov 2026): a call still Registered 48 hours after it
+  // was taken has had nobody sent to it, and the register highlights it.
+  // Registered three days ago, so the rule has something real to catch.
+  s.serviceCalls.push({
+    id: 'svc_waiting', companyId: CO, complaintNumber: 2, type: 'Complaint',
+    customer: 'Shree Fabricators', phone: '9422055555', site: 'Bhosari MIDC',
+    status: 'Registered', engineerId: null,
+    registeredDate: new Date(Date.now() - 72 * 3600000),
+    complaintDescription: 'Nobody has been sent yet',
+    checklistItems: [], serviceType: '',
+  });
+
   return { CO, ADMIN, SALES, ENGINEER };
 }
 

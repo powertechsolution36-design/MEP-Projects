@@ -630,7 +630,7 @@ async function getServiceCall(id, actorAuth, deps) {
   if (scope && serviceCall.division && serviceCall.division !== scope) {
     throw new ServiceError('Service Call not found.', 'NOT_FOUND', 404);
   }
-  return serviceCall;
+  return withAttentionFlags(serviceCall);
 }
 
 async function engineerNameMap(actorAuth, deps) {
@@ -667,6 +667,45 @@ function serviceCallMatchesQuery(serviceCall, q, engineerName) {
  * #10). Role gate: same admin/service_mgr menu gate as the "service"
  * register page itself (§18).
  */
+/* ============ A CALL NOBODY HAS BEEN SENT TO ============
+   OWNER REQUEST (17 Nov 2026): "add a highlight to registered service call
+   if any service call is not attended in 48hr."
+
+   A call sits at 'Registered' from the moment it is taken at the desk until
+   somebody is sent to it. Two days of that is too long, so the register
+   says so rather than leaving it to be noticed.
+
+   Measured from when the call was REGISTERED, not from the customer's
+   appointment: the clock on our own response starts when we answer the
+   phone. Only 'Registered' is measured — once an engineer is assigned the
+   call has been attended to, whatever happens on site afterwards. ========= */
+
+const UNATTENDED_AFTER_HOURS = 48;
+
+/**
+ * How long a call has been waiting for somebody to be sent, in whole hours,
+ * or null when it is not waiting at all. `now` is a parameter so a test can
+ * say what the time is instead of racing the clock.
+ */
+function unattendedHours(serviceCall, now = Date.now()) {
+  if (!serviceCall || serviceCall.status !== 'Registered') return null;
+  const registered = serviceCall.registeredDate ? new Date(serviceCall.registeredDate).getTime() : NaN;
+  if (Number.isNaN(registered)) return null;
+  const hours = Math.floor((now - registered) / 3600000);
+  return hours > 0 ? hours : 0;
+}
+
+/** The two derived fields the register reads; nothing is stored. */
+function withAttentionFlags(serviceCall, now = Date.now()) {
+  if (!serviceCall) return serviceCall;
+  const waiting = unattendedHours(serviceCall, now);
+  return {
+    ...serviceCall,
+    unattendedHours: waiting,
+    unattended: waiting !== null && waiting >= UNATTENDED_AFTER_HOURS,
+  };
+}
+
 async function listServiceCalls(actorAuth, { filters = {} } = {}, deps) {
   assertCompanyContext(actorAuth);
   assertCanManageServiceCalls(actorAuth, 'view the Service Call register');
@@ -675,7 +714,10 @@ async function listServiceCalls(actorAuth, { filters = {} } = {}, deps) {
   const q = filters.q ? String(filters.q).toLowerCase() : '';
   const scoped = applyDivision(all, actorAuth, filters);
   const filtered = q ? scoped.filter((s) => serviceCallMatchesQuery(s, q, engineers.get(String(s.engineerId)))) : scoped;
-  return filtered.slice().reverse(); // PWA FACT: newest-pushed-first.
+  const now = Date.now();
+  // Owner request (17 Nov 2026): the register says which calls have been
+  // waiting too long for somebody to be sent.
+  return filtered.slice().reverse().map((c) => withAttentionFlags(c, now)); // PWA FACT: newest-pushed-first.
 }
 
 /**
@@ -1184,6 +1226,9 @@ module.exports = {
   // exported for tests / reuse
   MANAGE_ROLES,
   ENGINEER_CANDIDATE_ROLES,
+  UNATTENDED_AFTER_HOURS,
+  unattendedHours,
+  withAttentionFlags,
   CHECKLIST_KEYS,
   CHECKLIST_VALUES,
   PART_ACTIONS,

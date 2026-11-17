@@ -2409,6 +2409,32 @@
 .sc-band-scheduled  > tr > *:first-child { box-shadow: inset 3px 0 0 var(--div-mep-fg); }
 .sc-band-completed  > tr > *:first-child { box-shadow: inset 3px 0 0 var(--ok-600); }
 
+/* ---- Waiting too long (owner request, 17 Nov 2026) -------------------
+   A call still Registered 48 hours after it was taken: nobody has been
+   sent. Marked on the row, not only in the band, because the band is where
+   every new call starts -- what matters is WHICH of them has been left.
+   The row carries the words as well as the colour, so it reads the same to
+   somebody who cannot tell the two reds apart. */
+.sc-band > tr.sc-overdue > *:first-child { box-shadow: inset 3px 0 0 var(--bad-600); }
+.sc-band > tr.sc-overdue > * { background: var(--bad-50); }
+.sc-waited {
+  display: inline-block;
+  margin-left: var(--s-3);
+  padding: 1px var(--s-3);
+  border-radius: 999px;
+  background: var(--bad-600);
+  color: var(--text-inverse);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semi);
+  white-space: nowrap;
+}
+.sc-band-overdue {
+  margin-left: var(--s-4);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semi);
+  color: var(--bad-600);
+}
+
 @media (max-width: 720px) {
   .sc-band-note { display: none; }
 }

@@ -1060,6 +1060,26 @@ async function group6j(browser) {
     (await a.page.locator('body').innerText()).includes(`HVAC Client ${tag}`));
 
   rec('Admin division filter: no errors', a.errors.length === 0, a.errors.join('|'));
+
+  // Owner request (17 Nov 2026): a call still Registered 48 hours after it
+  // was taken is highlighted, because nobody has been sent to it. The
+  // fixture carries one registered three days ago (svc_waiting).
+  await open(a, '/service-calls');
+  await a.page.waitForTimeout(400);
+  const register = await a.page.locator('body').innerText();
+  const waiting = ((await api(admin, 'GET', '/api/service-calls')).json.serviceCalls || [])
+    .find((r) => String(r.id) === 'svc_waiting');
+  rec('Service register: the server flags a call waiting over 48h',
+    !!waiting && waiting.unattended === true && waiting.unattendedHours >= 72,
+    JSON.stringify({ u: waiting && waiting.unattended, h: waiting && waiting.unattendedHours }));
+  rec('Service register: its row is highlighted and says how long it has waited',
+    (await a.page.locator('tr.sc-overdue').count()) === 1 && /waiting 3 days/.test(register),
+    (register.match(/waiting[^\n]{0,30}/) || [''])[0]);
+  rec('Service register: the Registered band says how many are waiting',
+    /1 waiting over 48h/.test(register));
+  rec('Service register: a call that has an engineer is not highlighted',
+    (await a.page.locator('tr.sc-overdue:has-text("Intervalve")').count()) === 0);
+  rec('Service register: no errors', a.errors.length === 0, a.errors.join('|'));
   await a.ctx.close();
 }
 

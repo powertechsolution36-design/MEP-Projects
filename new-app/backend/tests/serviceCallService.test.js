@@ -995,3 +995,88 @@ test('the Solar Manager may register and assign, like the service manager', asyn
   assert.equal(updated.engineerId, 'eng1');
   assert.equal(updated.status, 'Assigned');
 });
+
+/* ============ A call nobody has been sent to (owner request, 17 Nov 2026) ============
+   "add a highlight to registered service call if any service call is not
+   attended in 48hr." Measured from when the call was registered, and only
+   while it is still Registered — once an engineer is assigned it has been
+   attended to. */
+
+const HOURS = 3600000;
+const agoHours = (h) => new Date(Date.now() - h * HOURS);
+
+function waitingStore(calls) {
+  return baseStore({
+    serviceCalls: calls.map((c, i) => ({
+      id: `svc${i + 1}`, companyId: 'co1', pscNumber: i + 1, customer: `Client ${i + 1}`,
+      complaint: 'No cooling', status: 'Registered', checklist: [], photos: [],
+      ...c,
+    })),
+  });
+}
+
+test('a call registered more than 48 hours ago and still unassigned is flagged, with the hours it has waited', async () => {
+  const store = waitingStore([{ registeredDate: agoHours(50) }]);
+  const [call] = await service.listServiceCalls(auth(), {}, store);
+  assert.equal(call.unattended, true);
+  assert.ok(call.unattendedHours >= 50 && call.unattendedHours <= 51, String(call.unattendedHours));
+});
+
+test('a call just short of 48 hours is not flagged, and one exactly on 48 is', async () => {
+  const store = waitingStore([
+    { id: 'svc_young', registeredDate: agoHours(47) },
+    { id: 'svc_old', registeredDate: agoHours(48) },
+  ]);
+  const byId = Object.fromEntries((await service.listServiceCalls(auth(), {}, store)).map((c) => [c.id, c]));
+  assert.equal(byId.svc_young.unattended, false);
+  assert.equal(byId.svc_young.unattendedHours, 47);
+  assert.equal(byId.svc_old.unattended, true);
+});
+
+test('a call that has been assigned is never flagged, however long ago it was registered', async () => {
+  const store = waitingStore([
+    { status: 'Assigned', engineerId: 'eng1', registeredDate: agoHours(240) },
+    { id: 'svc_sched', status: 'Scheduled', registeredDate: agoHours(240) },
+    { id: 'svc_done', status: 'Completed', registeredDate: agoHours(240) },
+  ]);
+  for (const c of await service.listServiceCalls(auth(), {}, store)) {
+    assert.equal(c.unattended, false, `${c.status} must not be flagged`);
+    assert.equal(c.unattendedHours, null, `${c.status} is not waiting at all`);
+  }
+});
+
+test('the flag is on the call opened by id too, not only in the register', async () => {
+  const store = waitingStore([{ registeredDate: agoHours(72) }]);
+  const one = await service.getServiceCall('svc1', auth(), store);
+  assert.equal(one.unattended, true);
+  assert.ok(one.unattendedHours >= 72);
+});
+
+test('a brand new call is waiting zero hours and is not flagged', async () => {
+  const store = waitingStore([{ registeredDate: new Date() }]);
+  const [call] = await service.listServiceCalls(auth(), {}, store);
+  assert.equal(call.unattendedHours, 0);
+  assert.equal(call.unattended, false);
+});
+
+test('a call with no registered date is left alone rather than guessed at', async () => {
+  const store = waitingStore([{ registeredDate: null }]);
+  const [call] = await service.listServiceCalls(auth(), {}, store);
+  assert.equal(call.unattendedHours, null);
+  assert.equal(call.unattended, false);
+});
+
+test('the threshold is one named constant, and the hours are whole', () => {
+  assert.equal(service.UNATTENDED_AFTER_HOURS, 48);
+  const at = new Date('2026-11-17T00:00:00Z').getTime();
+  const call = { status: 'Registered', registeredDate: new Date('2026-11-14T12:30:00Z') };
+  assert.equal(service.unattendedHours(call, at), 59); // 2 days 11.5 hours, floored
+});
+
+test('flagging reads the call and writes nothing to it', async () => {
+  const store = waitingStore([{ registeredDate: agoHours(100) }]);
+  await service.listServiceCalls(auth(), {}, store);
+  const stored = await store.serviceCallRepo.findById('co1', 'svc1');
+  assert.equal(stored.unattended, undefined, 'the flag is derived, never stored');
+  assert.equal(stored.unattendedHours, undefined);
+});
