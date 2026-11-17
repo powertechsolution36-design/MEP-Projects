@@ -20,6 +20,9 @@ const CLIENT_ROLES = Object.freeze([
   'admin', 'sales', 'finance', 'service_mgr', 'inventory', 'hvac_pm', 'solar_pm', 'mep_pm',
 ]);
 const MAX_FIELD = 200;
+// Mirrors the gate on quotationRoutes, which the quotation service itself
+// does not carry.
+const QUOTATION_VIEW_ROLES = Object.freeze(['admin', 'sales', 'finance']);
 
 function assertCompanyContext(auth) {
   if (!auth || !auth.companyId) {
@@ -128,6 +131,174 @@ async function deleteClient(id, auth, deps) {
   return { deletedClientId: String(id) };
 }
 
+/* ================= EVERYTHING WE HAVE ON ONE CLIENT =================
+   OWNER REQUEST (17 Nov 2026): "in Admin login in client each client should
+   hold all their data — all service call, all project, all quotation."
+   Extended by the same conversation to their AMC contracts, sales orders
+   and payments.
+
+   None of those records stores a client id: each one carries the customer's
+   NAME as somebody typed it, because that is how the company has always
+   worked. So a client's history is MATCHED, not looked up — by name,
+   ignoring case and spacing, or by the last ten digits of a phone number,
+   which catches the records where the name was typed differently.
+
+   Two honest limits, stated here so nobody has to rediscover them: two
+   different firms sharing a name will pool together, and a record whose
+   name AND number were both entered differently will not be found. Records
+   raised from now on carry `clientId` as well (quotationService and the
+   sales-order cascade), and that is preferred over any guess.
+
+   PERMISSION IS NOT RE-IMPLEMENTED HERE. Each section is fetched through
+   that module's own list function, so the role and division rules that
+   govern the Service register or the Projects list govern this page too. A
+   section the viewer may not see is reported as null rather than empty, so
+   the screen can say "not yours to see" instead of "none". This page is a
+   different way into records, never a way around them.
+   ================================================================== */
+
+/** The names and numbers that identify this client, normalized once. */
+function clientMatchKeys(client) {
+  const names = new Set(
+    [client.companyName, client.clientName, ...(client.contacts || []).map((c) => c.name)]
+      .map(normalizeName).filter(Boolean)
+  );
+  const phones = new Set(
+    [client.phone, ...(client.contacts || []).map((c) => c.phone)]
+      .map(normalizePhone).filter((d) => d.length >= 10)
+  );
+  return { id: String(client.id || client._id), names, phones };
+}
+
+/**
+ * Why this record belongs to this client -- 'client', 'name' or 'phone' --
+ * or null when it does not. The reason travels with the row so a wrong
+ * pairing can be seen rather than puzzled over.
+ */
+function matchReason(keys, { clientId, names = [], phones = [] }) {
+  if (clientId && String(clientId) === keys.id) return 'client';
+  if (names.some((n) => n && keys.names.has(normalizeName(n)))) return 'name';
+  if (phones.some((p) => {
+    const d = normalizePhone(p);
+    return d.length >= 10 && keys.phones.has(d);
+  })) return 'phone';
+  return null;
+}
+
+/** Runs one section, reporting null where the viewer is not allowed it. */
+async function section(load) {
+  try {
+    return await load();
+  } catch (err) {
+    if (err && (err.status === 403 || err.code === 'FORBIDDEN')) return null;
+    throw err;
+  }
+}
+
+/** Keeps only the rows that are this client's, each tagged with why. */
+function own(rows, keys, pick) {
+  const out = [];
+  for (const r of rows || []) {
+    const why = matchReason(keys, pick(r));
+    if (why) out.push({ row: r, matchedOn: why });
+  }
+  return out;
+}
+
+const short = (v) => (v === undefined || v === null ? null : v);
+
+/**
+ * Everything this company holds on one client, as far as the person asking
+ * is allowed to see it. Each section is `null` when it is not theirs to
+ * see, and an array -- possibly empty -- when it is.
+ */
+async function getClientRecords(id, auth, deps) {
+  const client = await getClient(id, auth, deps);
+  const keys = clientMatchKeys(client);
+
+  const serviceCallService = require('./serviceCallService');
+  const projectService = require('./projectService');
+  const quotationService = require('./quotationService');
+  const contractService = require('./contractService');
+  const salesOrderService = require('./salesOrderService');
+  const paymentService = require('./paymentService');
+
+  const serviceCalls = await section(async () => own(
+    await serviceCallService.listServiceCalls(auth, {}, deps), keys,
+    (r) => ({ clientId: r.clientId, names: [r.customer], phones: [r.phone] })
+  ));
+
+  const projects = await section(async () => own(
+    await projectService.listProjects(auth, {}, deps), keys,
+    (r) => ({ clientId: r.clientId, names: [r.customer], phones: [] })
+  ));
+
+  // Quotations are gated at their router, not in their service, so the
+  // same rule is applied here rather than left off.
+  const quotations = await section(async () => {
+    if (!QUOTATION_VIEW_ROLES.includes(auth.role)) {
+      throw new ServiceError(`Role "${auth.role}" is not permitted to view Quotations.`, 'FORBIDDEN', 403);
+    }
+    return own(
+      await quotationService.listQuotations(auth.companyId, {}, deps), keys,
+      (r) => ({ clientId: r.clientId, names: [r.customerName], phones: [r.customerPhone] })
+    );
+  });
+
+  const contracts = await section(async () => own(
+    await contractService.listContracts(auth, {}, deps), keys,
+    (r) => ({ clientId: r.clientId, names: [r.customer], phones: [r.phone] })
+  ));
+
+  const salesOrders = await section(async () => own(
+    await salesOrderService.listSalesOrders(auth, {}, deps), keys,
+    (r) => ({
+      clientId: r.clientId,
+      names: (r.contacts || []).map((c) => c.name),
+      phones: (r.contacts || []).map((c) => c.phone),
+    })
+  ));
+
+  const payments = await section(async () => own(
+    await paymentService.listPayments(auth, {}, deps), keys,
+    (r) => ({ clientId: r.clientId, names: [r.personName], phones: [r.phone] })
+  ));
+
+  const trim = (list, shape) => (list === null ? null : list.map(({ row, matchedOn }) => ({ ...shape(row), matchedOn })));
+
+  return {
+    client,
+    serviceCalls: trim(serviceCalls, (r) => ({
+      id: String(r.id), complaintNumber: short(r.complaintNumber), type: short(r.type),
+      site: short(r.site), status: short(r.status), division: short(r.division),
+      registeredDate: short(r.registeredDate), appointmentDate: short(r.appointmentDate),
+      unattended: !!r.unattended,
+    })),
+    projects: trim(projects, (r) => ({
+      id: String(r.id), name: short(r.name), division: short(r.division),
+      stage: short(r.stage), status: short(r.status),
+      startDate: short(r.startDate), endDate: short(r.endDate),
+    })),
+    quotations: trim(quotations, (r) => ({
+      id: String(r.id), quotationNumber: short(r.quotationNumber), division: short(r.division),
+      status: short(r.status), date: short(r.date), grandTotal: short(r.grandTotal),
+    })),
+    contracts: trim(contracts, (r) => ({
+      id: String(r.id), site: short(r.site), category: short(r.category), amcType: short(r.amcType),
+      division: short(r.division), status: short(r.status),
+      startDate: short(r.startDate), endDate: short(r.endDate), amount: short(r.amount),
+    })),
+    salesOrders: trim(salesOrders, (r) => ({
+      id: String(r.id), orderNumber: short(r.orderNumber), projectName: short(r.projectName),
+      division: short(r.division), startDate: short(r.startDate), totalCost: short(r.totalCost),
+    })),
+    payments: trim(payments, (r) => ({
+      id: String(r.id), projectOrReference: short(r.projectOrReference), amount: short(r.amount),
+      status: short(r.status), receivedDate: short(r.receivedDate), nextCallDate: short(r.nextCallDate),
+    })),
+  };
+}
+
 /**
  * Record a client the app has just met, if it does not know them already.
  *
@@ -214,6 +385,9 @@ async function importFromContracts(auth, deps) {
 module.exports = {
   listClients,
   getClient,
+  getClientRecords,
+  clientMatchKeys,
+  matchReason,
   createClient,
   updateClient,
   deleteClient,

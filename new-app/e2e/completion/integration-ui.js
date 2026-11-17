@@ -1080,7 +1080,49 @@ async function group6j(browser) {
   rec('Service register: a call that has an engineer is not highlighted',
     (await a.page.locator('tr.sc-overdue:has-text("Intervalve")').count()) === 0);
   rec('Service register: no errors', a.errors.length === 0, a.errors.join('|'));
+
+  // Owner request (17 Nov 2026): a client holds all their data. The
+  // fixture's AMC client has a service call and a project under the same
+  // name, so the page has real history to gather.
+  const imported = await api(admin, 'POST', '/api/clients/import/amc', {});
+  rec('Clients: the AMC clients can be brought into the directory',
+    imported.status === 200 && imported.json.added >= 1, JSON.stringify(imported.json));
+  const client = ((await api(admin, 'GET', '/api/clients')).json.clients || [])
+    .find((x) => /Intervalve/i.test(x.companyName || ''));
+  rec('Clients: the AMC client is on the list', !!client, client ? client.companyName : 'not found');
+
+  const records = await api(admin, 'GET', `/api/clients/${client.id}/records`);
+  rec('Clients: their history comes back, gathered by name',
+    records.status === 200
+    && (records.json.serviceCalls || []).length >= 1
+    && (records.json.projects || []).length >= 1
+    && (records.json.contracts || []).length >= 1,
+    JSON.stringify({
+      s: (records.json.serviceCalls || []).length,
+      p: (records.json.projects || []).length,
+      c: (records.json.contracts || []).length,
+    }));
+
+  await open(a, `/clients/${client.id}`);
+  await a.page.waitForTimeout(400);
+  const page = await a.page.locator('body').innerText();
+  rec('Clients: the page shows every section',
+    ['Service Calls', 'Projects', 'Quotations', 'AMC / PM Contracts', 'Sales Orders', 'Payments']
+      .every((h) => page.includes(h)), page.slice(0, 220));
+  rec('Clients: their own details are on it', page.includes('Intervalve') && page.includes('KP87'));
+  rec('Clients: no errors', a.errors.length === 0, a.errors.join('|') + noAlerts(a));
   await a.ctx.close();
+
+  // A sales login may open the directory, but the Service Calls section is
+  // not theirs — it must say so rather than show an empty list.
+  const sl = await session(browser, 'sales');
+  await open(sl, `/clients/${client.id}`);
+  await sl.page.waitForTimeout(400);
+  const salesPage = await sl.page.locator('body').innerText();
+  rec('Clients: a section the viewer may not see says so, rather than looking empty',
+    /Not yours to see/i.test(salesPage), (salesPage.match(/Not yours[^\n]{0,60}/) || [''])[0]);
+  rec('Clients (sales): no errors', sl.errors.length === 0, sl.errors.join('|'));
+  await sl.ctx.close();
 }
 
 /* ------------------------------------------------ 6k the team dropdowns, and the

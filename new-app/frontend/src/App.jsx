@@ -8,6 +8,7 @@ import ComingSoon from './pages/ComingSoon';
 
 /* ── Commercial module screens (Stage 7 Pass 2) ── */
 import ClientList from './pages/clients/ClientList';
+import ClientDetail from './pages/clients/ClientDetail';
 import EnquiryList from './pages/enquiries/EnquiryList';
 import LostEnquiries from './pages/enquiries/LostEnquiries';
 import EnquiryDetail from './pages/enquiries/EnquiryDetail';
@@ -107,6 +108,8 @@ export default function App() {
           {/* ── Enquiries ── */}
           {/* Owner request (16 Nov 2026): the client directory. */}
           <Route path="clients" element={<ClientList />} />
+          {/* Owner request (17 Nov 2026): everything we hold on one client. */}
+          <Route path="clients/:id" element={<ClientDetail />} />
           <Route path="enquiries" element={<EnquiryList />} />
           <Route path="enquiries/lost" element={<LostEnquiries />} />
           <Route path="enquiries/new" element={<EnquiryCreate />} />

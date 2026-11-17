@@ -37,6 +37,7 @@ export default function QuotationCreate() {
     siteDescription: '', summaryText: '', technicalDescription: '', designApproval: '',
     benefitsOfSystem: '', designBy: '', systemApprovedBy: '',
     gstPercent: 18, offerValidity: '', delivery: '', notes: '', date: today(),
+    clientId: null,
   });
   const [equipmentItems, setEquipmentItems] = useState([{ ...EMPTY_LINE }]);
   const [accessoriesItems, setAccessoriesItems] = useState([]);
@@ -397,6 +398,9 @@ export default function QuotationCreate() {
               onType={(v) => setField('customerName', v)}
               onPick={(c) => setForm((f) => ({
                 ...f,
+                // Owner request (17 Nov 2026): record WHICH client, so their
+                // history is exact rather than matched on a typed name.
+                clientId: c.id,
                 customerName: c.companyName || c.clientName || f.customerName,
                 customerPhone: f.customerPhone || c.phone || '',
                 customerEmail: f.customerEmail || c.email || '',

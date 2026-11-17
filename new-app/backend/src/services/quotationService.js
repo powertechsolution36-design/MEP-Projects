@@ -217,6 +217,9 @@ async function createQuotation(companyId, data, actorId, deps) {
     // Owner request (14 Nov 2026): the lead this was quoted for, so the
     // chain enquiry → quotation → sales order is unbroken.
     enquiryId: data.enquiryId || null,
+    // Owner request (17 Nov 2026): which client this was raised for, when
+    // one was picked from the directory. Left off otherwise.
+    ...(data.clientId ? { clientId: data.clientId } : {}),
     division: data.division,
     offerType: PRESET_CODES.includes(data.offerType) ? data.offerType : '',
     status: data.status || 'Draft',
@@ -493,6 +496,8 @@ async function convertQuotationToSalesOrder(quotationId, soOverrides, actorAuth,
       companyId,
       enquiryId,
       quotationId,
+      // Owner request (17 Nov 2026): the client travels down the chain.
+      clientId: quotation.clientId || null,
       session,
       deps: txnDeps,
     });

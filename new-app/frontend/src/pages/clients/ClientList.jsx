@@ -9,6 +9,7 @@
  * from it.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import ContactsField from '../../components/ContactsField';
@@ -20,6 +21,7 @@ const BLANK = {
 
 export default function ClientList() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [clients, setClients] = useState([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -164,6 +166,10 @@ export default function ClientList() {
                       ))}
                     </td>
                     <td style={{ whiteSpace: 'nowrap' }}>
+                      {/* Owner request (17 Nov 2026): everything we hold on
+                          them — their calls, projects, quotations and the
+                          rest — on their own page. */}
+                      <button className="btn sec sm" onClick={() => navigate(`/clients/${c.id}`)}>Open</button>
                       <button className="btn sec sm" onClick={() => setForm({ ...BLANK, ...c })}>Edit</button>
                       {canDelete && (
                         <button className="btn danger sm" onClick={() => remove(c)} disabled={busy}>Remove</button>

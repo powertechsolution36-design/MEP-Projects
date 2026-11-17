@@ -61,6 +61,10 @@ const salesOrderSchema = new Schema(
     // Left off the document when there is none, for the same reason as
     // enquiryId above.
     quotationId: { type: Schema.Types.ObjectId, ref: 'Quotation' },
+    // Owner request (17 Nov 2026): carried down from the quotation it was
+    // accepted from, so the client's history is exact. No index, no default:
+    // it is simply absent on an order that came from no client record.
+    clientId: { type: Schema.Types.ObjectId, ref: 'Client' },
     division: { type: String, enum: DIVISIONS, required: true }, // PWA FACT
     projectName: { type: String, required: true }, // PWA FACT
     startDate: { type: Date, required: true }, // PWA FACT

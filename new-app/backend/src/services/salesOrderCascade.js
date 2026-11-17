@@ -186,7 +186,7 @@ async function resolveChecklist(companyId, division, deps) {
  *  4. Create one Payment per milestone (all unreceived on a fresh SO).
  *  5. Create the two verified notifications (exact literal text/roles).
  */
-async function runCreationCascade({ draft, orderNumber, companyId, enquiryId, quotationId, session, deps }) {
+async function runCreationCascade({ draft, orderNumber, companyId, enquiryId, quotationId, clientId, session, deps }) {
   const salesOrder = await deps.salesOrderRepo.create(
     {
       companyId,
@@ -198,6 +198,9 @@ async function runCreationCascade({ draft, orderNumber, companyId, enquiryId, qu
       // models/SalesOrder.js.
       ...(enquiryId ? { enquiryId } : {}),
       ...(quotationId ? { quotationId } : {}),
+      // Owner request (17 Nov 2026): the client this was raised for, carried
+      // down from the quotation so their history is exact, not matched.
+      ...(clientId ? { clientId } : {}),
       division: draft.division,
       projectName: draft.projectName,
       startDate: draft.startDate,
@@ -236,6 +239,7 @@ async function runCreationCascade({ draft, orderNumber, companyId, enquiryId, qu
       siteType: '', // PWA FACT: left blank, not copied from Enquiry or SO
       capacity: '', // PWA FACT: left blank, not copied from Enquiry or SO
       customer: contact0Name,
+      ...(clientId ? { clientId } : {}),
       stage,
       startDate: draft.startDate,
       endDate: draft.endDate,

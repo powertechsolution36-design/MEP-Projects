@@ -221,3 +221,143 @@ test('the import leaves a client somebody already maintained exactly as it is', 
   assert.equal(list[0].id, mine.id);
   assert.equal(list[0].gst, '27DDDDD4444D1Z6');
 });
+
+/* ============ Everything we hold on one client (owner request, 17 Nov 2026) ============
+   "each client should hold all their data — all service call, all project,
+   all quotation", extended to AMC contracts, sales orders and payments.
+   None of those records stores a client id, so the history is MATCHED on
+   the customer name or the last ten digits of a phone number. */
+
+const CLIENT = {
+  id: 'cl1', companyId: 'co1', companyName: 'Intervalve Poonawalla', clientName: 'Mr Shah',
+  normalizedName: 'intervalve poonawalla', phone: '98200-11223', gst: '27AAAAA0000A1Z5',
+  contacts: [{ name: 'Mrs Rao', designation: 'Purchase', phone: '+91 90000 55555' }],
+};
+
+function historyStore(extra = {}) {
+  return store({
+    clients: [{ ...CLIENT }],
+    companies: [{ id: 'co1', name: 'MEP Powertech', divisions: ['HVAC', 'Solar', 'MEP'] }],
+    ...extra,
+  });
+}
+
+test('a client gathers the records that carry their name, whatever the spacing or case', async () => {
+  const s = historyStore({
+    serviceCalls: [
+      { id: 'svc1', companyId: 'co1', complaintNumber: 1, customer: 'intervalve   POONAWALLA', status: 'Registered', registeredDate: new Date(), checklist: [], photos: [] },
+      { id: 'svc2', companyId: 'co1', complaintNumber: 2, customer: 'Somebody Else', status: 'Registered', registeredDate: new Date(), checklist: [], photos: [] },
+    ],
+    projects: [
+      { id: 'p1', companyId: 'co1', salesOrderId: 'so1', division: 'HVAC', name: 'KP87 AHU', customer: 'Intervalve Poonawalla', stage: 'Planning', status: 'Ongoing', startDate: new Date(), checklist: [], executionUpdates: [], deliveryChallans: [], revision: 0 },
+    ],
+  });
+  const out = await service.getClientRecords('cl1', auth(), s);
+  assert.deepEqual(out.serviceCalls.map((r) => r.complaintNumber), [1]);
+  assert.deepEqual(out.projects.map((r) => r.name), ['KP87 AHU']);
+  assert.equal(out.client.companyName, 'Intervalve Poonawalla');
+});
+
+test('a record typed under a different name is still found by the phone number', async () => {
+  const s = historyStore({
+    serviceCalls: [{
+      id: 'svc1', companyId: 'co1', complaintNumber: 9, customer: 'Intervalv Poona', // misspelt
+      phone: '+91 98200 11223', status: 'Registered', registeredDate: new Date(), checklist: [], photos: [],
+    }],
+  });
+  const out = await service.getClientRecords('cl1', auth(), s);
+  assert.equal(out.serviceCalls.length, 1);
+  assert.equal(out.serviceCalls[0].matchedOn, 'phone');
+});
+
+test('one of the client’s contact people is enough to claim a record', async () => {
+  const s = historyStore({
+    serviceCalls: [{
+      id: 'svc1', companyId: 'co1', complaintNumber: 4, customer: 'Mrs Rao',
+      status: 'Registered', registeredDate: new Date(), checklist: [], photos: [],
+    }],
+  });
+  const out = await service.getClientRecords('cl1', auth(), s);
+  assert.equal(out.serviceCalls.length, 1);
+  assert.equal(out.serviceCalls[0].matchedOn, 'name');
+});
+
+test('a stored clientId wins over any guess, and is reported as such', async () => {
+  const s = historyStore({
+    quotations: [
+      { id: 'q1', companyId: 'co1', quotationNumber: 'QTN-0001', clientId: 'cl1', customerName: 'Renamed Since', status: 'Sent', division: 'HVAC', grandTotal: 1000 },
+      { id: 'q2', companyId: 'co1', quotationNumber: 'QTN-0002', customerName: 'Intervalve Poonawalla', status: 'Sent', division: 'HVAC', grandTotal: 2000 },
+    ],
+  });
+  const out = await service.getClientRecords('cl1', auth(), s);
+  const byNumber = Object.fromEntries(out.quotations.map((r) => [r.quotationNumber, r]));
+  assert.equal(byNumber['QTN-0001'].matchedOn, 'client', 'the stored link, even though the name changed');
+  assert.equal(byNumber['QTN-0002'].matchedOn, 'name');
+});
+
+test('a short or junk phone number never matches', async () => {
+  const s = historyStore({
+    serviceCalls: [{
+      id: 'svc1', companyId: 'co1', complaintNumber: 1, customer: 'Nobody We Know', phone: '1223',
+      status: 'Registered', registeredDate: new Date(), checklist: [], photos: [],
+    }],
+  });
+  const out = await service.getClientRecords('cl1', auth(), s);
+  assert.equal(out.serviceCalls.length, 0);
+});
+
+test('all six sections come back, empty where there is nothing', async () => {
+  const out = await service.getClientRecords('cl1', auth(), historyStore());
+  for (const k of ['serviceCalls', 'projects', 'quotations', 'contracts', 'salesOrders', 'payments']) {
+    assert.ok(Array.isArray(out[k]), `${k} should be a list for an admin`);
+    assert.equal(out[k].length, 0);
+  }
+});
+
+test('a section the viewer may not see is null, not an empty list', async () => {
+  const s = historyStore({
+    serviceCalls: [{ id: 'svc1', companyId: 'co1', complaintNumber: 1, customer: 'Intervalve Poonawalla', status: 'Registered', registeredDate: new Date(), checklist: [], photos: [] }],
+  });
+  // Sales cannot open the Service register, and never could.
+  const out = await service.getClientRecords('cl1', auth({ role: 'sales' }), s);
+  assert.equal(out.serviceCalls, null, 'not theirs to see — not merely empty');
+  assert.ok(Array.isArray(out.quotations), 'but quotations are');
+});
+
+test('this page is no way around the rules: finance sees no service calls here either', async () => {
+  const s = historyStore({
+    serviceCalls: [{ id: 'svc1', companyId: 'co1', complaintNumber: 1, customer: 'Intervalve Poonawalla', status: 'Registered', registeredDate: new Date(), checklist: [], photos: [] }],
+  });
+  const out = await service.getClientRecords('cl1', auth({ role: 'finance' }), s);
+  assert.equal(out.serviceCalls, null);
+});
+
+test('another company cannot open a client, or their history, by id', async () => {
+  const s = historyStore();
+  await assert.rejects(
+    () => service.getClientRecords('cl1', auth({ companyId: 'co2' }), s),
+    (err) => err.status === 404
+  );
+});
+
+test('an engineer is refused the client directory altogether', async () => {
+  await assert.rejects(
+    () => service.getClientRecords('cl1', auth({ role: 'engineer' }), historyStore()),
+    (err) => err.code === 'FORBIDDEN'
+  );
+});
+
+test('the rows carry what the page shows and nothing more', async () => {
+  const s = historyStore({
+    quotations: [{
+      id: 'q1', companyId: 'co1', quotationNumber: 'QTN-0001', customerName: 'Intervalve Poonawalla',
+      status: 'Sent', division: 'HVAC', grandTotal: 500000,
+      equipmentItems: [{ description: 'secret costing', supplyRate: 1 }],
+      customerGst: '27AAAAA0000A1Z5',
+    }],
+  });
+  const out = await service.getClientRecords('cl1', auth(), s);
+  assert.deepEqual(Object.keys(out.quotations[0]).sort(),
+    ['date', 'division', 'grandTotal', 'id', 'matchedOn', 'quotationNumber', 'status']);
+  assert.ok(!JSON.stringify(out.quotations).includes('secret costing'));
+});

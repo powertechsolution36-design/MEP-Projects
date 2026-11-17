@@ -63,6 +63,11 @@ const quotationSchema = new Schema(
     // a quotation typed up without a lead behind it. Not unique: one lead
     // may be quoted more than once.
     enquiryId: { type: Schema.Types.ObjectId, ref: 'Enquiry', default: null },
+    // Owner request (17 Nov 2026): a quotation raised after picking a client
+    // from the directory records which client it is for, so their history is
+    // exact rather than matched on a typed name. Absent on everything older,
+    // which is matched by name and number instead (clientService).
+    clientId: { type: Schema.Types.ObjectId, ref: 'Client' },
     quotationNumber: { type: String, required: true },
     revision: { type: Number, default: 0 },
     division: {

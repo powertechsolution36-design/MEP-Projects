@@ -148,6 +148,9 @@ const projectSchema = new Schema(
     siteType: { type: String }, // PWA FACT
     capacity: { type: String }, // PWA FACT
     customer: { type: String }, // PWA FACT
+    // Owner request (17 Nov 2026): carried down the chain from the quotation,
+    // so a client's projects are theirs exactly rather than by name match.
+    clientId: { type: Schema.Types.ObjectId, ref: 'Client' },
     // PWA FACT (verified against `STAGES`) — division-aware validation,
     // NEW BACKEND DESIGN choice to preserve per-division validity instead
     // of a single flattened enum (see class comment above).

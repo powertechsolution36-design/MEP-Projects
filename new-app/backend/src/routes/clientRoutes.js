@@ -5,6 +5,7 @@
  *
  *   GET    /api/clients?search=        the list, searched by name, number or GST
  *   GET    /api/clients/:id            one client
+ *   GET    /api/clients/:id/records    everything we hold on them
  *   POST   /api/clients                add one
  *   PATCH  /api/clients/:id            edit one
  *   DELETE /api/clients/:id            remove one (admin only)
@@ -35,6 +36,17 @@ function createClientRouter(deps) {
     try {
       const result = await service.importFromContracts(req.auth, deps);
       return res.status(200).json(result);
+    } catch (err) {
+      return sendError(res, err, 'clientRoutes');
+    }
+  });
+
+  // Owner request (17 Nov 2026): everything this company holds on one
+  // client. Each section is gated by that module's own rules.
+  router.get('/:id/records', async (req, res) => {
+    try {
+      const records = await service.getClientRecords(req.params.id, req.auth, deps);
+      return res.status(200).json(records);
     } catch (err) {
       return sendError(res, err, 'clientRoutes');
     }
