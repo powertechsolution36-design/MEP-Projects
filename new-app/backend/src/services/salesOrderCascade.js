@@ -133,7 +133,23 @@ function validateSalesOrderDraft(draft) {
  */
 async function resolveChecklist(companyId, division, deps) {
   const template = await deps.checklistTemplateRepo.findDefaultForDivision(companyId, division);
-  if (template) {
+  /*
+   * DEFECT, reported 18 Nov 2026: "the 13 checklists are not showing ...
+   * the 13 checklists should be shown default for any project."
+   *
+   * findDefaultForDivision answers with the division's default template, or
+   * failing that ANY template for the division. A template with no points
+   * in it — one started on the Checklist Template screen and left empty —
+   * is still a template, so it won, and the project was created with an
+   * EMPTY checklist. The thirteen points were never reached, and a project
+   * with no checklist shows the client nothing and can never complete
+   * itself, because completion is every point being done.
+   *
+   * A template with no points is no checklist, so it is passed over here
+   * for the thirteen. The rest of the chain is untouched: a template that
+   * HAS points still wins, which is the whole point of having one.
+   */
+  if (template && Array.isArray(template.items) && template.items.length > 0) {
     return {
       checklistTemplateName: template.name,
       checklist: template.items.map((t) => ({
