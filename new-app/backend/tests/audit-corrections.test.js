@@ -223,6 +223,10 @@ test('audit-correction scope guard: only authorized routes and services exist', 
     'checklistTemplateService.js',
     // UPDATE (owner request, 16 Nov 2026): the client directory, and the
     // remembering of a client met while raising an enquiry or a quotation.
+    // Correcting a client corrects the records that copied their details
+    // (owner request, 18 Nov 2026). Its own file: the matching and the two
+    // safety rules are the whole of it, and they are worth reading alone.
+    'clientPropagation.js',
     'clientService.js',
     'companyService.js',
     'contractService.js',

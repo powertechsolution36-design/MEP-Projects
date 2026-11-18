@@ -7,7 +7,8 @@
  *   GET    /api/clients/:id            one client
  *   GET    /api/clients/:id/records    everything we hold on them
  *   POST   /api/clients                add one
- *   PATCH  /api/clients/:id            edit one
+ *   PATCH  /api/clients/:id            edit one — and correct the records
+ *                                      that copied their details with them
  *   DELETE /api/clients/:id            remove one (admin only)
  *   POST   /api/clients/import/amc     bring the AMC / PM clients in
  */
@@ -72,8 +73,11 @@ function createClientRouter(deps) {
 
   router.patch('/:id', async (req, res) => {
     try {
-      const client = await service.updateClient(req.params.id, req.body, req.auth, deps);
-      return res.status(200).json({ client });
+      const { propagated, ...client } = await service.updateClient(req.params.id, req.body, req.auth, deps);
+      // Owner request (18 Nov 2026): a correction here corrects the records
+      // that copied it. What it reached is reported alongside the client, so
+      // the screen can say so rather than changing records silently.
+      return res.status(200).json({ client, propagated });
     } catch (err) {
       return sendError(res, err, 'clientRoutes');
     }

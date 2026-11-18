@@ -19,6 +19,39 @@ const BLANK = {
   gst: '', address: '', email: '', notes: '', contacts: [],
 };
 
+/**
+ * What a client edit changed elsewhere, in a sentence.
+ *
+ * Owner request (18 Nov 2026): correcting a client corrects the records
+ * that copied their details. The team is told what was reached, and what
+ * was deliberately left as it was sent.
+ */
+const KINDS = {
+  contracts: 'AMC / PM',
+  salesOrders: 'sales order',
+  projects: 'project',
+  quotations: 'quotation',
+  payments: 'payment',
+  serviceCalls: 'service call',
+};
+
+export function propagationNote(p) {
+  if (!p || !p.changed || p.changed.length === 0) return '';
+  const count = (bag) => Object.entries(bag || {})
+    .map(([k, n]) => `${n} ${KINDS[k] || k}${n === 1 ? '' : 's'}`);
+  const done = count(p.updated);
+  const kept = count(p.leftAlone);
+  const parts = [];
+  parts.push(done.length ? `Updated ${done.join(', ')}.` : 'Nothing else held the old details.');
+  if (kept.length) {
+    parts.push(`Left as sent: ${kept.join(', ')} — a quotation already sent, or a payment already collected, keeps the wording it went out with.`);
+  }
+  if (p.failed && p.failed.length) {
+    parts.push(`Could not check: ${p.failed.map((f) => KINDS[f.kind] || f.kind).join(', ')}.`);
+  }
+  return parts.join(' ');
+}
+
 export default function ClientList() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -58,8 +91,16 @@ export default function ClientList() {
     try {
       const body = { ...form };
       delete body.id;
-      if (form.id) await api.patch(`/api/clients/${form.id}`, body);
-      else await api.post('/api/clients', body);
+      if (form.id) {
+        const res = await api.patch(`/api/clients/${form.id}`, body);
+        // Owner request (18 Nov 2026): a correction here corrects every
+        // record that copied the old details. Say what it reached — a change
+        // this wide should never happen quietly.
+        setImportNote(propagationNote(res && res.propagated));
+      } else {
+        await api.post('/api/clients', body);
+        setImportNote('');
+      }
       setForm(null);
       await load();
     } catch (err) {

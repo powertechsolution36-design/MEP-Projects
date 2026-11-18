@@ -53,6 +53,22 @@ const clientSchema = new Schema(
       validate: { validator: maxContacts, message: `A client has at most ${MAX_CONTACTS} contacts.` },
     },
 
+    /*
+     * What this client USED to be called, and the numbers they used to be
+     * on (owner request, 18 Nov 2026).
+     *
+     * Correcting a client corrects the records that copied their details —
+     * but a quotation already sent deliberately keeps the name it went out
+     * with. Without this, that document would stop being recognised as
+     * theirs the moment they were renamed, and would fall off their page.
+     * So every name and number they have had stays here and keeps matching.
+     *
+     * Normalized on the way in (lower-case, single-spaced names; last ten
+     * digits of a number), because matching is the only thing they are for.
+     */
+    formerNames: { type: [String], default: [] },
+    formerPhones: { type: [String], default: [] },
+
     notes: { type: String, default: '' },
     // Where this record came from, so a list built by the app's own work can
     // be told from one somebody typed: 'manual', 'amc', 'enquiry',

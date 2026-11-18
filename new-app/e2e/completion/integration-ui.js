@@ -1443,7 +1443,81 @@ async function group6m(browser) {
   await a.ctx.close();
 }
 
-const GROUPS = { '6a': group6a, '6b': group6b, '6c': group6c, '6d': group6d, '6e': group6e, '6f': group6f, '6g': group6g, '6h': group6h, '6i': group6i, '6j': group6j, '6k': group6k, '6l': group6l, '6m': group6m };
+
+/* ------------------------------------------------ 6n correcting a client corrects
+   the records that copied their details (owner request, 18 Nov 2026) */
+async function group6n(browser) {
+  const adminT = await apiToken('admin');
+  const salesT = await apiToken('sales');
+  const tag = uniq();
+  const was = `Oldname Industries ${tag}`;
+  const now = `Newname Industries ${tag}`;
+
+  // A client, and real records raised FOR them through the ordinary routes.
+  const client = (await api(adminT, 'POST', '/api/clients', {
+    companyName: was, clientName: 'Mr Owner', phone: '9811100001',
+    address: 'Undri, Pune', email: 'old@example.com', gst: 'GST-OLD',
+  })).json.client;
+
+  const draft = (await api(salesT, 'POST', '/api/quotations', {
+    division: 'HVAC', clientId: client.id, customerName: was,
+    customerPhone: '9811100001', customerAddress: 'Undri, Pune',
+    equipmentItems: [{ description: 'Unit', unit: 'Nos', qty: 1, supplyRate: 100 }],
+  })).json.quotation;
+
+  const sent = (await api(salesT, 'POST', '/api/quotations', {
+    division: 'HVAC', clientId: client.id, customerName: was,
+    equipmentItems: [{ description: 'Unit', unit: 'Nos', qty: 1, supplyRate: 100 }],
+  })).json.quotation;
+  await api(salesT, 'PATCH', `/api/quotations/${sent.id}`, { status: 'Sent' });
+
+  const call = (await api(adminT, 'POST', '/api/service-calls/complaints', {
+    customer: was, phone: '9811100001', clientId: client.id,
+    complaintDescription: 'Unit not cooling', division: 'HVAC',
+  })).json.serviceCall;
+
+  // Rename them on the Clients screen, the way the owner would.
+  const a = await session(browser, 'admin');
+  await open(a, '/clients');
+  await a.page.waitForTimeout(400);
+  await a.page.locator(`tr:has-text("${was}") button:has-text("Edit")`).first().click();
+  await a.page.waitForTimeout(300);
+  const company = a.page.locator('.modal .filter-field:has(> label:text-is("Company Name")) input').first();
+  await company.fill(now);
+  await a.page.locator('.modal button:has-text("Save")').click();
+  await settle(a);
+
+  const note = await a.page.locator('body').innerText();
+  rec('6n: the screen says what the correction reached',
+    /Updated .*quotation/i.test(note) && /Left as sent/i.test(note),
+    (note.match(/Updated[^\n]{0,160}/) || [''])[0]);
+
+  const after = (await api(salesT, 'GET', '/api/quotations')).json.quotations || [];
+  rec('6n: the draft quotation now says the new name',
+    (after.find((q) => q.id === draft.id) || {}).customerName === now,
+    (after.find((q) => q.id === draft.id) || {}).customerName);
+  rec('6n: the quotation already sent keeps the name it went out with',
+    (after.find((q) => q.id === sent.id) || {}).customerName === was,
+    (after.find((q) => q.id === sent.id) || {}).customerName);
+
+  const calls = (await api(adminT, 'GET', '/api/service-calls')).json.serviceCalls || [];
+  rec('6n: the service register says the new name',
+    (calls.find((c) => c.id === call.id) || {}).customer === now,
+    (calls.find((c) => c.id === call.id) || {}).customer);
+
+  // And their own page still gathers everything, old records included.
+  const records = await api(adminT, 'GET', `/api/clients/${client.id}/records`);
+  rec('6n: their page still finds all of it after the rename',
+    records.status === 200
+    && (records.json.quotations || []).length >= 2
+    && (records.json.serviceCalls || []).length >= 1,
+    JSON.stringify({ q: (records.json.quotations || []).length, s: (records.json.serviceCalls || []).length }));
+  rec('6n: no errors', a.errors.length === 0, a.errors.join('|') + noAlerts(a));
+  await a.ctx.close();
+}
+
+
+const GROUPS = { '6a': group6a, '6b': group6b, '6c': group6c, '6d': group6d, '6e': group6e, '6f': group6f, '6g': group6g, '6h': group6h, '6i': group6i, '6j': group6j, '6k': group6k, '6l': group6l, '6m': group6m, '6n': group6n };
 
 (async () => {
   const want = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(GROUPS);

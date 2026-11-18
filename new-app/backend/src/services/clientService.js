@@ -48,6 +48,25 @@ function normalizePhone(value) {
   return digits.length > 10 ? digits.slice(-10) : digits;
 }
 
+/** At most this many old names or numbers are kept for matching. */
+const MAX_FORMER = 10;
+
+/**
+ * Add what the client used to be called to what we already remember,
+ * normalized, without duplicates, newest last and oldest dropped first.
+ */
+function remember(kept, values, normalize) {
+  const out = [...(kept || [])];
+  for (const value of values) {
+    const key = normalize(value);
+    if (!key) continue;
+    if (normalize === normalizePhone && key.length < 10) continue;
+    if (out.includes(key)) continue;
+    out.push(key);
+  }
+  return out.slice(-MAX_FORMER);
+}
+
 const trim = (v) => (typeof v === 'string' ? v.trim().slice(0, MAX_FIELD) : '');
 
 /** The fields a caller may set, tidied. `contacts` is handled separately. */
@@ -116,7 +135,45 @@ async function updateClient(id, input, auth, deps) {
   if (!fields.normalizedName) {
     throw new ServiceError('A client needs a company name or a client name.', 'VALIDATION_ERROR', 400);
   }
-  return deps.clientRepo.update(auth.companyId, id, fields);
+  /*
+   * Keep what they used to be called (owner request, 18 Nov 2026). A
+   * quotation already sent deliberately keeps the old name, so without this
+   * it would stop being recognised as theirs the moment they are renamed
+   * and would fall off their page. Capped, oldest dropped first: this is a
+   * matching aid, not a history of the record.
+   */
+  const was = { names: existing.formerNames || [], phones: existing.formerPhones || [] };
+  fields.formerNames = remember(was.names, [existing.companyName, existing.clientName], normalizeName);
+  fields.formerPhones = remember(was.phones, [existing.phone], normalizePhone);
+
+  const updated = await deps.clientRepo.update(auth.companyId, id, fields);
+
+  /*
+   * Owner request (18 Nov 2026): a client corrected here is corrected
+   * everywhere. Every other record carries the customer's details as
+   * somebody typed them, so without this the new spelling lived only on
+   * this screen while the register, the AMC list and the quotation went on
+   * showing the old one.
+   *
+   * The match keys are built from the client as it WAS, because that is
+   * what those records still say. Which records are reached, which fields
+   * are replaced and what is deliberately left alone are all in
+   * clientPropagation.js.
+   *
+   * It never throws: the client HAS been saved by this point, and a
+   * follow-on correction that fails must not turn a successful save into
+   * an error. A failure is reported in `propagated.failed` instead.
+   */
+  const propagated = await require('./clientPropagation').propagateClientChange(
+    {
+      before: existing,
+      after: updated,
+      keys: clientMatchKeys(existing),
+      companyId: auth.companyId,
+    },
+    deps
+  );
+  return { ...updated, propagated };
 }
 
 async function deleteClient(id, auth, deps) {
@@ -167,6 +224,11 @@ function clientMatchKeys(client) {
     [client.phone, ...(client.contacts || []).map((c) => c.phone)]
       .map(normalizePhone).filter((d) => d.length >= 10)
   );
+  // What they used to be called still finds them (owner request, 18 Nov
+  // 2026). Already normalized when they were stored, so they go straight in
+  // — a document that kept the old name is still theirs.
+  for (const n of client.formerNames || []) if (n) names.add(n);
+  for (const p of client.formerPhones || []) if (p && p.length >= 10) phones.add(p);
   return { id: String(client.id || client._id), names, phones };
 }
 
