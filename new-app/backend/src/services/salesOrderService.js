@@ -190,6 +190,35 @@ function collectMilestoneInputs(rawMilestones) {
   return rows.slice(0, 5).filter((m) => m && m.description && Number(m.amount));
 }
 
+/**
+ * Owner request (18 Nov 2026): a milestone says which checklist point it is
+ * taken at. Editing the order re-applies those choices to the project's own
+ * points, which is where the live link lives — otherwise the order would
+ * say one thing and the project do another.
+ *
+ * Only the links are touched: every other part of every point — whether it
+ * is done, its remark, its photographs, its target date, its approval — is
+ * carried through untouched. A point whose milestone was unchosen simply
+ * loses its link.
+ *
+ * Never allowed to fail the edit: the order HAS been saved by the time this
+ * runs, and a project that cannot be re-linked is a smaller problem than an
+ * edit that reports failure after writing.
+ */
+async function applyMilestoneLinksToProject(companyId, salesOrderId, milestones, deps) {
+  try {
+    if (!deps.projectRepo || !deps.projectRepo.findBySalesOrderId) return null;
+    const project = await deps.projectRepo.findBySalesOrderId(companyId, salesOrderId);
+    if (!project || !Array.isArray(project.checklist) || project.checklist.length === 0) return null;
+    const cleared = project.checklist.map((c) => ({ ...c, releasesMilestoneIndex: null }));
+    const linked = cascade.applyMilestoneLinks(cleared, milestones);
+    await deps.projectRepo.update(companyId, project.id, { checklist: linked });
+    return linked;
+  } catch (err) {
+    return null;
+  }
+}
+
 async function createSalesOrder(input, actorAuth, deps) {
   assertCompanyContext(actorAuth);
   assertRole(actorAuth, CREATE_ROLES, 'create a SalesOrder');
@@ -308,6 +337,8 @@ async function editSalesOrder(id, patchInput, actorAuth, deps) {
     patch.paymentMilestones = rows.map((m, i) => ({
       description: m.description,
       amount: m.amount,
+      // Owner request (18 Nov 2026): the checklist point it is taken at.
+      checklistPointIndex: cascade.pointIndexOf(m),
       // PWA FACT: `(id&&DB.sos.find(...).pay[i]||{}).rcv||false` — preserved
       // by SAME ARRAY INDEX from the pre-edit milestone list, not by any
       // durable identity. Intentionally NOT "fixed."
@@ -315,7 +346,11 @@ async function editSalesOrder(id, patchInput, actorAuth, deps) {
     }));
   }
 
-  return deps.salesOrderRepo.update(actorAuth.companyId, id, patch);
+  const updated = await deps.salesOrderRepo.update(actorAuth.companyId, id, patch);
+  if (patch.paymentMilestones) {
+    await applyMilestoneLinksToProject(actorAuth.companyId, id, patch.paymentMilestones, deps);
+  }
+  return updated;
 }
 
 // PWA FACT (`vSOs`): free-text search over these fields via the generic `hit()` helper.

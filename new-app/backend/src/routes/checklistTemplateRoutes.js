@@ -10,6 +10,8 @@ const { requireCompanyContext, rejectClientSuppliedCompanyId } = require('../mid
  * Checklist Template Library API (FIX-3.3-01).
  *
  *   GET    /api/checklist-templates                    list (optionally ?division=HVAC|Solar|MEP)
+ *   GET    /api/checklist-templates/standard?division=    the points a project of
+ *                                                        that division will get
  *   GET    /api/checklist-templates/:id                  detail
  *   POST   /api/checklist-templates                     create (optional sourceTemplateId to start-from-copy)
  *   POST   /api/checklist-templates/:id/duplicate         duplicate
@@ -51,6 +53,27 @@ function createChecklistTemplateRouter(deps) {
     handle(async (req, res) => {
       const templates = await service.listTemplates(req.auth, { division: req.query.division }, deps);
       return res.status(200).json({ templates });
+    })
+  );
+
+  /*
+   * Owner request (18 Nov 2026): the sales order form offers the checklist
+   * points as a dropdown, so each payment can say which point it is taken
+   * at — and it has to offer them BEFORE any project exists.
+   *
+   * This answers with the points a project of that division would actually
+   * be created with: the division's default template, or any template for
+   * it, or the standard points. The same chain the cascade follows, so what
+   * the form offers is what the project gets, rather than a second list
+   * that could drift from it.
+   *
+   * Declared before '/:id' — otherwise "standard" is read as a template id.
+   */
+  router.get(
+    '/standard',
+    handle(async (req, res) => {
+      const points = await service.standardPointsForDivision(req.auth, req.query.division, deps);
+      return res.status(200).json({ points });
     })
   );
 

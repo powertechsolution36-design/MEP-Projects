@@ -24,6 +24,26 @@ const paymentMilestoneSchema = new Schema(
     description: { type: String, required: true },
     amount: { type: Number, required: true },
     received: { type: Boolean, required: true, default: false },
+    /*
+     * Owner request (18 Nov 2026): "the rest will be chosen from the 13
+     * checklist and on which checklists the each remaining payment will be
+     * taken it should be as a dropdown option in sales order."
+     *
+     * Which point of the project's checklist earns this payment, by its
+     * position in that checklist. Null on the advance, which is taken
+     * against the order itself and no point of work, and on every milestone
+     * raised before this existed.
+     *
+     * The LIVE link is the one on the project's own point
+     * (Project.checklist[i].releasesMilestoneIndex) — that is what releases
+     * the money, and it moves with its point when points are added or
+     * removed. This field is what the order AGREED, written when the order
+     * is raised and re-applied to the project when the order is edited. The
+     * order is the commercial document; it should say at which stage each
+     * payment falls, rather than making somebody open the project to find
+     * out.
+     */
+    checklistPointIndex: { type: Number, default: null },
   },
   { _id: false }
 );

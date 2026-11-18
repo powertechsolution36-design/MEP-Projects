@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { money, fmtDate } from '../../utils/format';
 import useMyDivisions from '../../hooks/useMyDivisions';
+import MilestonePointSelect, { useChecklistPoints } from '../../components/MilestonePoints';
 import TeamSelect, { useTeamCandidates } from '../../components/TeamSelect';
 
 /**
@@ -50,6 +51,15 @@ export default function SalesOrderDetail() {
   const PM_ROLES = ['hvac_pm', 'solar_pm', 'mep_pm'];
   const isPm = PM_ROLES.includes(user?.role);
   const canEdit = ['sales', 'admin', ...PM_ROLES].includes(user?.role);
+  // The checklist a project of this order's division gets, so a milestone
+  // can say which point it is taken at (owner request, 18 Nov 2026).
+  const { points: checklistPoints } = useChecklistPoints(so && so.division);
+  /** The point a milestone is taken at, as it reads on the order. */
+  const pointText = (index) => {
+    if (index === null || index === undefined) return '';
+    const p = checklistPoints.find((x) => x.index === index);
+    return p ? `${p.index + 1}. ${p.text}` : `Point ${index + 1}`;
+  };
   const { candidates } = useTeamCandidates(canEdit);
   const canRaise = ['hvac_pm', 'solar_pm', 'mep_pm', 'admin'].includes(user?.role);
 
@@ -88,7 +98,12 @@ export default function SalesOrderDetail() {
         lowSideCost: so.lowSideCost || 0,
         lowSideTargetExpense: so.lowSideTargetExpense || 0,
         lowSideActualExpense: so.lowSideActualExpense || 0,
-        paymentMilestones: (so.paymentMilestones || []).map(m => ({ description: m.description, amount: m.amount })),
+        paymentMilestones: (so.paymentMilestones || []).map(m => ({
+          description: m.description,
+          amount: m.amount,
+          // Owner request (18 Nov 2026): the checklist point it is taken at.
+          checklistPointIndex: m.checklistPointIndex ?? null,
+        })),
       }),
       termsAndConditions: so.termsAndConditions || '',
     });
@@ -110,7 +125,11 @@ export default function SalesOrderDetail() {
         lowSideActualExpense: Number(editForm.lowSideActualExpense) || 0,
         paymentMilestones: editForm.paymentMilestones
           .filter(m => m.description && m.amount)
-          .map(m => ({ description: m.description, amount: Number(m.amount) })),
+          .map(m => ({
+            description: m.description,
+            amount: Number(m.amount),
+            checklistPointIndex: m.checklistPointIndex ?? null,
+          })),
       };
       const data = await api.patch(`/api/sales-orders/${id}`, payload);
       setSo(data.salesOrder);
@@ -232,6 +251,9 @@ export default function SalesOrderDetail() {
                   <th>#</th>
                   <th>Description</th>
                   <th>Amount</th>
+                  {/* Owner request (18 Nov 2026): the order says at which
+                      stage of the work each payment falls. */}
+                  <th>Taken at</th>
                   <th>Received</th>
                   {canRaise && <th>Action</th>}
                 </tr>
@@ -242,6 +264,11 @@ export default function SalesOrderDetail() {
                     <td>{i + 1}</td>
                     <td>{m.description}</td>
                     <td>{money(m.amount)}</td>
+                    <td style={{ whiteSpace: 'normal', maxWidth: 320 }}>
+                      {i === 0 && (m.checklistPointIndex === null || m.checklistPointIndex === undefined)
+                        ? <span className="muted">on order</span>
+                        : (pointText(m.checklistPointIndex) || <span className="muted">—</span>)}
+                    </td>
                     <td>{m.received ? '✅ Yes' : '—'}</td>
                     {canRaise && (
                       <td>
@@ -377,13 +404,22 @@ export default function SalesOrderDetail() {
                   <span className="milestone-num">{i + 1}.</span>
                   <input placeholder="Description" value={m.description} onChange={e => { const ms=[...editForm.paymentMilestones]; ms[i]={...ms[i],description:e.target.value}; setEditForm(f=>({...f,paymentMilestones:ms})); }} />
                   <input type="number" placeholder="Amount" value={m.amount} onChange={e => { const ms=[...editForm.paymentMilestones]; ms[i]={...ms[i],amount:e.target.value}; setEditForm(f=>({...f,paymentMilestones:ms})); }} />
+                  {i === 0 ? (
+                    <span className="muted" style={{ fontSize: 12 }}>taken on order</span>
+                  ) : (
+                    <MilestonePointSelect
+                      points={checklistPoints}
+                      value={m.checklistPointIndex}
+                      onChange={(v) => { const ms=[...editForm.paymentMilestones]; ms[i]={...ms[i],checklistPointIndex:v}; setEditForm(f=>({...f,paymentMilestones:ms})); }}
+                    />
+                  )}
                   {editForm.paymentMilestones.length > 0 && (
                     <button type="button" className="btn danger sm" onClick={() => { const ms=editForm.paymentMilestones.filter((_,j)=>j!==i); setEditForm(f=>({...f,paymentMilestones:ms})); }}>×</button>
                   )}
                 </div>
               ))}
               {!isPm && editForm.paymentMilestones.length < 5 && (
-                <button type="button" className="btn sec sm" onClick={() => setEditForm(f => ({ ...f, paymentMilestones: [...f.paymentMilestones, { description: '', amount: '' }] }))}>+ Add Milestone</button>
+                <button type="button" className="btn sec sm" onClick={() => setEditForm(f => ({ ...f, paymentMilestones: [...f.paymentMilestones, { description: '', amount: '', checklistPointIndex: null }] }))}>+ Add Milestone</button>
               )}
 
               <div className="modal-actions">

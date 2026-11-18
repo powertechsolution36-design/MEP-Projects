@@ -7,6 +7,7 @@ import TeamSelect, { useTeamCandidates } from '../../components/TeamSelect';
 import DraftBar, { useDrafts } from '../../components/DraftBar';
 import ClientSelect from '../../components/ClientSelect';
 import ContactPick from '../../components/ContactPick';
+import MilestonePointSelect, { useChecklistPoints } from '../../components/MilestonePoints';
 
 /**
  * Standalone SalesOrder Create — PWA `mSO()` with no enquiry, exact reproduction.
@@ -18,6 +19,9 @@ import ContactPick from '../../components/ContactPick';
  */
 
 const DEFAULT_TERMS = '1) Fabrication not in our scope. 2) Civil and interior work not in our scope. 3) Mathadi not in our scope.';
+
+/** What every sales order's first payment is called. */
+export const ADVANCE_LABEL = 'Advance Payment 100%';
 
 export default function SalesOrderCreate() {
   const DIVISIONS = useMyDivisions(); // company's purchased divisions (PWA myDivs())
@@ -45,13 +49,22 @@ export default function SalesOrderCreate() {
     lowSideTargetExpense: 0,
     lowSideActualExpense: 0,
     termsAndConditions: DEFAULT_TERMS,
-    paymentMilestones: [{ description: '', amount: '' }],
+    /*
+     * Owner request (18 Nov 2026): "first milestone is same for every Sales
+     * Order that is Advance Payment 100%". It is filled in, not locked —
+     * the wording and the figure are still sales's to change, and an order
+     * with genuinely no advance can have the row removed.
+     */
+    paymentMilestones: [{ description: ADVANCE_LABEL, amount: '', checklistPointIndex: null }],
     // Owner request (17 Nov 2026): which client in the directory this order
     // is for, when one was picked. Null on an order typed from scratch.
     clientId: null,
   });
   // Whose people the picker offers. Held only while the form is open.
   const [pickedClient, setPickedClient] = useState(null);
+  // The checklist a project of this division will get. The milestones after
+  // the advance are taken at one of these points.
+  const { points: checklistPoints, templateName: checklistName } = useChecklistPoints(form.division);
 
   /**
    * Owner request (17 Nov 2026): pick the client and their people instead of
@@ -118,7 +131,10 @@ export default function SalesOrderCreate() {
   }
   function addMilestone() {
     if (form.paymentMilestones.length >= 5) return;
-    setForm(prev => ({ ...prev, paymentMilestones: [...prev.paymentMilestones, { description: '', amount: '' }] }));
+    setForm(prev => ({
+      ...prev,
+      paymentMilestones: [...prev.paymentMilestones, { description: '', amount: '', checklistPointIndex: null }],
+    }));
   }
   function removeMilestone(idx) {
     setForm(prev => ({ ...prev, paymentMilestones: prev.paymentMilestones.filter((_, i) => i !== idx) }));
@@ -140,7 +156,13 @@ export default function SalesOrderCreate() {
         lowSideActualExpense: Number(form.lowSideActualExpense) || 0,
         paymentMilestones: form.paymentMilestones
           .filter(m => m.description && m.amount)
-          .map(m => ({ description: m.description, amount: Number(m.amount) })),
+          // Owner request (18 Nov 2026): and which checklist point it is
+          // taken at. The advance is taken against the order, not a point.
+          .map(m => ({
+            description: m.description,
+            amount: Number(m.amount),
+            checklistPointIndex: m.checklistPointIndex ?? null,
+          })),
       };
       const result = await api.post('/api/sales-orders', payload);
       // The order exists now, so the draft of it has done its job.
@@ -237,11 +259,29 @@ export default function SalesOrderCreate() {
           </div>
 
           <h3>Payment Milestones (max 5)</h3>
+          {/* Owner request (18 Nov 2026): the first payment is the advance,
+              taken against the order itself. Every one after it says which
+              checklist point earns it — tick and sign that point off on the
+              project and the money goes to Finance by itself. */}
+          <p className="muted" style={{ marginTop: 0, fontSize: 12 }}>
+            {form.division
+              ? `The first payment is the advance. Each one after it is taken at a checklist point${checklistName ? ` (${checklistName})` : ''} — ${checklistPoints.length} to choose from.`
+              : 'Choose a division and the checklist points appear here.'}
+          </p>
           {form.paymentMilestones.map((m, i) => (
             <div key={i} className="milestone-row">
               <span className="milestone-num">{i + 1}.</span>
               <input placeholder="Description" value={m.description} onChange={e => setMilestone(i, 'description', e.target.value)} />
               <input type="number" placeholder="Amount" value={m.amount} onChange={e => setMilestone(i, 'amount', e.target.value)} />
+              {i === 0 ? (
+                <span className="muted" style={{ fontSize: 12 }}>taken on order</span>
+              ) : (
+                <MilestonePointSelect
+                  points={checklistPoints}
+                  value={m.checklistPointIndex}
+                  onChange={(v) => setMilestone(i, 'checklistPointIndex', v)}
+                />
+              )}
               {form.paymentMilestones.length > 1 && (
                 <button type="button" className="btn danger sm" onClick={() => removeMilestone(i)}>×</button>
               )}

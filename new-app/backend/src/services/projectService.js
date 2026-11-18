@@ -199,6 +199,11 @@ function freshChecklistItem(templateItem) {
     photos: [],
     targetDate: null,
     approval: null,
+    // Owner request (18 Nov 2026): a point may release the payment it
+    // earns — null until the sales order says which, so a fresh point has
+    // the same shape wherever it is built.
+    releasesMilestoneIndex: null,
+    releaseCollectWithinDays: null,
   };
 }
 
@@ -685,10 +690,26 @@ async function setChecklistMilestoneLink(projectId, itemIndex, input, actorAuth,
     if (!milestones[milestoneIndex]) {
       throw new ServiceError('That payment milestone is not on this project\'s sales order.', 'NOT_FOUND', 404);
     }
-    // One milestone, one point. Re-linking the same point is fine.
-    const takenBy = (project.checklist || []).findIndex(
-      (c, i) => i !== idx && Number(c.releasesMilestoneIndex) === milestoneIndex
-    );
+    /*
+     * One milestone, one point. Re-linking the same point is fine.
+     *
+     * DEFECT, found 18 Nov 2026: this compared Number(c.releasesMilestoneIndex),
+     * and Number(null) is 0. A point that releases NOTHING is stored as null
+     * — that is the schema's own default — so every unlinked point read as
+     * "releases milestone 0", and linking the FIRST milestone (the advance)
+     * to any point was refused with "already released by checklist point 1".
+     * Only milestone 0 was affected, because Number(null) is only ever 0.
+     *
+     * The in-memory test store left the field absent rather than null, where
+     * Number(undefined) is NaN and matches nothing, which is why the tests
+     * never saw it.
+     *
+     * An absent link is now read as absent, not as zero.
+     */
+    const linksTo = (c) => c.releasesMilestoneIndex !== null
+      && c.releasesMilestoneIndex !== undefined
+      && Number(c.releasesMilestoneIndex) === milestoneIndex;
+    const takenBy = (project.checklist || []).findIndex((c, i) => i !== idx && linksTo(c));
     if (takenBy >= 0) {
       throw new ServiceError(
         `"${milestones[milestoneIndex].description}" is already released by checklist point ${takenBy + 1}.`,

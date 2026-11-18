@@ -1230,14 +1230,13 @@ async function group6k(browser) {
     (await pm.page.locator('button:has-text("View Sales Order")').count()) === 1
     && (await pm.page.locator('button:has-text("View Quotation")').count()) === 1);
 
-  // For a Project Manager the button opens the customer's PDF in a new tab,
-  // because the Quotations screens are not theirs to open.
-  const popup = pm.page.waitForEvent('popup', { timeout: 10000 }).catch(() => null);
+  // Owner request (18 Nov 2026): the Quotations screens ARE theirs now, so
+  // the button takes a Manager to the quotation rather than to a PDF of it.
   await pm.page.locator('button:has-text("View Quotation")').click();
-  const tab = await popup;
-  rec('6k: for the Project Manager it opens the quotation PDF',
-    !!tab && /\/api\/public\/quotations\/[0-9a-f]{48}$/.test(tab.url()), tab ? tab.url() : 'no new tab');
-  if (tab) await tab.close();
+  await pm.page.waitForURL(/\/quotations\/[^/]+$/, { timeout: 10000 }).catch(() => {});
+  rec('6k: for the Project Manager it opens the quotation itself',
+    new URL(pm.page.url()).pathname === `/quotations/${qt.json.quotation.id}`, pm.page.url());
+  await open(pm, `/projects/${prj.id}`);
 
   // Owner request (18 Nov 2026): the Quotations area is open to a Manager
   // now — for their OWN division. This is the Solar Manager on a Solar
@@ -1596,7 +1595,85 @@ async function group6o(browser) {
   await pm.ctx.close();
 }
 
-const GROUPS = { '6a': group6a, '6b': group6b, '6c': group6c, '6d': group6d, '6e': group6e, '6f': group6f, '6g': group6g, '6h': group6h, '6i': group6i, '6j': group6j, '6k': group6k, '6l': group6l, '6m': group6m, '6n': group6n, '6o': group6o };
+
+/* ------------------------------------------------ 6p the advance, and the checklist
+   point each later payment is taken at (owner request, 18 Nov 2026) */
+async function group6p(browser) {
+  const adminT = await apiToken('admin');
+  const tag = uniq();
+  const name = `Milestone points ${tag}`;
+
+  const s = await session(browser, 'sales');
+  await open(s, '/sales-orders/new');
+  await s.page.waitForTimeout(400);
+
+  const first = s.page.locator('.milestone-row').first();
+  rec('6p: a new order opens with the advance already filled in',
+    (await first.locator('input').first().inputValue()) === 'Advance Payment 100%',
+    await first.locator('input').first().inputValue());
+  rec('6p: and the advance is taken on the order, not at a point',
+    (await first.locator('select.milestone-point').count()) === 0
+    && /taken on order/i.test(await first.innerText()));
+
+  await field(s.page, 'Division *').selectOption('HVAC');
+  await s.page.waitForTimeout(700);
+  await field(s.page, 'Project Name *').fill(name);
+  await first.locator('input[type=number]').fill('100000');
+
+  // A second payment, taken at a point of the work.
+  await s.page.locator('button:has-text("+ Add Milestone")').click();
+  await s.page.waitForTimeout(200);
+  const second = s.page.locator('.milestone-row').nth(1);
+  await second.locator('input').first().fill('On piping');
+  await second.locator('input[type=number]').fill('100000');
+
+  // What the dropdown must offer is what a project of this division will
+  // actually be created with — a company template when there is one, the
+  // standard points when there is not. Earlier groups create HVAC
+  // templates, so this asks the server rather than assuming thirteen.
+  const expected = (await api(adminT, 'GET', '/api/checklist-templates/standard?division=HVAC')).json.points;
+  const options = await second.locator('select.milestone-point option').allInnerTexts();
+  rec('6p: the dropdown offers the division’s checklist points',
+    options.length === expected.items.length + 1,
+    `${options.length - 1} offered, ${expected.items.length} on the division`);
+  rec('6p: and they read as the points themselves',
+    options.slice(1).join(' ').includes(expected.items[0].text), options.slice(1, 3).join(' | '));
+  const chosen = expected.items[expected.items.length - 1].index;
+  await second.locator('select.milestone-point').selectOption(String(chosen));
+
+  await s.page.locator('button:has-text("Create Sales Order")').click();
+  await s.page.waitForURL(/\/sales-orders\/(?!new$)[^/]+$/, { timeout: 15000 }).catch(() => {});
+  await settle(s);
+
+  const order = ((await api(adminT, 'GET', '/api/sales-orders')).json.salesOrders || [])
+    .find((o) => o.projectName === name);
+  rec('6p: the order records which point the payment is taken at',
+    !!order && order.paymentMilestones[1].checklistPointIndex === chosen
+    && order.paymentMilestones[0].checklistPointIndex === null,
+    JSON.stringify(order && order.paymentMilestones.map((m) => m.checklistPointIndex)));
+
+  // The point's wording is fetched after the order itself, so wait for it
+  // rather than reading the page in between.
+  const chosenText = expected.items[expected.items.length - 1].text;
+  await s.page.waitForSelector(`td:has-text(${JSON.stringify(chosenText.slice(0, 24))})`, { timeout: 10000 }).catch(() => {});
+  const detail = await s.page.locator('body').innerText();
+  rec('6p: and the order says so on screen',
+    /Taken at/i.test(detail) && detail.includes(chosenText.slice(0, 24)),
+    (detail.match(/Taken at[\s\S]{0,120}/) || [''])[0].replace(/\n/g, ' ').slice(0, 120));
+
+  const project = ((await api(adminT, 'GET', '/api/projects')).json.projects || [])
+    .find((p) => p.name === name);
+  const full = (await api(adminT, 'GET', `/api/projects/${project.id}`)).json.project;
+  const linked = (full.checklist || [])
+    .map((c, i) => (c.releasesMilestoneIndex !== null && c.releasesMilestoneIndex !== undefined ? `${i}->${c.releasesMilestoneIndex}` : null))
+    .filter(Boolean);
+  rec('6p: the project it created carries the link, ready to release the money',
+    linked.length === 1 && linked[0] === `${chosen}->1`, linked.join(',') || 'none');
+  rec('6p: no errors', s.errors.length === 0, s.errors.join('|') + noAlerts(s));
+  await s.ctx.close();
+}
+
+const GROUPS = { '6a': group6a, '6b': group6b, '6c': group6c, '6d': group6d, '6e': group6e, '6f': group6f, '6g': group6g, '6h': group6h, '6i': group6i, '6j': group6j, '6k': group6k, '6l': group6l, '6m': group6m, '6n': group6n, '6o': group6o, '6p': group6p };
 
 (async () => {
   const want = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(GROUPS);

@@ -97,6 +97,46 @@ async function listTemplates(actorAuth, filters, deps) {
   return all.filter((t) => divisions.includes(t.division));
 }
 
+/**
+ * The points a project of this division will actually be created with.
+ *
+ * Owner request (18 Nov 2026): the sales order form offers the checklist as
+ * a dropdown, so each payment can say which point it is taken at — and it
+ * must offer them BEFORE the project exists.
+ *
+ * It asks the cascade's own resolver rather than repeating the fallback
+ * chain, so what the form offers is exactly what the project gets: the
+ * division's default template, or any template for it, or the standard
+ * points. Read-only — nothing is created or written.
+ *
+ * Only the text and who signs each point come back. Whether a point is
+ * done, its remark, its photographs and its dates belong to a project, and
+ * no project exists yet.
+ */
+async function standardPointsForDivision(actorAuth, division, deps) {
+  assertCompanyContext(actorAuth);
+  validateDivision(division);
+  const pmDivision = PM_DIVISION_FOR_ROLE[actorAuth.role];
+  if (pmDivision && pmDivision !== division) {
+    throw new ServiceError(
+      `This login can only see ${pmDivision} checklists.`,
+      'FORBIDDEN',
+      403
+    );
+  }
+  const { checklist, checklistTemplateName } = await require('./salesOrderCascade')
+    .resolveChecklist(actorAuth.companyId, division, deps);
+  return {
+    division,
+    templateName: checklistTemplateName || '',
+    items: checklist.map((c, index) => ({
+      index,
+      text: c.text,
+      signResponsibility: c.signResponsibility,
+    })),
+  };
+}
+
 // PWA FACT (`vChklist`/`chkListById`): no extra role/division restriction on
 // viewing a single template's detail -- consistent with the same
 // "detail view has no extra restriction" convention already locked for
@@ -306,6 +346,7 @@ async function moveTemplateItem(templateId, index, direction, actorAuth, deps) {
 module.exports = {
   canEditChecklistLibrary,
   listTemplates,
+  standardPointsForDivision,
   getTemplate,
   createTemplate,
   duplicateTemplate,

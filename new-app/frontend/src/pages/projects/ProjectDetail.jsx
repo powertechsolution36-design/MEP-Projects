@@ -206,7 +206,16 @@ export default function ProjectDetail() {
   const [quotePdfError, setQuotePdfError] = useState('');
 
   // The roles quotationRoutes lets through; everyone else reads the PDF.
-  const canOpenQuotationScreen = ['admin', 'sales', 'finance'].includes(user?.role);
+  /*
+   * Who goes to the quotation itself rather than its customer PDF.
+   *
+   * The three division Managers joined this list on 18 Nov 2026, when the
+   * Quotations screens were opened to them — sending a Manager to a PDF of
+   * a quotation they may now open and edit would be the worse answer. A
+   * login that still may not open those screens gets the PDF, as before.
+   */
+  const canOpenQuotationScreen = ['admin', 'sales', 'finance', 'hvac_pm', 'solar_pm', 'mep_pm']
+    .includes(user?.role);
 
   async function openQuotation() {
     if (canOpenQuotationScreen && proj?.quotation?.id) {
@@ -665,7 +674,8 @@ export default function ProjectDetail() {
         {/* SO link, and beside it the quotation the site was won on
             (owner request, 14 Nov 2026). A login that may open the
             Quotations screens goes to the quotation itself; one that may
-            not -- a Project Manager -- gets the customer's PDF. */}
+            not gets the customer's PDF. Managers moved from the second
+            group to the first on 18 Nov 2026. */}
         {(proj.salesOrderId || proj.quotation) && (
           <p style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {proj.salesOrderId && (

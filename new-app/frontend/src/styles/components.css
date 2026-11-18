@@ -562,6 +562,10 @@
   font-weight: var(--fw-bold);
 }
 .milestone-row input { flex: 1; min-width: 0; }
+/* The checklist point a payment is taken at (owner request, 18 Nov 2026).
+   Wider than the amount beside it, because a point is a sentence. */
+.milestone-row .milestone-point { flex: 2; min-width: 0; max-width: 420px; }
+.milestone-row .milestone-point:disabled { opacity: .6; }
 
 .follow-up-form { margin-top: var(--s-4); }
 .fu-row {

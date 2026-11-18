@@ -131,6 +131,49 @@ function validateSalesOrderDraft(draft) {
  * reproduce this whole chain exactly, including the legacy step (which the
  * original Enquiry-only cascade did not yet implement).
  */
+/**
+ * The checklist point a milestone says it is taken at, or null.
+ *
+ * Owner request (18 Nov 2026). Anything that is not a whole number at or
+ * above zero is null: a form that sends '' for "not chosen" must not be
+ * read as point 0, which is a real point.
+ */
+function pointIndexOf(milestone) {
+  const raw = milestone && milestone.checklistPointIndex;
+  if (raw === null || raw === undefined || raw === '') return null;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
+
+/**
+ * Write the milestone links the order agreed onto the project's own points.
+ *
+ * The LIVE link lives on the point (`releasesMilestoneIndex`), because a
+ * point carries its link with it when points are added or removed — the
+ * rule set when linking was built (16 Nov 2026). This turns the order's
+ * "milestone 2 is taken at point 5" into the point's "point 5 releases
+ * milestone 2", and keeps that rule's two limits: one point releases at
+ * most one milestone, and a milestone is released by at most one point.
+ *
+ * A point that does not exist — an order naming point 12 of a checklist
+ * with 10 — is skipped rather than guessed at. Returns the checklist, so
+ * the caller can store it.
+ */
+function applyMilestoneLinks(checklist, milestones) {
+  const rows = checklist.map((c) => ({ ...c }));
+  const takenPoint = new Set();
+  const takenMilestone = new Set();
+  (milestones || []).forEach((m, milestoneIndex) => {
+    const point = pointIndexOf(m);
+    if (point === null || !rows[point]) return;
+    if (takenPoint.has(point) || takenMilestone.has(milestoneIndex)) return;
+    rows[point].releasesMilestoneIndex = milestoneIndex;
+    takenPoint.add(point);
+    takenMilestone.add(milestoneIndex);
+  });
+  return rows;
+}
+
 async function resolveChecklist(companyId, division, deps) {
   const template = await deps.checklistTemplateRepo.findDefaultForDivision(companyId, division);
   /*
@@ -162,6 +205,11 @@ async function resolveChecklist(companyId, division, deps) {
         photos: [],
         targetDate: null,
         approval: null,
+        // Owner request (18 Nov 2026): a point may release the payment it
+        // earns. Set explicitly, so a fresh point has the same shape
+        // wherever it is built rather than relying on the schema default.
+        releasesMilestoneIndex: null,
+        releaseCollectWithinDays: null,
       })),
     };
   }
@@ -179,6 +227,11 @@ async function resolveChecklist(companyId, division, deps) {
         photos: [],
         targetDate: null,
         approval: null,
+        // Owner request (18 Nov 2026): a point may release the payment it
+        // earns. Set explicitly, so a fresh point has the same shape
+        // wherever it is built rather than relying on the schema default.
+        releasesMilestoneIndex: null,
+        releaseCollectWithinDays: null,
       })),
     };
   }
@@ -237,6 +290,9 @@ async function runCreationCascade({ draft, orderNumber, companyId, enquiryId, qu
         description: m.description,
         amount: m.amount,
         received: false, // PWA FACT: a fresh SO's milestones all start unreceived
+        // Owner request (18 Nov 2026): the checklist point this payment is
+        // taken at, chosen on the form. Null on the advance.
+        checklistPointIndex: pointIndexOf(m),
       })),
     },
     session
@@ -263,7 +319,10 @@ async function runCreationCascade({ draft, orderNumber, companyId, enquiryId, qu
       vendor: '',
       status: 'Ongoing',
       checklistTemplateName,
-      checklist,
+      // Owner request (18 Nov 2026): the payment each point earns, as the
+      // order agreed it, so the money asks for itself from the first day
+      // rather than waiting for somebody to link it on the project.
+      checklist: applyMilestoneLinks(checklist, draft.paymentMilestones),
       executionUpdates: [],
       deliveryChallans: [],
       timelineSet: false,
@@ -333,5 +392,7 @@ module.exports = {
   buildSalesOrderDraft,
   validateSalesOrderDraft,
   resolveChecklist,
+  applyMilestoneLinks,
+  pointIndexOf,
   runCreationCascade,
 };
