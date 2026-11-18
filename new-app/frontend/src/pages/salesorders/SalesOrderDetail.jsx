@@ -40,7 +40,16 @@ export default function SalesOrderDetail() {
   const [raisePriority, setRaisePriority] = useState('Normal');
 
   const showCost = !COST_HIDDEN_ROLES.includes(user?.role);
-  const canEdit = ['sales', 'admin'].includes(user?.role);
+  /*
+   * Owner request (18 Nov 2026): a Project Manager edits the sales order of
+   * the job they run — but not the money. The server is the rule
+   * (salesOrderService.PM_EDITABLE_FIELDS); this is the screen keeping to
+   * it, so a Manager is never offered a field their save would be refused
+   * for.
+   */
+  const PM_ROLES = ['hvac_pm', 'solar_pm', 'mep_pm'];
+  const isPm = PM_ROLES.includes(user?.role);
+  const canEdit = ['sales', 'admin', ...PM_ROLES].includes(user?.role);
   const { candidates } = useTeamCandidates(canEdit);
   const canRaise = ['hvac_pm', 'solar_pm', 'mep_pm', 'admin'].includes(user?.role);
 
@@ -61,23 +70,27 @@ export default function SalesOrderDetail() {
 
   function openEdit() {
     setEditForm({
-      division: so.division || '',
+      // A Manager may not move an order to another division — that is the
+      // one edit that would take the record away from them.
+      ...(isPm ? {} : { division: so.division || '' }),
       projectName: so.projectName || '',
       startDate: fmtDate(so.startDate),
       endDate: fmtDate(so.endDate),
       siteAddress: so.siteAddress || '',
       contacts: (so.contacts || [{ name:'',designation:'',phone:'',email:'' },{ name:'',designation:'',phone:'',email:'' }]).map(c => ({ ...c })),
-      salesTeam: so.salesTeam || '',
+      ...(isPm ? {} : { salesTeam: so.salesTeam || '' }),
       projectTeam: so.projectTeam || '',
       crucialPoints: so.crucialPoints || '',
-      totalCost: so.totalCost || 0,
-      highSideSelling: so.highSideSelling || 0,
-      highSidePurchase: so.highSidePurchase || 0,
-      lowSideCost: so.lowSideCost || 0,
-      lowSideTargetExpense: so.lowSideTargetExpense || 0,
-      lowSideActualExpense: so.lowSideActualExpense || 0,
+      ...(isPm ? {} : {
+        totalCost: so.totalCost || 0,
+        highSideSelling: so.highSideSelling || 0,
+        highSidePurchase: so.highSidePurchase || 0,
+        lowSideCost: so.lowSideCost || 0,
+        lowSideTargetExpense: so.lowSideTargetExpense || 0,
+        lowSideActualExpense: so.lowSideActualExpense || 0,
+        paymentMilestones: (so.paymentMilestones || []).map(m => ({ description: m.description, amount: m.amount })),
+      }),
       termsAndConditions: so.termsAndConditions || '',
-      paymentMilestones: (so.paymentMilestones || []).map(m => ({ description: m.description, amount: m.amount })),
     });
     setShowEdit(true);
   }
@@ -87,7 +100,7 @@ export default function SalesOrderDetail() {
     if (!editForm.projectName) { alert('Project name is required.'); return; }
     setBusy(true);
     try {
-      const payload = {
+      const payload = isPm ? { ...editForm } : {
         ...editForm,
         totalCost: Number(editForm.totalCost) || 0,
         highSideSelling: Number(editForm.highSideSelling) || 0,
@@ -294,12 +307,14 @@ export default function SalesOrderDetail() {
             <h3>Edit Sales Order</h3>
             <form onSubmit={handleEditSubmit}>
               <div className="form-grid">
-                <div className="filter-field">
-                  <label>Division</label>
-                  <select value={editForm.division} onChange={e => setEditForm(f => ({ ...f, division: e.target.value }))}>
-                    {myDivisions.map(d => <option key={d}>{d}</option>)}
-                  </select>
-                </div>
+                {!isPm && (
+                  <div className="filter-field">
+                    <label>Division</label>
+                    <select value={editForm.division} onChange={e => setEditForm(f => ({ ...f, division: e.target.value }))}>
+                      {myDivisions.map(d => <option key={d}>{d}</option>)}
+                    </select>
+                  </div>
+                )}
                 <div className="filter-field">
                   <label>Project Name *</label>
                   <input value={editForm.projectName} onChange={e => setEditForm(f => ({ ...f, projectName: e.target.value }))} />
@@ -328,7 +343,7 @@ export default function SalesOrderDetail() {
               ))}
 
               <div className="form-grid">
-                <TeamSelect label="Sales Team" value={editForm.salesTeam} options={candidates.sales} onChange={v => setEditForm(f => ({ ...f, salesTeam: v }))} />
+                {!isPm && <TeamSelect label="Sales Team" value={editForm.salesTeam} options={candidates.sales} onChange={v => setEditForm(f => ({ ...f, salesTeam: v }))} />}
                 <TeamSelect label="Project Team" value={editForm.projectTeam} options={candidates.project} onChange={v => setEditForm(f => ({ ...f, projectTeam: v }))} />
               </div>
               <div className="filter-field full-width">
@@ -336,7 +351,7 @@ export default function SalesOrderDetail() {
                 <textarea value={editForm.crucialPoints} onChange={e => setEditForm(f => ({ ...f, crucialPoints: e.target.value }))} rows={2} />
               </div>
 
-              {showCost && (
+              {showCost && !isPm && (
                 <>
                   <h4>Costing</h4>
                   <div className="form-grid">
@@ -355,8 +370,9 @@ export default function SalesOrderDetail() {
                 <textarea value={editForm.termsAndConditions} onChange={e => setEditForm(f => ({ ...f, termsAndConditions: e.target.value }))} rows={3} />
               </div>
 
-              <h4>Payment Milestones</h4>
-              {editForm.paymentMilestones.map((m, i) => (
+              {/* The milestones are money, so they are sales and admin's. */}
+              {!isPm && <h4>Payment Milestones</h4>}
+              {!isPm && editForm.paymentMilestones.map((m, i) => (
                 <div key={i} className="milestone-row">
                   <span className="milestone-num">{i + 1}.</span>
                   <input placeholder="Description" value={m.description} onChange={e => { const ms=[...editForm.paymentMilestones]; ms[i]={...ms[i],description:e.target.value}; setEditForm(f=>({...f,paymentMilestones:ms})); }} />
@@ -366,7 +382,7 @@ export default function SalesOrderDetail() {
                   )}
                 </div>
               ))}
-              {editForm.paymentMilestones.length < 5 && (
+              {!isPm && editForm.paymentMilestones.length < 5 && (
                 <button type="button" className="btn sec sm" onClick={() => setEditForm(f => ({ ...f, paymentMilestones: [...f.paymentMilestones, { description: '', amount: '' }] }))}>+ Add Milestone</button>
               )}
 

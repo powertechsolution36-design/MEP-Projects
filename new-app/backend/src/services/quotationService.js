@@ -25,6 +25,46 @@ const ROW_TYPES = ['item', 'sub', 'heading', 'spec'];
 // Solar Manager.
 const CONVERT_ROLES = Object.freeze(['sales', 'admin', 'solar_pm']);
 
+/*
+ * Owner request (18 Nov 2026): "add edit option to Sales order and
+ * quotation ... in Project manager login." A division Manager could see the
+ * quotation their site was won on but not open the register or correct one.
+ *
+ * They read and edit as sales does — prices included, any status (owner's
+ * decision, asked and answered) — but only within their own division, the
+ * rule their Projects and Sales Orders lists already follow. Raising a new
+ * quotation, duplicating one, deleting one and exporting the register stay
+ * with the commercial roles; none of those was asked for.
+ *
+ * These lists live here, beside the rule they encode, even though the
+ * quotation routes are what apply them: a permission worth reading is worth
+ * finding in the service.
+ */
+const PM_DIVISION_FOR_ROLE = Object.freeze({ hvac_pm: 'HVAC', solar_pm: 'Solar', mep_pm: 'MEP' });
+const PM_ROLES = Object.freeze(Object.keys(PM_DIVISION_FOR_ROLE));
+/** Who may open the register and read a quotation. */
+const VIEW_ROLES = Object.freeze(['super', 'admin', 'sales', 'finance', ...PM_ROLES]);
+/** Who may change one. */
+const EDIT_ROLES = Object.freeze(['super', 'admin', 'sales', 'finance', ...PM_ROLES]);
+/** Who may raise, duplicate, delete or export — unchanged. */
+const COMMERCIAL_ROLES = Object.freeze(['super', 'admin', 'sales', 'finance']);
+
+/** The division a Manager is confined to, or '' for everyone else. */
+function divisionScope(actorAuth) {
+  return (actorAuth && PM_DIVISION_FOR_ROLE[actorAuth.role]) || '';
+}
+
+/**
+ * Another division's quotation is not theirs to open or to change. 404, not
+ * 403: which quotations exist elsewhere is not the business of someone who
+ * may not read them — the same answer a sales order gives.
+ */
+function assertDivisionVisible(actorAuth, quotation) {
+  const mine = divisionScope(actorAuth);
+  if (!mine || !quotation || quotation.division === mine) return;
+  throw new ServiceError('Quotation not found.', 'NOT_FOUND', 404);
+}
+
 /**
  * The content a quotation starting point carries (owner request, 22 Oct 2026):
  * the wording that is the same on every offer of that kind. Customer details,
@@ -582,6 +622,12 @@ async function exportQuotationsCsv(companyId, deps) {
 module.exports = {
   convertQuotationToSalesOrder,
   TEMPLATE_FIELDS,
+  VIEW_ROLES,
+  EDIT_ROLES,
+  COMMERCIAL_ROLES,
+  PM_ROLES,
+  divisionScope,
+  assertDivisionVisible,
   usesPerItemGst,
   calculateLineTotals,
   calculateTotals,

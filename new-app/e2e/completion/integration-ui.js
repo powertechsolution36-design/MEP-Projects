@@ -967,8 +967,10 @@ async function group6j(browser) {
   const menu = (await s.page.locator('nav#main-nav a').allInnerTexts()).map((t) => t.trim());
   // Owner decision (16 Nov 2026): Clients joins the nine screens of 14 Nov,
   // so the Solar Manager can reach the client directory like everyone else.
-  const want = ['Dashboard', 'Clients', 'Enquiries', 'Sales Orders', 'Lost Enquiries', 'Projects',
-    'Service Calls', 'AMC / PM List', 'Issue Material', 'Checklists'];
+  // Owner request (18 Nov 2026): Quotations joins it too, so a Manager can
+  // reach the quotation they are allowed to edit.
+  const want = ['Dashboard', 'Clients', 'Enquiries', 'Quotations', 'Sales Orders', 'Lost Enquiries',
+    'Projects', 'Service Calls', 'AMC / PM List', 'Issue Material', 'Checklists'];
   rec('Solar Manager: the menu is the screens asked for, Clients included',
     want.every((w) => menu.some((m) => m.includes(w))) && menu.length === want.length,
     menu.join(' | '));
@@ -1237,10 +1239,12 @@ async function group6k(browser) {
     !!tab && /\/api\/public\/quotations\/[0-9a-f]{48}$/.test(tab.url()), tab ? tab.url() : 'no new tab');
   if (tab) await tab.close();
 
-  // The Quotations screens themselves stay shut to that login.
-  const shut = await api(pm.token, 'GET', `/api/quotations/${qt.json.quotation.id}`);
-  rec('6k: the Quotations area itself is still closed to the Project Manager',
-    shut.status === 403, String(shut.status));
+  // Owner request (18 Nov 2026): the Quotations area is open to a Manager
+  // now — for their OWN division. This is the Solar Manager on a Solar
+  // quotation, so it is theirs. Group 6o covers the division boundary.
+  const open403 = await api(pm.token, 'GET', `/api/quotations/${qt.json.quotation.id}`);
+  rec('6k: the Project Manager can now open their own division’s quotation',
+    open403.status === 200, String(open403.status));
 
   const link = await api(pm.token, 'GET', `/api/projects/${prj.id}/quotation-pdf-link`);
   rec('6k: but the quotation PDF is reachable through the project',
@@ -1517,7 +1521,82 @@ async function group6n(browser) {
 }
 
 
-const GROUPS = { '6a': group6a, '6b': group6b, '6c': group6c, '6d': group6d, '6e': group6e, '6f': group6f, '6g': group6g, '6h': group6h, '6i': group6i, '6j': group6j, '6k': group6k, '6l': group6l, '6m': group6m, '6n': group6n };
+/* ------------------------------------------------ 6o a Project Manager edits the
+   sales order and the quotation of the job they run (owner request, 18 Nov 2026) */
+async function group6o(browser) {
+  const adminT = await apiToken('admin');
+  const salesT = await apiToken('sales');
+  const tag = uniq();
+
+  // An HVAC quotation, and a Solar one the HVAC Manager must never reach.
+  const mine = (await api(salesT, 'POST', '/api/quotations', {
+    division: 'HVAC', customerName: `PM Edit HVAC ${tag}`,
+    equipmentItems: [{ description: 'Unit', unit: 'Nos', qty: 1, supplyRate: 100 }],
+  })).json.quotation;
+  const theirs = (await api(salesT, 'POST', '/api/quotations', {
+    division: 'Solar', customerName: `PM Edit Solar ${tag}`,
+    equipmentItems: [{ description: 'Panel', unit: 'Nos', qty: 1, supplyRate: 100 }],
+  })).json.quotation;
+
+  const pmT = await apiToken('amol'); // the HVAC Manager
+  const list = (await api(pmT, 'GET', '/api/quotations')).json.quotations || [];
+  rec('6o: a Manager’s quotation register is their own division’s',
+    list.some((q) => q.id === mine.id) && !list.some((q) => q.id === theirs.id),
+    `${list.length} rows, divisions ${[...new Set(list.map((q) => q.division))].join('/')}`);
+  rec('6o: another division’s quotation is not found, rather than refused',
+    (await api(pmT, 'GET', `/api/quotations/${theirs.id}`)).status === 404);
+  rec('6o: and cannot be edited either',
+    (await api(pmT, 'PATCH', `/api/quotations/${theirs.id}`, { subject: 'nope' })).status === 404);
+  rec('6o: a Manager cannot raise a new quotation',
+    (await api(pmT, 'POST', '/api/quotations', { division: 'HVAC', customerName: 'x', equipmentItems: [] })).status === 403);
+
+  // Editing their own, through the screen.
+  const pm = await session(browser, 'amol');
+  await open(pm, `/quotations/${mine.id}`);
+  await pm.page.waitForTimeout(400);
+  rec('6o: the Edit button is there for them',
+    (await pm.page.locator('button:text-is("Edit")').count()) === 1);
+  rec('6o: raising and duplicating are not',
+    (await pm.page.locator('button:has-text("Duplicate")').count()) === 0);
+  await pm.page.locator('button:text-is("Edit")').click();
+  await settle(pm);
+  const subject = pm.page.locator('label.filter-field:has-text("Subject") input, .filter-field:has(> label:text-is("Subject")) input').first();
+  await subject.fill(`Corrected by the Manager ${tag}`);
+  await pm.page.locator('button:has-text("Save")').first().click();
+  await settle(pm);
+  const q = (await api(adminT, 'GET', `/api/quotations/${mine.id}`)).json.quotation;
+  rec('6o: a Manager’s quotation edit saves', q.subject === `Corrected by the Manager ${tag}`, q.subject);
+  rec('6o: quotation: no errors', pm.errors.length === 0, pm.errors.join('|') + noAlerts(pm));
+
+  // The sales order: the job, never the money.
+  const soList = (await api(pmT, 'GET', '/api/sales-orders')).json.salesOrders || [];
+  const target = soList.find((o) => o.division === 'HVAC');
+  rec('6o: the Manager has an HVAC sales order to work on', !!target);
+  await open(pm, `/sales-orders/${target.id}`);
+  await pm.page.waitForTimeout(400);
+  await pm.page.locator('button:has-text("Edit Sales Order")').first().click();
+  await pm.page.waitForTimeout(400);
+  const modal = await pm.page.locator('.modal').innerText();
+  rec('6o: the edit form offers them the job',
+    /Site Address/i.test(modal) && /Crucial/i.test(modal));
+  rec('6o: and not the money',
+    !/Equipment Purchase/i.test(modal) && !/Payment Milestones/i.test(modal) && !/Total Cost/i.test(modal),
+    (modal.match(/(Equipment Purchase|Payment Milestones|Total Cost)/) || [''])[0]);
+  const site = pm.page.locator('.modal .filter-field:has(> label:text-is("Site Address")) input').first();
+  await site.fill(`Plant 2, Chakan ${tag}`);
+  await pm.page.locator('.modal button:has-text("Save")').click();
+  await settle(pm);
+  const after = (await api(adminT, 'GET', `/api/sales-orders/${target.id}`)).json.salesOrder;
+  rec('6o: a Manager’s sales order edit saves', after.siteAddress === `Plant 2, Chakan ${tag}`, after.siteAddress);
+  rec('6o: and the costing is untouched', after.highSidePurchase === target.highSidePurchase,
+    `${after.highSidePurchase} vs ${target.highSidePurchase}`);
+  rec('6o: a money field sent anyway is refused',
+    (await api(pmT, 'PATCH', `/api/sales-orders/${target.id}`, { highSidePurchase: 1 })).status === 403);
+  rec('6o: sales order: no errors', pm.errors.length === 0, pm.errors.join('|') + noAlerts(pm));
+  await pm.ctx.close();
+}
+
+const GROUPS = { '6a': group6a, '6b': group6b, '6c': group6c, '6d': group6d, '6e': group6e, '6f': group6f, '6g': group6g, '6h': group6h, '6i': group6i, '6j': group6j, '6k': group6k, '6l': group6l, '6m': group6m, '6n': group6n, '6o': group6o };
 
 (async () => {
   const want = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(GROUPS);

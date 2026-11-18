@@ -56,10 +56,18 @@ export const MENUS = {
     ['sos', '🧾 Sales Orders', '/sales-orders'],
     ['lost', '❌ Lost Enquiries', '/enquiries/lost'],
   ],
+/*
+ * Owner request (18 Nov 2026): "add edit option to Sales order and
+ * quotation ... in Project manager login." A Manager needs the Quotations
+ * register to reach one. What it shows them is their own division's, and
+ * raising, duplicating, deleting and exporting stay with the commercial
+ * roles — the server decides both (quotationService / quotationRoutes).
+ */
   hvac_pm: [
     ['dash', '🏠 Dashboard', '/'],
     ['clients', '🏢 Clients', '/clients'],
     ['projects', '🏗️ Projects', '/projects'],
+    ['quotations', '📄 Quotations', '/quotations'],
     ['sos', '🧾 Sales Orders', '/sales-orders'],
     ['stock', '📦 Stock', '/inventory/stock'],
     ['checklists', '✅ Checklist Template', '/checklists'],
@@ -75,6 +83,7 @@ export const MENUS = {
     ['dash', '🏠 Dashboard', '/'],
     ['clients', '🏢 Clients', '/clients'],
     ['enquiries', '📋 Enquiries', '/enquiries'],
+    ['quotations', '📄 Quotations', '/quotations'],
     ['sos', '🧾 Sales Orders', '/sales-orders'],
     ['lost', '❌ Lost Enquiries', '/enquiries/lost'],
     ['projects', '🏗️ Projects', '/projects'],
@@ -87,6 +96,7 @@ export const MENUS = {
     ['dash', '🏠 Dashboard', '/'],
     ['clients', '🏢 Clients', '/clients'],
     ['projects', '🏗️ Projects', '/projects'],
+    ['quotations', '📄 Quotations', '/quotations'],
     ['sos', '🧾 Sales Orders', '/sales-orders'],
     ['checklists', '✅ Checklist Template', '/checklists'],
   ],

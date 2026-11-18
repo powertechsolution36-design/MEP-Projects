@@ -232,7 +232,9 @@ function concrete(p, ids = FIXTURE) {
     allow('/api/sales-orders/:id', ['admin', 'sales', 'hvac_pm', 'finance']);
     allow('/api/inventory/issues', ['admin', 'inventory']);
     allow('/api/enquiries', ['admin', 'sales', 'solar_pm']); // Solar Manager has Enquiries (14 Nov 2026)
-    allow('/api/quotations', ['super', 'admin', 'sales', 'finance']); // super admitted "for support" (quotationRoutes.js)
+    // Owner request (18 Nov 2026): the three division Managers read and
+    // edit a quotation too, confined to their own division by the service.
+    allow('/api/quotations', ['super', 'admin', 'sales', 'finance', 'hvac_pm', 'solar_pm', 'mep_pm']); // super admitted "for support" (quotationRoutes.js)
     const sq = await call('GET', '/api/quotations', { token: tok.super });
     rec('C', 'super (no company) gets an empty quotation list, not other companies\' quotations', sq.status === 200 && Array.isArray(sq.json?.quotations) && sq.json.quotations.length === 0, `${sq.json?.quotations?.length}`);
     // Super has no company: company-scoped configuration written by super would be orphaned (companyId null).

@@ -33,7 +33,33 @@ const cascade = require('./salesOrderCascade');
 // PWA's own `saveSO`/`mSO` never checked role in code at all (a PWA
 // weakness, not PWA business behavior — see PWA_COVERAGE_AUDIT_SALESORDER.md §12).
 const CREATE_ROLES = Object.freeze(['sales', 'admin']);
-const EDIT_ROLES = Object.freeze(['sales', 'admin']);
+/*
+ * Owner request (18 Nov 2026): "add edit option to Sales order and
+ * quotation ... in Project manager login." A division Manager runs the job
+ * and was the one person who could not correct the order describing it —
+ * a wrong site address or a changed contact had to go back to sales.
+ *
+ * They edit the JOB, not the deal: the cost, the margin and the payment
+ * milestones stay with sales and admin (owner's decision, asked and
+ * answered — "everything except the money"). What a Manager may touch is
+ * PM_EDITABLE_FIELDS below, and only on their own division's order, which
+ * is the rule their list and their detail screen already follow.
+ */
+const EDIT_ROLES = Object.freeze(['sales', 'admin', 'hvac_pm', 'solar_pm', 'mep_pm']);
+
+/**
+ * What a division Manager may change. Everything else an order holds —
+ * every figure, the payment milestones, the division itself and the Sales
+ * Team — is left to sales and admin.
+ *
+ * `division` is excluded for a reason of its own: changing it would move
+ * the order out of the Manager's own division, which is the one edit that
+ * could take a record away from the person making it.
+ */
+const PM_EDITABLE_FIELDS = Object.freeze([
+  'projectName', 'startDate', 'endDate', 'siteAddress', 'contacts',
+  'projectTeam', 'crucialPoints', 'termsAndConditions',
+]);
 
 // PWA FACT (MENUS): only these roles have the "Sales Orders" menu item at
 // all (admin, sales, hvac_pm, solar_pm, mep_pm, finance) — engineer/
@@ -234,6 +260,26 @@ async function editSalesOrder(id, patchInput, actorAuth, deps) {
   if (!existing) {
     throw new ServiceError('SalesOrder not found.', 'NOT_FOUND', 404);
   }
+  // Another division's order is not theirs to edit, for the same reason it
+  // is not theirs to read: 404, not 403.
+  assertDivisionVisible(actorAuth, existing);
+
+  // A Manager's edit is refused outright when it carries a field they may
+  // not change, rather than quietly dropping it. A screen that does not
+  // offer the field never sends it, so this answers a caller going around
+  // the screen — and says which field, so it is not a guessing game.
+  if (PM_DIVISION_FOR_ROLE[actorAuth.role]) {
+    const sent = Object.keys(patchInput || {});
+    const refused = sent.filter((f) => !PM_EDITABLE_FIELDS.includes(f));
+    if (refused.length > 0) {
+      throw new ServiceError(
+        `A Manager may change ${PM_EDITABLE_FIELDS.join(', ')} on a sales order. `
+        + `The cost, margin and payment milestones are sales and admin's: ${refused.join(', ')}.`,
+        'FORBIDDEN',
+        403
+      );
+    }
+  }
 
   const patch = {};
   const EDITABLE_FIELDS = [
@@ -424,6 +470,7 @@ module.exports = {
   computePaySummaryFromFlags,
   computeReconciledPaySummary,
   CREATE_ROLES,
+  PM_EDITABLE_FIELDS,
   EDIT_ROLES,
   VIEW_ROLES,
   PM_DIVISION_FOR_ROLE,

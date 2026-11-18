@@ -6,7 +6,9 @@ import { money, fmtDate } from '../../utils/format';
 import DivisionSelector from '../../components/DivisionSelector';
 
 /**
- * Quotation list — admin, sales, finance roles.
+ * Quotation list — admin, sales, finance, and the three division Managers
+ * (owner request, 18 Nov 2026), who see their own division's and may edit
+ * but not raise one.
  *
  * API: GET /api/quotations?division=&status=&customerName=
  *      GET /api/quotations/export/csv
@@ -85,7 +87,9 @@ export default function QuotationList() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h2>Quotations</h2>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn sec sm" onClick={handleExportCsv}>Export CSV</button>
+          {/* The export is the whole register, so it stays with the
+              commercial roles — a Manager's is one division's. */}
+          {canCreate && <button className="btn sec sm" onClick={handleExportCsv}>Export CSV</button>}
           {canCreate && <button className="btn pri" onClick={() => navigate('/quotations/new')}>+ New Quotation</button>}
         </div>
       </div>
