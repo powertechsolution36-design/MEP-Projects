@@ -107,6 +107,8 @@ export default function QuotationCreate() {
   // Solar (owner request, 23 Oct 2026). The server filters these to the
   // divisions this company has bought.
   const [presets, setPresets] = useState([]);
+  // "Type my own" on the System picker — see the field below.
+  const [systemTyped, setSystemTyped] = useState(false);
   const [appliedPreset, setAppliedPreset] = useState('');
 
   useEffect(() => {
@@ -240,6 +242,12 @@ export default function QuotationCreate() {
   }, [form.division]);
 
   // Calculate totals
+  // The system wordings the built-in offer types carry, offered as a list;
+  // anything else was typed, so the box is open from the start.
+  const systemOptions = [...new Set(presets.map((p) => p.system).filter(Boolean))];
+  const systemIsOwn = systemTyped
+    || Boolean(form.system && systemOptions.length > 0 && !systemOptions.includes(form.system));
+
   function calcTotals() {
     return quotationTotals(equipmentItems, accessoriesItems, form.gstPercent, form.division);
   }
@@ -451,9 +459,30 @@ export default function QuotationCreate() {
               Subject
               <input value={form.subject} onChange={e => setField('subject', e.target.value)} />
             </label>
+            {/* Owner request (19 Nov 2026): "System coming directly Samsung.
+                Required option to select or manual type." */}
             <label className="filter-field">
               System
-              <input value={form.system} onChange={e => setField('system', e.target.value)} />
+              <select
+                value={systemIsOwn ? '__own' : (form.system || '')}
+                onChange={(e) => {
+                  if (e.target.value === '__own') { setSystemTyped(true); return; }
+                  setSystemTyped(false);
+                  setField('system', e.target.value);
+                }}
+              >
+                <option value="">— none —</option>
+                {systemOptions.map((sys) => <option key={sys} value={sys}>{sys}</option>)}
+                <option value="__own">Type my own…</option>
+              </select>
+              {systemIsOwn && (
+                <input
+                  style={{ marginTop: 6 }}
+                  placeholder="e.g. DAIKIN VRV System."
+                  value={form.system}
+                  onChange={e => setField('system', e.target.value)}
+                />
+              )}
             </label>
             <label className="filter-field">
               Capacity

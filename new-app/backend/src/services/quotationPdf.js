@@ -33,7 +33,7 @@
 
 const path = require('path');
 const PDFDocument = require('pdfkit');
-const { getFixedPages, getSharedPages } = require('./quotationPresets');
+const { getFixedPages, getSharedPages, OWNER_EDITABLE_FIELDS } = require('./quotationPresets');
 const { kindAttn } = require('./kindAttn');
 
 /*
@@ -145,6 +145,15 @@ function buildQuotationPdf({ company, quotation }) {
      * letter rather than a name and a signature. Payment terms are never
      * supplied this way: the split differs per offer type.
      */
+    const isBlank = (v) => v === undefined || v === null || v === ''
+      || (Array.isArray(v) && v.filter((x) => String(x || '').trim()).length === 0);
+    const applyLocked = (base, fixed) => {
+      const out = { ...base, ...fixed };
+      for (const key of OWNER_EDITABLE_FIELDS) {
+        if (!isBlank(base[key])) out[key] = base[key];
+      }
+      return out;
+    };
     const fillBlanks = (base, extra) => {
       const out = { ...base };
       for (const [k, v] of Object.entries(extra)) {
@@ -155,7 +164,16 @@ function buildQuotationPdf({ company, quotation }) {
       }
       return out;
     };
-    const q = locked ? { ...stored, ...locked } : fillBlanks(stored, getSharedPages());
+    /*
+     * Owner request (19 Nov 2026): the system line and the commercial terms
+     * — offer validity, delivery, the final-billing note and the excluded
+     * works — are editable again. The offer type still supplies them, so a
+     * quotation nobody touched reads exactly as it did; but where this
+     * quotation carries something of its own, that is what prints. A field
+     * left blank falls back to the standard wording, so clearing one still
+     * cannot empty the terms page.
+     */
+    const q = locked ? applyLocked(stored, locked) : fillBlanks(stored, getSharedPages());
     const isSolar = q.division === 'Solar';
     const eqItems = Array.isArray(q.equipmentItems) ? q.equipmentItems : [];
     const accItems = Array.isArray(q.accessoriesItems) ? q.accessoriesItems : [];
@@ -781,15 +799,22 @@ function buildQuotationPdf({ company, quotation }) {
       if (eqItems.length) {
         rows.push({ cells: ['A', 'Equipment', '', '', '', '', '', ''], bold: true });
         eqItems.forEach((item) => rows.push(lineCells(item)));
-        rows.push(totalRow('Sub Total', [num(q.equipmentSupplyTotal), num(q.equipmentInstallTotal)]));
-        rows.push(totalRow('TOTAL Equipment (Basic)', num(q.equipmentTotal), C.yellow));
+        /*
+         * Owner request (19 Nov 2026): "in Sub total 2 amount is showing
+         * don't show two different amount supply or installation show total
+         * of both." The sub total is now the one figure — supply plus
+         * installation — which is exactly what TOTAL Equipment (Basic)
+         * already said, so that row goes rather than printing the same
+         * number twice. The per-line supply and installation columns are
+         * untouched.
+         */
+        rows.push(totalRow('Sub Total', num(q.equipmentTotal), C.yellow));
         rows.push(totalRow(`TOTAL Equipment (${gstLabel})`, num(sectionWithGst(q.equipmentTotal, q.equipmentGstAmount)), C.yellow));
       }
       if (accItems.length) {
         rows.push({ cells: ['B', 'Accessories', '', '', '', '', '', ''], bold: true });
         accItems.forEach((item) => rows.push(lineCells(item)));
-        rows.push(totalRow('Sub Total', [num(q.accessoriesSupplyTotal), num(q.accessoriesInstallTotal)]));
-        rows.push(totalRow('TOTAL Accessories (Basic)', num(q.accessoriesTotal), C.yellow));
+        rows.push(totalRow('Sub Total', num(q.accessoriesTotal), C.yellow));
         rows.push(totalRow(`TOTAL Accessories (${gstLabel})`, num(sectionWithGst(q.accessoriesTotal, q.accessoriesGstAmount)), C.yellow));
       }
       if (!rows.length) rows.push({ cells: ['', 'No items on this quotation.', '', '', '', '', '', ''] });

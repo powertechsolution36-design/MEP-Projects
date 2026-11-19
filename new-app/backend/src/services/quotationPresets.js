@@ -364,6 +364,17 @@ function clonePreset(p) {
  * or created before offer types existed. Those keep rendering from their own
  * stored fields, so nothing already sent to a client changes shape.
  */
+/*
+ * The fixed pages, minus what the owner asked back (19 Nov 2026): the
+ * system line and the commercial terms are the company's standard wording
+ * and they still arrive filled in, but a quotation that says something
+ * different keeps what it says. A field left blank still prints the
+ * standard wording, so nothing can be emptied by accident.
+ */
+const OWNER_EDITABLE_FIELDS = Object.freeze([
+  'system', 'offerValidity', 'delivery', 'notes', 'excludedWorks',
+]);
+
 const FIXED_PAGE_FIELDS = Object.freeze([
   // page 1
   'subject', 'summaryText', 'system', 'benefitsOfSystem', 'siteDescription',
@@ -406,4 +417,7 @@ function getFixedPages(code) {
   return out;
 }
 
-module.exports = { listPresets, getPreset, getFixedPages, getSharedPages, FIXED_PAGE_FIELDS, PRESET_CODES };
+module.exports = {
+  listPresets, getPreset, getFixedPages, getSharedPages,
+  FIXED_PAGE_FIELDS, OWNER_EDITABLE_FIELDS, PRESET_CODES,
+};

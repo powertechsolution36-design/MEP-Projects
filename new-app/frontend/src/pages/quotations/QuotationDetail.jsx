@@ -107,6 +107,8 @@ export default function QuotationDetail() {
   const [exclWorks, setExclWorks] = useState([]);
   const [payTermTemplates, setPayTermTemplates] = useState([]);
   const [presets, setPresets] = useState([]);
+  // "Type my own" on the System picker — see the field below.
+  const [systemTyped, setSystemTyped] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -298,6 +300,17 @@ export default function QuotationDetail() {
    * locked. Capacity, the customer and the prices stay editable.
    */
   const fixedByType = Boolean(q.offerType);
+  // The system wordings the built-in offer types carry, offered as a list.
+  const systemOptions = [...new Set(presets.map((p) => p.system).filter(Boolean))];
+  /* The offer type's own wording, shown as the placeholder on a field left
+     blank: that is exactly what the PDF prints for a blank field, so the
+     screen says what the document will say without storing a copy of it. */
+  const typePreset = presets.find((p) => p.code === (form.offerType || q.offerType)) || null;
+  const stdText = (key) => (typePreset && typePreset[key] ? String(typePreset[key]) : '');
+  // A wording that is not one of those was typed by somebody, so the box is
+  // open from the start rather than the list silently showing "none".
+  const systemIsOwn = systemTyped
+    || Boolean(form.system && systemOptions.length > 0 && !systemOptions.includes(form.system));
   const pdfUrl = pdfToken && typeof window !== 'undefined'
     ? `${window.location.origin}/api/public/quotations/${pdfToken}`
     : '';
@@ -333,12 +346,38 @@ export default function QuotationDetail() {
               </label>
               {fixedByType && (
                 <p className="muted" style={{ gridColumn: '1 / -1', margin: 0, fontSize: 13 }}>
-                  The cover letter and the commercial terms are fixed for this offer type and print exactly as your
-                  standard quotation does. Only the client, the date, the capacity and the prices change.
+                  The cover letter is fixed for this offer type. The system line and the commercial terms below
+                  arrive filled in with your standard wording — change them and this quotation prints what you
+                  typed; leave one blank and it prints the standard wording.
                 </p>
               )}
               <label className="filter-field">Subject <input value={form.subject} onChange={e => setField('subject', e.target.value)} disabled={fixedByType} /></label>
-              <label className="filter-field">System <input value={form.system} onChange={e => setField('system', e.target.value)} disabled={fixedByType} /></label>
+              {/* Owner request (19 Nov 2026): "System coming directly Samsung.
+                  Required option to select or manual type." The built-in
+                  wordings are offered, and anything else is typed. */}
+              <label className="filter-field">
+                System
+                <select
+                  value={systemIsOwn ? '__own' : (form.system || '')}
+                  onChange={(e) => {
+                    if (e.target.value === '__own') { setSystemTyped(true); return; }
+                    setSystemTyped(false);
+                    setField('system', e.target.value);
+                  }}
+                >
+                  <option value="">— none —</option>
+                  {systemOptions.map((sys) => <option key={sys} value={sys}>{sys}</option>)}
+                  <option value="__own">Type my own…</option>
+                </select>
+                {systemIsOwn && (
+                  <input
+                    style={{ marginTop: 6 }}
+                    placeholder="e.g. DAIKIN VRV System."
+                    value={form.system}
+                    onChange={(e) => setField('system', e.target.value)}
+                  />
+                )}
+              </label>
               <label className="filter-field">Capacity <input value={form.capacity} onChange={e => setField('capacity', e.target.value)} /></label>
               {/* Owner decision (30 Oct 2026): the Solar cover's figures —
                   rooftop area, monthly and yearly generation, payback — are
@@ -426,18 +465,22 @@ export default function QuotationDetail() {
           <div className="panel" style={{ marginTop: 16 }}>
             <h3>Commercial Terms</h3>
             <div className="form-grid">
-              <label className="filter-field">Offer Validity <input value={form.offerValidity} onChange={e => setField('offerValidity', e.target.value)} disabled={fixedByType} /></label>
-              <label className="filter-field">Delivery <input value={form.delivery} onChange={e => setField('delivery', e.target.value)} disabled={fixedByType} /></label>
-              <label className="filter-field" style={{ gridColumn: '1 / -1' }}>Notes <textarea rows={2} value={form.notes} onChange={e => setField('notes', e.target.value)} disabled={fixedByType} /></label>
+              <label className="filter-field">Offer Validity <input value={form.offerValidity} placeholder={stdText('offerValidity')} onChange={e => setField('offerValidity', e.target.value)} /></label>
+              <label className="filter-field">Delivery <input value={form.delivery} placeholder={stdText('delivery')} onChange={e => setField('delivery', e.target.value)} /></label>
+              <label className="filter-field" style={{ gridColumn: '1 / -1' }}>Notes <textarea rows={2} value={form.notes} placeholder={stdText('notes')} onChange={e => setField('notes', e.target.value)} /></label>
             </div>
             <div style={{ marginTop: 8 }}>
               <strong>Excluded Works</strong>
+              {typePreset && exclWorks.filter((w) => String(w || '').trim()).length === 0 && (
+                <ul className="muted" style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 13 }}>
+                  {(typePreset.excludedWorks || []).map((w, i) => <li key={i}>{w}</li>)}
+                  <li><em>— your standard list, printed while these boxes are empty</em></li>
+                </ul>
+              )}
               {exclWorks.map((w, i) => (
                 <div key={i} style={{ display: 'flex', gap: 4, marginTop: 4 }}>
-                  <input value={w} onChange={e => { const c = [...exclWorks]; c[i] = e.target.value; setExclWorks(c); }} style={{ flex: 1 }} disabled={fixedByType} />
-                  {!fixedByType && (
-                    <button type="button" className="btn danger sm" onClick={() => setExclWorks(prev => prev.filter((_, j) => j !== i))}>&times;</button>
-                  )}
+                  <input value={w} onChange={e => { const c = [...exclWorks]; c[i] = e.target.value; setExclWorks(c); }} style={{ flex: 1 }} />
+                  <button type="button" className="btn danger sm" onClick={() => setExclWorks(prev => prev.filter((_, j) => j !== i))}>&times;</button>
                 </div>
               ))}
               <button type="button" className="btn sec sm" style={{ marginTop: 4 }} onClick={() => setExclWorks(prev => [...prev, ''])}>+ Add</button>
