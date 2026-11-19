@@ -790,7 +790,14 @@ export default function ProjectDetail() {
           <p className="muted">No checklist points.</p>
         ) : (
           <div className="table-wrap">
-            <table className="data-table" style={{ fontSize: 12 }}>
+            {/* Owner, 19 Nov 2026: "cannot see in my app". On a phone this
+                table is 873px wide inside a 366px screen, so two thirds of
+                every row — the dates, who approved it, the payment it
+                releases, the buttons — sat off to the right behind a
+                sideways drag most people never find. `stacks-on-phone`
+                turns each row into a card below 760px (components.css);
+                nothing changes on a desktop. */}
+            <table className="data-table stacks-on-phone" style={{ fontSize: 12 }}>
               <thead>
                 <tr>
                   <th>#</th>
@@ -813,8 +820,8 @@ export default function ProjectDetail() {
                   const st = itemStatus(c);
                   return (
                     <tr key={i}>
-                      <td>{i + 1}</td>
-                      <td>
+                      <td data-label="#">{i + 1}</td>
+                      <td data-label="Done">
                         {canAct && notInService ? (
                           <input
                             type="checkbox"
@@ -827,7 +834,7 @@ export default function ProjectDetail() {
                           c.done ? '✅' : '—'
                         )}
                       </td>
-                      <td style={{ whiteSpace: 'normal', maxWidth: 200 }}>
+                      <td data-label="Point" style={{ whiteSpace: 'normal', maxWidth: 200 }}>
                         {c.text}
                         {c.remark && <div className="muted" style={{ fontSize: 11 }}>💬 {c.remark}</div>}
                         {(c.photos || []).length > 0 && (
@@ -839,13 +846,13 @@ export default function ProjectDetail() {
                           </div>
                         )}
                       </td>
-                      <td>{c.signResponsibility}</td>
-                      <td>
+                      <td data-label="Sign">{c.signResponsibility}</td>
+                      <td data-label="Dates / status">
                         <div style={{ fontSize: 11 }}>Scheduled: {c.targetDate ? fmtDate(c.targetDate) : '—'}</div>
                         <div style={{ fontSize: 11 }}>Completed: {c.done && c.completedDate ? fmtDate(c.completedDate) : '—'}</div>
                         <span style={{ fontSize: 11, color: st.color }}>{st.text}</span>
                       </td>
-                      <td>
+                      <td data-label="Approved">
                         {c.approval?.approverName ? (
                           <div title={c.approval.approvalRemark || ''}>
                             <span className="status-badge status-won">✅ {c.approval.approverName}</span>
@@ -854,11 +861,11 @@ export default function ProjectDetail() {
                           </div>
                         ) : '—'}
                       </td>
-                      <td>{c.pmSigned ? '✅' : '—'}</td>
+                      <td data-label="PM">{c.pmSigned ? '✅' : '—'}</td>
                       {/* Owner request (16 Nov 2026): the payment this point
                           releases. A PM or Admin picks it; everyone else
                           reads it. Signed off and raised, it says so. */}
-                      <td style={{ whiteSpace: 'normal', minWidth: 150 }}>
+                      <td data-label="Releases payment" style={{ whiteSpace: 'normal', minWidth: 150 }}>
                         {isPM ? (
                           <>
                             <select
@@ -903,7 +910,7 @@ export default function ProjectDetail() {
                           </div>
                         )}
                       </td>
-                      <td style={{ whiteSpace: 'nowrap' }}>
+                      <td data-label="Actions" style={{ whiteSpace: 'nowrap' }}>
                         {canAct && notInService && (
                           <>
                             <button className="btn sec sm" onClick={() => openRemark(i)} title="Remark" style={{ padding: '2px 6px', fontSize: 11 }}>💬</button>

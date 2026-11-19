@@ -562,6 +562,75 @@
   font-weight: var(--fw-bold);
 }
 .milestone-row input { flex: 1; min-width: 0; }
+
+/* ==========================================================================
+   A wide table that becomes a list of cards on a phone.
+
+   Owner, 19 Nov 2026: "cannot see in my app". The project checklist is a
+   nine-column table; on a 390px phone it is 873px wide inside a 366px
+   window, so the dates, the approval, the payment it releases and the
+   buttons all sat off to the right behind a sideways drag inside the table
+   that most people never find. The points WERE there — you just could not
+   see them.
+
+   Below 760px each row becomes a card and each cell shows the heading it
+   belongs to, taken from its own data-label. Nothing here touches wider
+   screens, and no other table is affected: a table opts in by carrying
+   `stacks-on-phone`.
+   ========================================================================== */
+@media (max-width: 760px) {
+  .data-table.stacks-on-phone thead { display: none; }
+
+  .data-table.stacks-on-phone,
+  .data-table.stacks-on-phone tbody,
+  .data-table.stacks-on-phone tr,
+  .data-table.stacks-on-phone td {
+    display: block;
+    width: auto;
+  }
+
+  .data-table.stacks-on-phone tr {
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: var(--s-4);
+    margin-bottom: var(--s-4);
+    background: var(--surface);
+  }
+
+  /* The cell's own heading, so a value is never a number with no name. */
+  .data-table.stacks-on-phone td {
+    border: 0;
+    padding: 2px 0;
+    max-width: none !important;     /* the Point cell caps itself at 200px */
+    min-width: 0 !important;        /* the payment cell asks for 150px */
+    white-space: normal !important; /* Actions and Sign ask for nowrap */
+  }
+  .data-table.stacks-on-phone td::before {
+    content: attr(data-label);
+    display: block;
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-bold);
+    text-transform: uppercase;
+    letter-spacing: .3px;
+    color: var(--text-secondary);
+  }
+  /* The number and the tick read better side by side, and need no heading. */
+  .data-table.stacks-on-phone td[data-label="#"],
+  .data-table.stacks-on-phone td[data-label="Done"] {
+    display: inline-block;
+    vertical-align: middle;
+    margin-right: var(--s-4);
+  }
+  .data-table.stacks-on-phone td[data-label="#"] {
+    font-weight: var(--fw-bold);
+    font-size: var(--fs-md);
+  }
+  .data-table.stacks-on-phone td[data-label="#"]::before { content: none; }
+  .data-table.stacks-on-phone td[data-label="Done"]::before { content: none; }
+
+  /* The row is the card now, so the scroller around it has nothing to do. */
+  .table-wrap:has(> .data-table.stacks-on-phone) { overflow-x: visible; }
+}
 /* The checklist point a payment is taken at (owner request, 18 Nov 2026).
    Wider than the amount beside it, because a point is a sentence. */
 .milestone-row .milestone-point { flex: 2; min-width: 0; max-width: 420px; }
