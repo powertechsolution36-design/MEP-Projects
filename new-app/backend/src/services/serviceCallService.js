@@ -66,8 +66,19 @@ const { ROLE_DIVISION_MAP } = require('../auth/roleDivision');
 // engineer and scheduling AMC visits — but sees only its own division
 // (divisionScope below).
 const MANAGE_ROLES = Object.freeze(['admin', 'service_mgr', 'solar_pm']); // PWA FACT (§18) + solar_pm.
-// PWA FACT (§19, `vCall()` L3628): exactly these three roles, no division filter (GENUINELY OPEN #2, not added).
-const ENGINEER_CANDIDATE_ROLES = Object.freeze(['service_eng', 'engineer', 'service_mgr']);
+/*
+ * Who can be sent to a call.
+ *
+ * PWA FACT (§19, `vCall()` L3628) was three roles — service_eng, engineer,
+ * service_mgr. Owner request (19 Nov 2026): "Need all staff list for
+ * selection of engineer except Admin, Sales, inventory manager and finance."
+ * The three Managers go to site themselves, so they are candidates too; the
+ * office roles (admin, sales, inventory, finance) and the platform's own
+ * super login are not. Still no division filter.
+ */
+const ENGINEER_CANDIDATE_ROLES = Object.freeze([
+  'service_eng', 'engineer', 'service_mgr', 'hvac_pm', 'solar_pm', 'mep_pm',
+]);
 // PWA FACT (§9, SVC_CHK, exact order): the only 6 keys the PWA's own UI can ever submit.
 const CHECKLIST_KEYS = Object.freeze(['Cooling Testing', 'Gas Pressure', 'Filter Clean', 'Indoor Coil', 'Outdoor Coil', 'Body Cleaning']);
 // PWA FACT (§14, the report's `<select id="r_st">` options, exact order/values).
@@ -1125,6 +1136,30 @@ async function completeServiceCall(id, input, actorAuth, deps) {
  * "Reports to send" list. Only the people who hold the company WhatsApp
  * number (admin, service manager) see it.
  */
+/**
+ * Throw a service call away (owner request, 19 Nov 2026: "Need service call
+ * delete option for admin").
+ *
+ * Admin only — the register is the company's record of what was promised
+ * and what was done, so everybody else corrects a call rather than erasing
+ * it. The deletion is permanent: there is no trash to take it back out of.
+ *
+ * A payment raised when a chargeable call was completed is NOT deleted with
+ * it. Money collected, or still to be collected, is finance's record and
+ * does not disappear because the call behind it was removed; it is deleted
+ * on the Payments screen if that is really what is wanted.
+ */
+async function deleteServiceCall(id, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  if (actorAuth.role !== 'admin') {
+    throw new ServiceError('Only an admin can delete a service call.', 'FORBIDDEN', 403);
+  }
+  const existing = await deps.serviceCallRepo.findById(actorAuth.companyId, id);
+  if (!existing) throw new ServiceError('Service call not found.', 'NOT_FOUND', 404);
+  await deps.serviceCallRepo.deleteById(actorAuth.companyId, id);
+  return { deletedServiceCallId: String(id), complaintNumber: existing.complaintNumber || null };
+}
+
 async function listReportsToSend(actorAuth, deps) {
   assertCompanyContext(actorAuth);
   assertCanManageServiceCalls(actorAuth, 'see the reports waiting to be sent');
@@ -1242,6 +1277,7 @@ module.exports = {
   editServiceCallClient,
   saveReportDraft,
   completeServiceCall,
+  deleteServiceCall,
   listEngineerCandidates,
   // exported for tests / reuse
   MANAGE_ROLES,

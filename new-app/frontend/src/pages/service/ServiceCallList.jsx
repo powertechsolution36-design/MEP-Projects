@@ -70,6 +70,25 @@ export default function ServiceCallList() {
   const [division, setDivision] = useState('');
 
   const canManage = MANAGE_ROLES.includes(user?.role);
+  // Owner request (19 Nov 2026): "Need service call delete option for
+  // admin." Nobody else is offered it, and the server refuses them anyway.
+  const canDelete = user?.role === 'admin';
+
+  async function deleteCall(c) {
+    const no = c.complaintNumber || '';
+    const ok = window.confirm(
+      `Delete service call ${no} — ${c.customer || 'this customer'}?\n\n`
+      + 'It is removed for good; there is no undo. A payment raised from this '
+      + 'call is NOT deleted — remove that on the Payments screen if you want it gone.'
+    );
+    if (!ok) return;
+    try {
+      await api.del(`/api/service-calls/${c.id || c._id}`);
+      await load();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
   /* A login tied to one division has nothing to filter. */
   const showDivisionFilter = !['hvac_pm', 'solar_pm', 'mep_pm'].includes(user?.role);
 
@@ -263,17 +282,18 @@ export default function ServiceCallList() {
                   <th>Status</th>
                   <th>Engineer</th>
                   <th>Amount</th>
+                  {canDelete && <th><span className="sr-only">Delete</span></th>}
                 </tr>
               </thead>
               {shownBands.length === 0 && (
                 <tbody>
-                  <tr><td colSpan={10} className="muted">No service calls found.</td></tr>
+                  <tr><td colSpan={canDelete ? 11 : 10} className="muted">No service calls found.</td></tr>
                 </tbody>
               )}
               {shownBands.map(([st, rows]) => (
                 <tbody key={st} className={`sc-band sc-band-${st.toLowerCase()}`}>
                   <tr className="sc-band-head">
-                    <th colSpan={10} scope="colgroup">
+                    <th colSpan={canDelete ? 11 : 10} scope="colgroup">
                       <span className={`status-badge ${statusClass(st)}`}>{st}</span>
                       <span className="sc-band-n">{rows.length}</span>
                       <span className="sc-band-note">{STATUS_NOTE[st]}</span>
@@ -307,6 +327,18 @@ export default function ServiceCallList() {
                       <td><span className={`status-badge ${statusClass(c.status)}`}>{c.status}</span></td>
                       <td>{engineerMap[c.engineerId] || '—'}</td>
                       <td>{c.report?.amount ? money(c.report.amount) : '—'}</td>
+                      {canDelete && (
+                        <td>
+                          <button
+                            type="button"
+                            className="btn danger sm"
+                            title={`Delete service call ${c.complaintNumber || ''}`}
+                            onClick={(e) => { e.stopPropagation(); deleteCall(c); }}
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

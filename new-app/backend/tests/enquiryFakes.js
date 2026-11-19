@@ -444,6 +444,12 @@ function createEnquiryFakeStore(seed = {}) {
       Object.assign(doc, patch);
       return cloneDeep(doc);
     },
+    async deleteById(companyId, id) {
+      const before = state.serviceCalls.length;
+      state.serviceCalls = state.serviceCalls
+        .filter((s) => !(matchesId(s, id) && String(s.companyId) === String(companyId)));
+      return state.serviceCalls.length < before;
+    },
     async completeIfNotCompleted(companyId, id, patch) {
       const doc = state.serviceCalls.find((s) => matchesId(s, id) && String(s.companyId) === String(companyId));
       if (!doc || doc.status === 'Completed') return null;

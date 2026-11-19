@@ -163,6 +163,16 @@ function createServiceCallRouter(deps) {
     })
   );
 
+  // Owner request (19 Nov 2026): "Need service call delete option for
+  // admin." The service refuses every other role.
+  router.delete(
+    '/:id',
+    handle(async (req, res) => {
+      const result = await service.deleteServiceCall(req.params.id, req.auth, deps);
+      return res.status(200).json(result);
+    })
+  );
+
   // Owner decision (21 Oct 2026): link to the client-facing PDF report.
   router.get(
     '/:id/report-link',

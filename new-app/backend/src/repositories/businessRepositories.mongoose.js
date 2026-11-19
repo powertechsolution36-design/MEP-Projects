@@ -553,6 +553,11 @@ const serviceCallRepo = {
     const doc = await ServiceCall.findOneAndUpdate({ _id: id, companyId }, { $set: patch }, { new: true, session }).lean();
     return toPlainLean(doc);
   },
+  // Owner request (19 Nov 2026): an admin can throw a service call away.
+  async deleteById(companyId, id, session) {
+    const res = await ServiceCall.deleteOne({ _id: id, companyId }, { session });
+    return res.deletedCount > 0;
+  },
   async completeIfNotCompleted(companyId, id, patch, session) {
     const doc = await ServiceCall.findOneAndUpdate(
       { _id: id, companyId, status: { $ne: 'Completed' } },

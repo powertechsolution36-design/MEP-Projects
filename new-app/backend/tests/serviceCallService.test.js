@@ -289,13 +289,18 @@ test('assignEngineer — service_mgr is itself a valid engineer candidate (§19/
   assert.equal(updated.engineerId, 'mgr1');
 });
 
-test('assignEngineer — invalid role candidate is rejected (e.g. hvac_pm is NOT a Service Call engineer candidate)', async () => {
-  const store = baseStore({ users: [{ id: 'pm1', companyId: 'co1', name: 'PM Guy', role: 'hvac_pm' }] });
+test('assignEngineer — an office role is rejected; a Manager is accepted (owner request, 19 Nov 2026)', async () => {
+  const store = baseStore({ users: [
+    { id: 'pm1', companyId: 'co1', name: 'PM Guy', role: 'hvac_pm' },
+    { id: 'fin1', companyId: 'co1', name: 'Finance Guy', role: 'finance' },
+  ] });
   const { serviceCall } = await service.registerComplaint({ customer: 'X' }, auth(), store);
   await assert.rejects(
-    () => service.assignEngineer(serviceCall.id, { engineerId: 'pm1' }, auth(), store),
+    () => service.assignEngineer(serviceCall.id, { engineerId: 'fin1' }, auth(), store),
     (err) => err.code === 'VALIDATION_ERROR'
   );
+  const assigned = await service.assignEngineer(serviceCall.id, { engineerId: 'pm1' }, auth(), store);
+  assert.equal(String(assigned.engineerId), 'pm1');
 });
 
 test('assignEngineer — unknown engineerId is rejected', async () => {
@@ -872,8 +877,8 @@ test('exportServiceCallsCsv — role gate: only admin/service_mgr', async () => 
 
 /* ================= No delete/cancel/reopen (§21 item 14 / §23 item 13) ================= */
 
-test('ServiceCall module exposes no delete/cancel/reopen function', () => {
-  assert.equal(service.deleteServiceCall, undefined);
+test('ServiceCall module exposes no cancel/reopen function — deleting is admin\'s only way out (19 Nov 2026)', () => {
+  assert.equal(typeof service.deleteServiceCall, 'function');
   assert.equal(service.cancelServiceCall, undefined);
   assert.equal(service.reopenServiceCall, undefined);
   assert.equal(service.removeServiceCall, undefined);
@@ -1081,4 +1086,53 @@ test('flagging reads the call and writes nothing to it', async () => {
   const stored = await store.serviceCallRepo.findById('co1', 'svc1');
   assert.equal(stored.unattended, undefined, 'the flag is derived, never stored');
   assert.equal(stored.unattendedHours, undefined);
+});
+
+/* ================= deleting a call (owner request, 19 Nov 2026) ================= */
+
+test('deleteServiceCall — admin only, gone for good, and the call\'s payment is left alone', async () => {
+  const store = baseStore();
+  const { serviceCall } = await service.registerComplaint(
+    { customer: 'Priya', phone: '9998887776', site: 'Flat 4B', complaint: 'AC not cooling' },
+    auth({ role: 'service_mgr' }),
+    store
+  );
+  const id = serviceCall.id;
+
+  // Everybody but admin is refused — the register is the company's record.
+  for (const role of ['service_mgr', 'service_eng', 'engineer', 'sales', 'finance', 'solar_pm']) {
+    await assert.rejects(
+      () => service.deleteServiceCall(id, auth({ role }), store),
+      (err) => err.code === 'FORBIDDEN' && err.status === 403,
+      `${role} should not delete a service call`
+    );
+  }
+
+  // A payment standing against this call is NOT swept away with it.
+  store.state.payments.push({
+    id: 'pay_svc', companyId: 'co1', projectOrReference: `${serviceCall.site} (PSC-${serviceCall.complaintNumber})`,
+    amount: 2500, status: 'Pending', partPayments: [],
+  });
+
+  const result = await service.deleteServiceCall(id, auth({ role: 'admin' }), store);
+  assert.equal(result.deletedServiceCallId, String(id));
+  assert.equal(store.state.payments.length, 1);
+  assert.equal(store.state.serviceCalls.filter((c) => String(c.id) === String(id)).length, 0);
+
+  // Deleting it twice says not found rather than pretending.
+  await assert.rejects(
+    () => service.deleteServiceCall(id, auth({ role: 'admin' }), store),
+    (err) => err.code === 'NOT_FOUND' && err.status === 404
+  );
+});
+
+test('engineer candidates — every role that goes to site, and none of the office ones', () => {
+  // Owner request (19 Nov 2026): "all staff list for selection of engineer
+  // except Admin, Sales, inventory manager and finance".
+  for (const role of ['service_eng', 'engineer', 'service_mgr', 'hvac_pm', 'solar_pm', 'mep_pm']) {
+    assert.ok(service.ENGINEER_CANDIDATE_ROLES.includes(role), `${role} should be offered`);
+  }
+  for (const role of ['admin', 'sales', 'inventory', 'finance', 'super']) {
+    assert.ok(!service.ENGINEER_CANDIDATE_ROLES.includes(role), `${role} should not be offered`);
+  }
 });
