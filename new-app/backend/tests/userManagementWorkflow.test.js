@@ -118,6 +118,9 @@ test('FIX-3.8-01 — a hvac_pm user created via userService can be assigned as a
     executionUpdates: [],
     deliveryChallans: [],
     timelineSet: false,
+    // Owner rule (19 Nov 2026): a Manager acts on the projects ASSIGNED to
+    // them, so this one is handed to the Manager acting below.
+    projectManagerUserId: roster.hvac_pm.id,
   });
 
   // engineer/service_eng/hvac_pm/solar_pm/mep_pm are all valid engineer-

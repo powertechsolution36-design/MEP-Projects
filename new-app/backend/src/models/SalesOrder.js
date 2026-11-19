@@ -96,6 +96,18 @@ const salesOrderSchema = new Schema(
     },
     salesTeam: { type: String }, // PWA FACT
     projectTeam: { type: String }, // PWA FACT
+    /*
+     * Owner request (19 Nov 2026): "only sales person and admin can assign
+     * the project to which Project manager ... they should only see the
+     * project assigned to them."
+     *
+     * WHICH Manager, by id. projectTeam above is the name as it is printed
+     * and is kept exactly as it was; a name cannot carry the rule, because
+     * two people can share one and a renamed user would silently lose their
+     * projects. Null on every order raised before this, and on one where
+     * nobody was chosen.
+     */
+    projectManagerUserId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     crucialPoints: { type: String }, // PWA FACT
     totalCost: { type: Number }, // PWA FACT
     highSideSelling: { type: Number }, // PWA FACT

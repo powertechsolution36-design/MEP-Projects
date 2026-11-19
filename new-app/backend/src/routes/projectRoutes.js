@@ -21,6 +21,8 @@ const { requireCompanyContext, rejectClientSuppliedCompanyId } = require('../mid
  *   POST   /api/projects/:id/stage                            stage edit + completion gate
  *   PATCH  /api/projects/:id/vendor                           vendor edit
  *   POST   /api/projects/:id/engineers                        engineer assignment (full replace)
+ *   GET    /api/projects/managers?division=                    Managers a project can go to
+ *   PATCH  /api/projects/:id/manager                           hand it to one (sales/admin)
  *   POST   /api/projects/:id/timeline                         set/edit timeline
  *   PATCH  /api/projects/:id/checklist/:i/target-date          single-point target date edit
  *   POST   /api/projects/:id/checklist                        add a checklist point
@@ -110,6 +112,21 @@ function createProjectRouter(deps) {
     })
   );
 
+  /*
+   * Owner request (19 Nov 2026): "only sales person and admin can assign
+   * the project to which Project manager." Both of these refuse everyone
+   * else in the service, including the Managers themselves.
+   *
+   * Declared before '/:id' routes that could swallow "managers" as an id.
+   */
+  router.get(
+    '/managers',
+    handle(async (req, res) => {
+      const managers = await service.listManagerCandidates(req.query.division, req.auth, deps);
+      return res.status(200).json({ managers });
+    })
+  );
+
   router.get(
     '/:id',
     handle(async (req, res) => {
@@ -150,6 +167,14 @@ function createProjectRouter(deps) {
     '/:id/vendor',
     handle(async (req, res) => {
       const project = await service.setVendor(req.params.id, req.body && req.body.vendor, req.auth, deps);
+      return res.status(200).json({ project });
+    })
+  );
+
+  router.patch(
+    '/:id/manager',
+    handle(async (req, res) => {
+      const project = await service.assignProjectManager(req.params.id, req.body, req.auth, deps);
       return res.status(200).json({ project });
     })
   );

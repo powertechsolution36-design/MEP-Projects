@@ -19,6 +19,7 @@ const CO = 'company_demo';
 const ADMIN = 'seed_user_1';
 const SALES = 'seed_user_2';
 const ENGINEER = 'seed_user_6'; // Vinod — the engineer the project is assigned to
+const HVAC_PM = 'seed_user_3'; // Amol — the Manager the HVAC project is handed to
 
 function d(s) {
   return new Date(`${s}T00:00:00Z`);
@@ -63,7 +64,7 @@ function seedBusinessData(deps) {
   s.salesOrders.push({
     id: 'so_demo', companyId: CO, orderNumber: 1001, division: 'HVAC', projectName: 'Poonawalla KP87 — AHU replacement',
     siteAddress: 'Undri, Pune', startDate: d('2026-02-01'), endDate: d('2026-06-30'),
-    salesTeamUserId: SALES, projectTeam: 'Vinod', customerContacts: [{ name: 'Mr. Shah', designation: 'Owner', phone: '9820011223', email: '' }],
+    salesTeamUserId: SALES, projectTeam: 'Vinod', projectManagerUserId: HVAC_PM, customerContacts: [{ name: 'Mr. Shah', designation: 'Owner', phone: '9820011223', email: '' }],
     totalCost: 1366200, highSideSelling: 810000, highSidePurchase: 600000,
     lowSideCost: 556200, lowSideTargetExpense: 361530, lowSideActualExpense: 0,
     termsAndConditions: '1) Fabrication not in our scope.',
@@ -79,7 +80,7 @@ function seedBusinessData(deps) {
     id: 'prj_demo', companyId: CO, salesOrderId: 'so_demo', division: 'HVAC',
     name: 'Poonawalla KP87 — AHU replacement', siteType: 'Factory', capacity: '40 TR', customer: 'Intervalve Poonawalla',
     stage: 'Installation', status: 'Ongoing', startDate: d('2026-02-01'), vendor: 'CoolTech Fabricators',
-    assignedEngineerIds: [ENGINEER], timelineSet: true, checklistTemplateName: 'HVAC Installation — standard',
+    assignedEngineerIds: [ENGINEER], projectManagerUserId: HVAC_PM, timelineSet: true, checklistTemplateName: 'HVAC Installation — standard',
     revision: 0,
     checklist: [
       { text: 'Material at site', signResponsibility: 'ENGINEER', done: true, completedDate: d('2026-02-20'), targetDate: d('2026-02-18'), approval: { approverName: 'Amol', approvedDate: d('2026-02-21') }, photos: [] },

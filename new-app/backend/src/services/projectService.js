@@ -207,10 +207,33 @@ function freshChecklistItem(templateItem) {
   };
 }
 
-// PWA FACT (`canPM(p) = U.role==="admin" || PM_DIV[U.role]===p.div`, §15).
+/**
+ * PWA FACT (`canPM(p) = U.role==="admin" || PM_DIV[U.role]===p.div`, §15),
+ * narrowed by owner request (19 Nov 2026):
+ *
+ *   "if there is 2 project manager in HVAC Example Project manager deepak
+ *    and Vinod they should only see the project assigned to them deepak
+ *    cannot see vinod project and vinod cannot see deepak project."
+ *
+ * So a Manager's own division is no longer enough: the project must be
+ * ASSIGNED to them. A project assigned to nobody belongs to no Manager at
+ * all (owner's decision, asked and answered) — sales or admin assigns it
+ * before any Manager can work it.
+ *
+ * Admin is unchanged, and so is every other role's path into a project.
+ */
+function isAssignedManager(actorAuth, project) {
+  const mine = project && project.projectManagerUserId;
+  return Boolean(mine) && String(mine) === String(actorAuth.userId);
+}
+
 function isPmForProject(actorAuth, project) {
   if (actorAuth.role === 'admin') return true;
-  return PM_DIVISION_FOR_ROLE[actorAuth.role] === project.division;
+  if (!PM_DIVISION_FOR_ROLE[actorAuth.role]) return false;
+  // The division is still checked, so a Manager assigned a project outside
+  // their own division by mistake does not inherit it.
+  if (PM_DIVISION_FOR_ROLE[actorAuth.role] !== project.division) return false;
+  return isAssignedManager(actorAuth, project);
 }
 
 // PWA FACT (`isEng = p.engs.indexOf(U.name)>=0`, §14 -- name-match in the
@@ -223,7 +246,7 @@ function isAssignedEngineer(actorAuth, project) {
 function assertIsPM(actorAuth, project, actionDescription) {
   if (!isPmForProject(actorAuth, project)) {
     throw new ServiceError(
-      `Role "${actorAuth.role}" is not permitted to ${actionDescription || 'edit this project'} (must be the matching division's PM, or admin).`,
+      `Role "${actorAuth.role}" is not permitted to ${actionDescription || 'edit this project'} (must be the Manager this project is assigned to, or admin).`,
       'FORBIDDEN',
       403
     );
@@ -276,6 +299,15 @@ async function getProject(projectId, actorAuth, deps) {
   assertCompanyContext(actorAuth);
   const project = await deps.projectRepo.findById(actorAuth.companyId, projectId);
   if (!project) throw new ServiceError('Project not found.', 'NOT_FOUND', 404);
+  /*
+   * Owner request (19 Nov 2026): a Manager opens the projects assigned to
+   * them and no others. 404, not 403 — which projects another Manager holds
+   * is not the business of someone who may not read them, the same answer a
+   * sales order and a quotation give.
+   */
+  if (PM_DIVISION_FOR_ROLE[actorAuth.role] && !isPmForProject(actorAuth, project)) {
+    throw new ServiceError('Project not found.', 'NOT_FOUND', 404);
+  }
   // PWA FACT (vProject, index.html:2100/2122): engineers are shown by name.
   if ((project.assignedEngineerIds || []).length && deps.userRepoForEnquiry && deps.userRepoForEnquiry.listByCompany) {
     const users = await deps.userRepoForEnquiry.listByCompany(actorAuth.companyId);
@@ -305,7 +337,103 @@ async function getProject(projectId, actorAuth, deps) {
     // an order raised before the quotation flow, or a walk-in order.
     project.quotation = so && so.quotationId ? await quotationSummaryForProject(actorAuth.companyId, so.quotationId, deps) : null;
   }
+  // Owner request (19 Nov 2026): the screen says which Manager holds it.
+  if (project.projectManagerUserId && deps.userRepoForEnquiry && deps.userRepoForEnquiry.findById) {
+    const pm = await deps.userRepoForEnquiry.findById(project.projectManagerUserId);
+    project.projectManagerName = pm ? pm.name : null;
+  } else {
+    project.projectManagerName = null;
+  }
   return project;
+}
+
+/**
+ * Who may hand a project to a Manager, and who may be handed one.
+ *
+ * Owner request (19 Nov 2026): "only sales person and admin can assign the
+ * project to which Project manager or Manager the project is assigned."
+ * A Manager cannot assign a project — not to themselves, not to anybody —
+ * which is the whole point of the rule.
+ */
+const ASSIGN_ROLES = Object.freeze(['admin', 'sales']);
+const MANAGER_ROLES = Object.freeze(['hvac_pm', 'solar_pm', 'mep_pm']);
+
+/**
+ * Hand this project to a Manager, or take it back (userId null).
+ *
+ * The Manager must be one of this company's, must hold a Manager role, and
+ * must be of the project's OWN division — a Solar Manager cannot be given
+ * an HVAC project, because the division rule would then hide it from them
+ * anyway and the assignment would be a lie.
+ */
+async function assignProjectManager(projectId, input, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  if (!ASSIGN_ROLES.includes(actorAuth.role)) {
+    throw new ServiceError(
+      `Role "${actorAuth.role}" is not permitted to assign a project (must be ${ASSIGN_ROLES.join(' or ')}).`,
+      'FORBIDDEN',
+      403
+    );
+  }
+  const project = await deps.projectRepo.findById(actorAuth.companyId, projectId);
+  if (!project) throw new ServiceError('Project not found.', 'NOT_FOUND', 404);
+
+  const raw = input && input.projectManagerUserId;
+  const userId = raw === null || raw === undefined || raw === '' ? null : String(raw);
+
+  if (userId) {
+    const user = deps.userRepoForEnquiry && deps.userRepoForEnquiry.findById
+      ? await deps.userRepoForEnquiry.findById(userId)
+      : null;
+    if (!user || String(user.companyId) !== String(actorAuth.companyId)) {
+      throw new ServiceError('That user is not on this company.', 'NOT_FOUND', 404);
+    }
+    if (!MANAGER_ROLES.includes(user.role)) {
+      throw new ServiceError('A project is assigned to a Project Manager.', 'VALIDATION_ERROR', 400);
+    }
+    if (PM_DIVISION_FOR_ROLE[user.role] !== project.division) {
+      throw new ServiceError(
+        `${user.name || 'That Manager'} runs ${PM_DIVISION_FOR_ROLE[user.role]}, and this is a ${project.division} project.`,
+        'VALIDATION_ERROR',
+        400
+      );
+    }
+  }
+
+  const updated = await deps.projectRepo.update(actorAuth.companyId, projectId, {
+    projectManagerUserId: userId,
+  });
+  // The screen shows the NAME, and it has just changed, so send it back
+  // with the project rather than leaving the old one on display.
+  if (updated) {
+    const pm = userId && deps.userRepoForEnquiry && deps.userRepoForEnquiry.findById
+      ? await deps.userRepoForEnquiry.findById(userId)
+      : null;
+    updated.projectManagerName = pm ? pm.name : null;
+  }
+  return updated;
+}
+
+/**
+ * The Managers a project of this division can be handed to.
+ * Deactivated users are left out: a project cannot be run by someone who
+ * cannot log in.
+ */
+async function listManagerCandidates(division, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  if (!ASSIGN_ROLES.includes(actorAuth.role)) {
+    throw new ServiceError(
+      `Role "${actorAuth.role}" is not permitted to list Managers (must be ${ASSIGN_ROLES.join(' or ')}).`,
+      'FORBIDDEN',
+      403
+    );
+  }
+  const all = await deps.userRepoForEnquiry.listByCompany(actorAuth.companyId);
+  return all
+    .filter((u) => MANAGER_ROLES.includes(u.role) && u.active !== false
+      && (!division || PM_DIVISION_FOR_ROLE[u.role] === division))
+    .map((u) => ({ id: String(u.id), name: u.name, role: u.role, division: PM_DIVISION_FOR_ROLE[u.role] }))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
 }
 
 /**
@@ -433,7 +561,14 @@ async function listProjects(actorAuth, { filters = {}, enrich = false } = {}, de
   // PWA FACT (vProjects / dlProjects `hasDiv(p.div)`, index.html:2091, 3434).
   const divisions = await getEffectiveDivisions(actorAuth.companyId, deps);
   const entitled = all.filter((p) => divisions.includes(p.division));
-  const divScoped = pmDiv ? entitled.filter((p) => p.division === pmDiv) : entitled;
+  /*
+   * Owner request (19 Nov 2026): a Manager sees the projects ASSIGNED to
+   * them and no others — not their whole division, and not the ones nobody
+   * has been given yet.
+   */
+  const divScoped = pmDiv
+    ? entitled.filter((p) => p.division === pmDiv && isAssignedManager(actorAuth, p))
+    : entitled;
   const scoped = ownOnly
     ? divScoped.filter((p) => (p.assignedEngineerIds || []).map(String).includes(String(actorAuth.userId)))
     : divScoped;
@@ -2045,6 +2180,10 @@ function retryOnConflict(fn) {
 module.exports = {
   getProject,
   listProjects,
+  assignProjectManager,
+  listManagerCandidates,
+  ASSIGN_ROLES,
+  MANAGER_ROLES,
   setStage: retryOnConflict(setStage),
   setVendor,
   assignEngineers,

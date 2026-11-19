@@ -37,6 +37,11 @@ function baseProject(overrides) {
     companyId: 'co1',
     salesOrderId: 'so1',
     division: 'HVAC',
+    // Owner request (19 Nov 2026): a Manager works the projects ASSIGNED to
+    // them and no others, so the fixture is assigned to the Manager these
+    // tests act as ('u1'). A test about somebody ELSE's project overrides
+    // this, which is the point of it being here rather than assumed.
+    projectManagerUserId: 'u1',
     name: 'Tower Chiller Plant',
     siteType: '',
     capacity: '',
@@ -87,7 +92,104 @@ test('getProject — no division restriction on detail view (PWA FACT, preserved
   await assert.rejects(() => service.getProject('proj1', auth({ companyId: 'co2' }), store), (err) => err.code === 'NOT_FOUND');
 });
 
-test('listProjects — PM roles scoped to their own division; other roles see all divisions; search matches engineer name substring', async () => {
+/*
+ * Owner's rule, 19 Nov 2026, verbatim: "if there is 2 project manager in HVAC
+ * Example Project manager deepak and Vinod they should only see the project
+ * assigned to them deepak cannot see vinod project and vinod cannot see
+ * deepak project", and "only sales person and admin can assign the project".
+ * Division alone is not the rule any more — assignment is.
+ */
+test('two HVAC Managers see only their own projects, and an unassigned one belongs to neither', async () => {
+  const store = createEnquiryFakeStore({
+    projects: [
+      baseProject({ id: 'pd', name: "Deepak's tower", projectManagerUserId: 'deepak' }),
+      baseProject({ id: 'pv', name: "Vinod's mall", projectManagerUserId: 'vinod' }),
+      baseProject({ id: 'pn', name: 'Not handed out yet', projectManagerUserId: null }),
+    ],
+    salesOrders: [baseSalesOrder()],
+  });
+  const deepak = auth({ userId: 'deepak', role: 'hvac_pm', name: 'Deepak' });
+  const vinod = auth({ userId: 'vinod', role: 'hvac_pm', name: 'Vinod' });
+
+  assert.deepEqual((await service.listProjects(deepak, {}, store)).map((p) => p.id), ['pd']);
+  assert.deepEqual((await service.listProjects(vinod, {}, store)).map((p) => p.id), ['pv']);
+
+  // ...and not by the back door either: the detail screen says not found.
+  await assert.rejects(() => service.getProject('pv', deepak, store), (err) => err.code === 'NOT_FOUND');
+  await assert.rejects(() => service.getProject('pd', vinod, store), (err) => err.code === 'NOT_FOUND');
+  await assert.rejects(() => service.getProject('pn', deepak, store), (err) => err.code === 'NOT_FOUND');
+
+  // Admin still sees all three.
+  assert.equal((await service.listProjects(auth({ role: 'admin' }), {}, store)).length, 3);
+});
+
+test('assignProjectManager — admin and sales may hand a project over; a Manager may not, not even to themselves', async () => {
+  const store = createEnquiryFakeStore({
+    projects: [baseProject({ id: 'pd', projectManagerUserId: null })],
+    users: [
+      { id: 'deepak', companyId: 'co1', name: 'Deepak', role: 'hvac_pm' },
+      { id: 'vinod', companyId: 'co1', name: 'Vinod', role: 'hvac_pm' },
+      { id: 'akshay', companyId: 'co1', name: 'Akshay', role: 'solar_pm' },
+      { id: 'kiran', companyId: 'co1', name: 'Kiran', role: 'engineer' },
+    ],
+    salesOrders: [baseSalesOrder()],
+  });
+
+  for (const role of ['hvac_pm', 'engineer', 'finance', 'store']) {
+    await assert.rejects(
+      () => service.assignProjectManager('pd', { projectManagerUserId: 'deepak' }, auth({ userId: 'deepak', role }), store),
+      (err) => err.code === 'FORBIDDEN'
+    );
+  }
+
+  const bySales = await service.assignProjectManager('pd', { projectManagerUserId: 'deepak' }, auth({ role: 'sales' }), store);
+  assert.equal(String(bySales.projectManagerUserId), 'deepak');
+
+  // Admin can move it to the other HVAC Manager, and Deepak then loses it.
+  await service.assignProjectManager('pd', { projectManagerUserId: 'vinod' }, auth({ role: 'admin' }), store);
+  assert.deepEqual(
+    (await service.listProjects(auth({ userId: 'deepak', role: 'hvac_pm' }), {}, store)).map((p) => p.id),
+    []
+  );
+  assert.deepEqual(
+    (await service.listProjects(auth({ userId: 'vinod', role: 'hvac_pm' }), {}, store)).map((p) => p.id),
+    ['pd']
+  );
+
+  // A Solar Manager cannot be given an HVAC project, and nor can a non-Manager.
+  await assert.rejects(
+    () => service.assignProjectManager('pd', { projectManagerUserId: 'akshay' }, auth({ role: 'admin' }), store),
+    (err) => err.code === 'VALIDATION_ERROR'
+  );
+  await assert.rejects(
+    () => service.assignProjectManager('pd', { projectManagerUserId: 'kiran' }, auth({ role: 'admin' }), store),
+    (err) => err.code === 'VALIDATION_ERROR'
+  );
+
+  // Taking it back leaves it with nobody.
+  const cleared = await service.assignProjectManager('pd', { projectManagerUserId: null }, auth({ role: 'admin' }), store);
+  assert.equal(cleared.projectManagerUserId, null);
+});
+
+test('listManagerCandidates — the division\'s Managers only, and only for admin/sales', async () => {
+  const store = createEnquiryFakeStore({
+    projects: [baseProject()],
+    users: [
+      { id: 'vinod', companyId: 'co1', name: 'Vinod', role: 'hvac_pm' },
+      { id: 'deepak', companyId: 'co1', name: 'Deepak', role: 'hvac_pm' },
+      { id: 'akshay', companyId: 'co1', name: 'Akshay', role: 'solar_pm' },
+      { id: 'gone', companyId: 'co1', name: 'Left the company', role: 'hvac_pm', active: false },
+    ],
+  });
+  const got = await service.listManagerCandidates('HVAC', auth({ role: 'sales' }), store);
+  assert.deepEqual(got.map((u) => u.name), ['Deepak', 'Vinod']);
+  await assert.rejects(
+    () => service.listManagerCandidates('HVAC', auth({ role: 'hvac_pm' }), store),
+    (err) => err.code === 'FORBIDDEN'
+  );
+});
+
+test('listProjects — PM roles see their assigned projects only; other roles see all divisions; search matches engineer name substring', async () => {
   const store = createEnquiryFakeStore({
     projects: [
       baseProject({ id: 'p1', division: 'HVAC', name: 'Alpha' }),

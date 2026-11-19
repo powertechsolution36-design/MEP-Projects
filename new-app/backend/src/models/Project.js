@@ -169,6 +169,17 @@ const projectSchema = new Schema(
     endDate: { type: Date }, // PWA FACT
     // PWA FACT (as name strings, `engs[]`) -> NEW BACKEND DESIGN (durable ref).
     assignedEngineerIds: { type: [{ type: Schema.Types.ObjectId, ref: 'User' }], default: [] },
+    /*
+     * Owner request (19 Nov 2026): the Project Manager this project belongs
+     * to. Only sales and admin set it; the Manager it names is the only
+     * Manager who can see or work the project.
+     *
+     * Owner's decision, asked and answered: a project with NOBODY assigned
+     * is seen by no Manager at all — not by every Manager in the division,
+     * which is how it worked until now. So this being null is a real state
+     * with a real consequence, not a default to shrug at.
+     */
+    projectManagerUserId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     vendor: { type: String }, // PWA FACT
     status: {
       type: String,
@@ -201,5 +212,7 @@ const projectSchema = new Schema(
 projectSchema.index({ companyId: 1, division: 1, status: 1 });
 projectSchema.index({ companyId: 1, salesOrderId: 1 }, { unique: true });
 projectSchema.index({ companyId: 1, assignedEngineerIds: 1 });
+// A Manager's own list is the commonest read there is now.
+projectSchema.index({ companyId: 1, projectManagerUserId: 1 });
 
 module.exports = model('Project', projectSchema);

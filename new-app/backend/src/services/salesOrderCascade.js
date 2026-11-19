@@ -80,6 +80,9 @@ function buildSalesOrderDraft(enquiry, soOverrides, actorUserName) {
     contacts,
     salesTeam: overrides.salesTeam || actorUserName || '', // PWA FACT: U.name default
     projectTeam: overrides.projectTeam || '',
+    // Owner request (19 Nov 2026): which Manager the project goes to, set
+    // by sales when the order is raised. The name above is what prints.
+    projectManagerUserId: overrides.projectManagerUserId || null,
     crucialPoints: overrides.crucialPoints || '',
     // PWA FACT: e.value copied unless overridden — only applies to a conversion.
     totalCost: overrides.totalCost !== undefined ? overrides.totalCost : (enquiry && enquiry.estimatedValue) || 0,
@@ -278,6 +281,7 @@ async function runCreationCascade({ draft, orderNumber, companyId, enquiryId, qu
       contacts: draft.contacts,
       salesTeam: draft.salesTeam,
       projectTeam: draft.projectTeam,
+      projectManagerUserId: draft.projectManagerUserId || null,
       crucialPoints: draft.crucialPoints,
       totalCost: draft.totalCost,
       highSideSelling: draft.highSideSelling,
@@ -316,6 +320,11 @@ async function runCreationCascade({ draft, orderNumber, companyId, enquiryId, qu
       startDate: draft.startDate,
       endDate: draft.endDate,
       assignedEngineerIds: [],
+      // Owner request (19 Nov 2026): the project is handed to the Manager
+      // the order named, so it is theirs from the moment it exists. Null
+      // when sales left it blank — and then no Manager sees it until
+      // somebody assigns it.
+      projectManagerUserId: draft.projectManagerUserId || null,
       vendor: '',
       status: 'Ongoing',
       checklistTemplateName,

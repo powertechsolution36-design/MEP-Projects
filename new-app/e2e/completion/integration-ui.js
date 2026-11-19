@@ -1197,7 +1197,10 @@ async function group6k(browser) {
   rec('6k: the two dropdowns are different lists',
     JSON.stringify(salesNames) !== JSON.stringify(projNames));
 
-  const projectPick = projNames.find((n) => n !== '— none —');
+  // The Solar Manager by name: since 19 Nov 2026 the Project Team pick is
+  // also WHO the project is handed to, and this test goes on to open the
+  // project as Akshay. Picking "Admin" here would hand it to nobody.
+  const projectPick = projNames.find((n) => /akshay/i.test(n)) || projNames.find((n) => n !== '— none —');
   await projSel.selectOption({ label: projectPick });
   await flat(s.page, 'Project Name *').fill(`Won site ${tag}`);
   await s.page.locator('form button[type=submit]').click();

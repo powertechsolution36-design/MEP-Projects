@@ -34,6 +34,24 @@ export function useTeamCandidates(enabled = true) {
   return { candidates, error };
 }
 
+/*
+ * Owner request (19 Nov 2026): the Project Team name on a Sales Order is
+ * also WHO the project belongs to — "only sales person and admin can assign
+ * the project to which Project manager". The dropdown still shows names,
+ * but the order carries the person's id, because two Managers can share a
+ * name and a name cannot be checked against a login.
+ *
+ * Admin is on this list as a team member, not as a Manager, so picking
+ * admin assigns the project to nobody.
+ */
+const MANAGER_ROLES = ['hvac_pm', 'solar_pm', 'mep_pm'];
+
+export function managerIdForName(options, name) {
+  if (!name) return null;
+  const hit = (options || []).find((o) => o.name === name && MANAGER_ROLES.includes(o.role));
+  return hit ? String(hit.id) : null;
+}
+
 export default function TeamSelect({ label, value, options, onChange, disabled }) {
   const names = (options || []).map((o) => o.name);
   // The saved name first, when it is no longer among the users on file.

@@ -140,6 +140,37 @@ export default function ProjectDetail() {
 
   /* ---------- Modal states ---------- */
 
+  /* Owner request (19 Nov 2026): "only sales person and admin can assign
+     the project to which Project manager or Manager the project is
+     assigned". Nobody else is offered the control, and the endpoint behind
+     it refuses them anyway. */
+  const canAssignManager = ['admin', 'sales'].includes(user?.role);
+  const [managerOptions, setManagerOptions] = useState([]);
+  const [assignBusy, setAssignBusy] = useState(false);
+  const [assignError, setAssignError] = useState('');
+
+  useEffect(() => {
+    if (!canAssignManager || !proj) return undefined;
+    let alive = true;
+    api.get(`/api/projects/managers?division=${encodeURIComponent(proj.division || '')}`)
+      .then((d) => { if (alive && d) setManagerOptions(d.managers || []); })
+      .catch((err) => { if (alive) setAssignError(err.message); });
+    return () => { alive = false; };
+  }, [canAssignManager, proj && proj.division]);
+
+  async function assignManager(userId) {
+    setAssignBusy(true);
+    setAssignError('');
+    try {
+      const d = await api.patch(`/api/projects/${id}/manager`, { projectManagerUserId: userId || null });
+      applyProject(d.project);
+    } catch (err) {
+      setAssignError(err.message);
+    } finally {
+      setAssignBusy(false);
+    }
+  }
+
   const [showVendorModal, setShowVendorModal] = useState(false);
   const [vendorForm, setVendorForm] = useState('');
 
@@ -669,7 +700,29 @@ export default function ProjectDetail() {
           <div><strong>End Date:</strong> {fmtDate(proj.endDate)}</div>
           <div><strong>Vendor:</strong> {proj.vendor || '—'}</div>
           <div><strong>Checklist Template:</strong> {proj.checklistTemplateName || '—'}</div>
+          <div><strong>Project Manager:</strong> {proj.projectManagerName || 'Not assigned'}</div>
         </div>
+
+        {/* Owner request (19 Nov 2026): admin and sales hand the project to
+            one Manager; that Manager is the only one who sees it. */}
+        {canAssignManager && (
+          <p style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <label htmlFor="assign-pm"><strong>Assign to Manager:</strong></label>
+            <select
+              id="assign-pm"
+              value={proj.projectManagerUserId ? String(proj.projectManagerUserId) : ''}
+              disabled={assignBusy}
+              onChange={(e) => assignManager(e.target.value)}
+            >
+              <option value="">— nobody (hidden from every Manager) —</option>
+              {managerOptions.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+            {assignBusy && <span>Saving…</span>}
+            {assignError && <span className="err">{assignError}</span>}
+          </p>
+        )}
 
         {/* SO link, and beside it the quotation the site was won on
             (owner request, 14 Nov 2026). A login that may open the

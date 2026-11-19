@@ -92,7 +92,9 @@ async function siteWonOnAQuotation() {
   const quotationService = require('../src/services/quotationService');
   const result = await quotationService.convertQuotationToSalesOrder(
     'qt1',
-    { projectName: 'Rooftop Array', totalCost: 500000, paymentMilestones: [] },
+    // Owner rule (19 Nov 2026): a Manager sees the projects ASSIGNED to
+    // them, so the order hands this one to the Solar Manager below.
+    { projectName: 'Rooftop Array', totalCost: 500000, paymentMilestones: [], projectManagerUserId: 'u_solar' },
     auth(),
     store
   );
@@ -113,7 +115,7 @@ test('project detail carries the quotation the site was won on — number, date,
 
 test('project detail shows no costing or line items from the quotation — only the summary', async () => {
   const { store, result } = await siteWonOnAQuotation();
-  const project = await projectService.getProject(result.project.id, auth({ role: 'solar_pm' }), store);
+  const project = await projectService.getProject(result.project.id, auth({ role: 'solar_pm', userId: 'u_solar' }), store);
   const keys = Object.keys(project.quotation).sort();
   assert.deepEqual(keys, ['customerName', 'date', 'division', 'grandTotal', 'id', 'quotationNumber', 'status', 'subject']);
 });
@@ -124,31 +126,31 @@ test('a walk-in order has no quotation, and the project says so rather than fail
     checklistTemplates: [{ id: 'tpl1', companyId: 'co1', division: 'Solar', name: 'Standard Solar', isDefault: true, items: [] }],
   });
   const result = await salesOrderService.createSalesOrder(
-    { division: 'Solar', projectName: 'Walk-in', contacts: [{ name: 'Anita', phone: '9000011111' }], totalCost: 100, paymentMilestones: [] },
+    { division: 'Solar', projectName: 'Walk-in', contacts: [{ name: 'Anita', phone: '9000011111' }], totalCost: 100, paymentMilestones: [], projectManagerUserId: 'u_solar' },
     auth(),
     store
   );
-  const project = await projectService.getProject(result.project.id, auth({ role: 'solar_pm' }), store);
+  const project = await projectService.getProject(result.project.id, auth({ role: 'solar_pm', userId: 'u_solar' }), store);
   assert.equal(project.quotation, null);
 });
 
 test('the quotation PDF link is reached through the project, and refused when there is no quotation', async () => {
   const { store, result } = await siteWonOnAQuotation();
-  const link = await projectService.getProjectQuotationPdfLink(result.project.id, auth({ role: 'solar_pm' }), store);
+  const link = await projectService.getProjectQuotationPdfLink(result.project.id, auth({ role: 'solar_pm', userId: 'u_solar' }), store);
   assert.match(link.pdfToken, /^[0-9a-f]{48}$/);
 
   // Asking twice gives the same token — it is minted once, not re-rolled.
-  const again = await projectService.getProjectQuotationPdfLink(result.project.id, auth({ role: 'solar_pm' }), store);
+  const again = await projectService.getProjectQuotationPdfLink(result.project.id, auth({ role: 'solar_pm', userId: 'u_solar' }), store);
   assert.equal(again.pdfToken, link.pdfToken);
 
   // A walk-in project has nothing to open.
   const walkIn = await salesOrderService.createSalesOrder(
-    { division: 'Solar', projectName: 'Walk-in', contacts: [{ name: 'Anita', phone: '9000011111' }], totalCost: 100, paymentMilestones: [] },
+    { division: 'Solar', projectName: 'Walk-in', contacts: [{ name: 'Anita', phone: '9000011111' }], totalCost: 100, paymentMilestones: [], projectManagerUserId: 'u_solar' },
     auth(),
     store
   );
   await assert.rejects(
-    () => projectService.getProjectQuotationPdfLink(walkIn.project.id, auth({ role: 'solar_pm' }), store),
+    () => projectService.getProjectQuotationPdfLink(walkIn.project.id, auth({ role: 'solar_pm', userId: 'u_solar' }), store),
     (err) => err.code === 'NOT_FOUND' && err.status === 404
   );
 });
@@ -185,7 +187,7 @@ function divisionStore() {
 
 test('the Solar Manager sees only Solar sales orders, never the HVAC ones', async () => {
   const store = divisionStore();
-  const list = await salesOrderService.listSalesOrders(auth({ role: 'solar_pm' }), {}, store);
+  const list = await salesOrderService.listSalesOrders(auth({ role: 'solar_pm', userId: 'u_solar' }), {}, store);
   assert.deepEqual(list.map((o) => o.division), ['Solar']);
   assert.deepEqual(list.map((o) => o.projectName), ['Rooftop']);
 });
@@ -204,7 +206,7 @@ test('each division Manager sees its own, and admin, sales and finance still see
 
 test('another division’s sales order is not reachable by id either', async () => {
   const store = divisionStore();
-  const solar = auth({ role: 'solar_pm' });
+  const solar = auth({ role: 'solar_pm', userId: 'u_solar' });
   assert.equal((await salesOrderService.getSalesOrder('so_solar', solar, store)).division, 'Solar');
   for (const id of ['so_hvac', 'so_mep']) {
     await assert.rejects(
@@ -219,7 +221,7 @@ test('another division’s sales order is not reachable by id either', async () 
 
 test('the sales order CSV a division Manager exports carries only its own division', async () => {
   const store = divisionStore();
-  const csv = await salesOrderService.exportSalesOrdersCsv(auth({ role: 'solar_pm' }), {}, store);
+  const csv = await salesOrderService.exportSalesOrdersCsv(auth({ role: 'solar_pm', userId: 'u_solar' }), {}, store);
   assert.ok(csv.includes('Rooftop'), 'its own order should be in the export');
   assert.ok(!csv.includes('Chiller'), 'another division should not be');
   assert.ok(!csv.includes('Plumbing'), 'nor the third');

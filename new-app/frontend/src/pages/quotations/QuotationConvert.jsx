@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { today } from '../../utils/format';
 import useMyDivisions from '../../hooks/useMyDivisions';
-import TeamSelect, { useTeamCandidates } from '../../components/TeamSelect';
+import TeamSelect, { useTeamCandidates, managerIdForName } from '../../components/TeamSelect';
 import DraftBar, { useDrafts } from '../../components/DraftBar';
 
 /**
@@ -123,6 +123,8 @@ export default function QuotationConvert() {
     try {
       const payload = {
         ...form,
+        // Who the project is handed to, taken from the Project Team pick.
+        projectManagerUserId: managerIdForName(candidates.project, form.projectTeam),
         totalCost: Number(form.totalCost) || 0,
         highSideSelling: Number(form.highSideSelling) || 0,
         highSidePurchase: Number(form.highSidePurchase) || 0,

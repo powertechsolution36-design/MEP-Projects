@@ -99,7 +99,9 @@ async function listTeamCandidates(actorAuth, deps) {
   const all = await deps.userRepoForEnquiry.listByCompany(actorAuth.companyId);
   const pick = (roles) => all
     .filter((u) => roles.includes(u.role) && u.name)
-    .map((u) => ({ name: u.name, role: u.role, active: u.active !== false }))
+    // Owner request (19 Nov 2026): the id too, because a project is handed
+    // to a PERSON and a name cannot carry that — two people can share one.
+    .map((u) => ({ id: String(u.id), name: u.name, role: u.role, active: u.active !== false }))
     .sort((a, b) => a.name.localeCompare(b.name));
   return { sales: pick(SALES_TEAM_ROLES), project: pick(PROJECT_TEAM_ROLES) };
 }
@@ -316,6 +318,10 @@ async function editSalesOrder(id, patchInput, actorAuth, deps) {
     'salesTeam', 'projectTeam', 'crucialPoints', 'totalCost', 'highSideSelling',
     'highSidePurchase', 'lowSideCost', 'lowSideTargetExpense', 'lowSideActualExpense',
     'termsAndConditions',
+    // Owner request (19 Nov 2026): WHICH Manager runs the job. Deliberately
+    // NOT in PM_EDITABLE_FIELDS — a Manager cannot hand a project to
+    // anybody, least of all themselves.
+    'projectManagerUserId',
   ];
   for (const field of EDITABLE_FIELDS) {
     if (Object.prototype.hasOwnProperty.call(patchInput || {}, field)) {
@@ -347,6 +353,17 @@ async function editSalesOrder(id, patchInput, actorAuth, deps) {
   }
 
   const updated = await deps.salesOrderRepo.update(actorAuth.companyId, id, patch);
+  // Owner request (19 Nov 2026): changing the Manager on the order has to
+  // move the PROJECT too, or the order would name one person while the
+  // project still showed up in somebody else's list.
+  if (Object.prototype.hasOwnProperty.call(patch, 'projectManagerUserId') && deps.projectRepo) {
+    const linked = await deps.projectRepo.findBySalesOrderId(actorAuth.companyId, id);
+    if (linked) {
+      await deps.projectRepo.update(actorAuth.companyId, linked.id, {
+        projectManagerUserId: patch.projectManagerUserId || null,
+      });
+    }
+  }
   if (patch.paymentMilestones) {
     await applyMilestoneLinksToProject(actorAuth.companyId, id, patch.paymentMilestones, deps);
   }
