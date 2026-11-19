@@ -55,6 +55,15 @@ export default function PaymentLedger() {
    * always been: a destructive button should cost a deliberate reach, not sit
    * under the thumb beside Mark Received.
    */
+  /*
+   * Owner request (19 Nov 2026): "in pending payment there should be option
+   * called Sales Order where we can see all sales order payment" — the
+   * pending table opens on the payments that were added by hand, and the
+   * milestone payments a sales order raised sit behind their own tab. One
+   * table, one set of buttons; only which rows it holds changes.
+   */
+  const [pendingTab, setPendingTab] = useState('manual');
+
   const [openRows, setOpenRows] = useState(() => new Set());
   const toggleRow = (id) => setOpenRows((prev) => {
     const next = new Set(prev);
@@ -118,6 +127,11 @@ export default function PaymentLedger() {
   // PWA FACT (index.html:3886): settled milestones show newest first.
   const settled = filtered.filter(p => p.status === 'Received').slice().reverse();
   const raised = pending.filter(p => p.raisedToFinance);
+  // A payment belongs to a sales order when it was raised from one of its
+  // milestones; everything else was typed in on this screen.
+  const pendingManual = pending.filter((p) => !p.salesOrderId);
+  const pendingOrders = pending.filter((p) => p.salesOrderId);
+  const shownPending = pendingTab === 'orders' ? pendingOrders : pendingManual;
 
   /* PWA FACT (index.html:3859-3863): the five KPI cards are computed over
      ALL of the company's payments — the search box narrows the tables, not
@@ -131,9 +145,9 @@ export default function PaymentLedger() {
 
   /* PWA FACT (index.html:3708-3711): the pending panel's own three badges
      DO follow the search, so they describe the rows on screen. */
-  const pendBilled = pending.reduce((a, p) => a + (p.amount || 0), 0);
-  const pendReceived = pending.reduce((a, p) => a + received(p), 0);
-  const pendBalance = pending.reduce((a, p) => a + balance(p), 0);
+  const pendBilled = shownPending.reduce((a, p) => a + (p.amount || 0), 0);
+  const pendReceived = shownPending.reduce((a, p) => a + received(p), 0);
+  const pendBalance = shownPending.reduce((a, p) => a + balance(p), 0);
 
   /* PWA FACT (`receipts`, index.html:3871-3872): every part-payment across
      every milestone, newest payment date first. */
@@ -454,10 +468,31 @@ export default function PaymentLedger() {
               <span className="status-badge status-lost">Balance: {money(pendBalance) || '₹ 0'}</span>
             </div>
           </div>
-          {pending.length === 0 ? (
+          <div className="amc-tabs" role="tablist" aria-label="Which pending payments">
+            {[
+              ['manual', 'Added here', pendingManual.length],
+              ['orders', 'Sales Order', pendingOrders.length],
+            ].map(([key, label, n]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={pendingTab === key}
+                className={`amc-tab${pendingTab === key ? ' is-on' : ''}`}
+                onClick={() => setPendingTab(key)}
+              >
+                {label}<span className="amc-tab-n">{n}</span>
+              </button>
+            ))}
+          </div>
+          {shownPending.length === 0 ? (
             <div className="empty-state">
               <div className="empty-state-icon">✅</div>
-              <div className="empty-state-title">Nothing pending. Excellent!</div>
+              <div className="empty-state-title">
+                {pendingTab === 'orders'
+                  ? 'No sales order payment is pending.'
+                  : 'Nothing pending here. Excellent!'}
+              </div>
             </div>
           ) : (
             <div className="table-wrap">
@@ -485,7 +520,7 @@ export default function PaymentLedger() {
                   </tr>
                 </thead>
                 <tbody>
-                  {pending.map(p => {
+                  {shownPending.map(p => {
                     const rec = received(p);
                     const r = p.raisedToFinance;
                     const nextCall = fmtDate(p.nextCallDate);
