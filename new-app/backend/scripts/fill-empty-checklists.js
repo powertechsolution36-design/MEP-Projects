@@ -23,6 +23,13 @@
  *
  *   node scripts/fill-empty-checklists.js --apply
  *
+ * IT ALSO REPORTS. Before anything else it lists EVERY project and how many
+ * points it has, because "not all projects showing" has two different causes
+ * and they need telling apart: a project with NO points (this script fills
+ * it) and a project whose division has a Checklist Template with fewer
+ * points than the standard list (the template won, and emptying or deleting
+ * it on the Checklist Template screen is the fix — not this script).
+ *
  * WHAT IT TOUCHES. Only projects whose `checklist` is missing or empty, and
  * only that one field plus `checklistTemplateName` (left as ''). A project
  * that has ANY point — one point or thirty, ticked or not — is never
@@ -46,6 +53,40 @@ const { loadEnvFile } = require('./lib/loadEnvFile');
 const { LEGACY_CHECKLIST_FALLBACK } = require('../src/models/shared/legacyChecklists');
 
 const APPLY = process.argv.includes('--apply');
+
+/** A project has no checklist when the array is missing or holds nothing. */
+const isEmpty = (p) => !Array.isArray(p.checklist) || p.checklist.length === 0;
+
+/**
+ * What every project's checklist looks like, as lines to print.
+ *
+ * Owner, 19 Nov 2026: "not all projects showing". Two different causes wear
+ * the same face and have to be told apart:
+ *   · a project with NO points — this script fills it;
+ *   · a project whose division has a Checklist Template with fewer points
+ *     than the standard list — the template won the fallback chain, and the
+ *     fix is to empty or delete it on the Checklist Template screen, not to
+ *     run this.
+ *
+ * Exported so it can be tested against real shapes rather than trusted.
+ * Reads only; it is handed plain objects and returns plain text.
+ */
+function describeProjects(all) {
+  const lines = [];
+  const standardCount = (division) => (LEGACY_CHECKLIST_FALLBACK[division] || []).length;
+  for (const p of all) {
+    const n = Array.isArray(p.checklist) ? p.checklist.length : 0;
+    const want = standardCount(p.division);
+    const from = p.checklistTemplateName ? `template "${p.checklistTemplateName}"` : 'the standard points';
+    const note = isEmpty(p) ? 'EMPTY — this script fills it'
+      : n === want ? 'ok'
+        : `${n} points from ${from}, not the ${want} standard — left alone, see below`;
+    lines.push(`  ${String(n).padStart(3)} pts  ${p.name || '(unnamed)'} [${p.division || 'no division'}] — ${note}`);
+  }
+  const empty = all.filter(isEmpty);
+  const odd = all.filter((p) => !isEmpty(p) && p.checklist.length !== standardCount(p.division));
+  return { lines, empty, odd };
+}
 
 /** A point as a brand-new project gets it. */
 const freshPoint = (t) => ({
@@ -78,12 +119,27 @@ async function main() {
   console.log(APPLY ? 'Mode:     APPLY — projects will be written\n' : 'Mode:     dry run — nothing will be written\n');
 
   const projects = mongoose.connection.db.collection('projects');
-  const empty = await projects.find({
-    $or: [{ checklist: { $exists: false } }, { checklist: { $size: 0 } }],
-  }).toArray();
+
+  // EVERY project and how many points it has. Reads only; nothing is
+  // written here (owner, 19 Nov 2026: "not all projects showing").
+  const all = await projects.find({}).toArray();
+  const { lines, empty, odd } = describeProjects(all);
+
+  console.log(`${all.length} project${all.length === 1 ? '' : 's'} in all:\n`);
+  for (const line of lines) console.log(line);
+
+  if (odd.length) {
+    console.log(`\n${odd.length} project(s) have a checklist that is not the standard one.`);
+    console.log('Those came from a Checklist Template for their division, and this script');
+    console.log('does NOT replace them: points already ticked, remarked or signed off would');
+    console.log('be lost. To have new projects take the standard points instead, empty or');
+    console.log('delete that template on the Checklist Template screen. To change one of');
+    console.log('these projects, apply a template to it on the project itself.');
+  }
+  console.log('');
 
   if (empty.length === 0) {
-    console.log('Every project already has a checklist. Nothing to do.');
+    console.log('No project is missing its checklist. Nothing to fill.');
     await mongoose.disconnect();
     process.exit(0);
   }
@@ -128,8 +184,17 @@ async function main() {
   process.exit(APPLY ? 0 : 2);
 }
 
-main().catch(async (err) => {
-  console.error('Failed:', err && err.message ? err.message : err);
-  try { await mongoose.disconnect(); } catch (_) { /* already closed */ }
-  process.exit(1);
-});
+module.exports = { describeProjects, isEmpty, freshPoint };
+
+/*
+ * Run only when this file IS the command. Required as a module — which is
+ * how its reporting is tested against real shapes — it connects to nothing
+ * and writes nothing.
+ */
+if (require.main === module) {
+  main().catch(async (err) => {
+    console.error('Failed:', err && err.message ? err.message : err);
+    try { await mongoose.disconnect(); } catch (_) { /* already closed */ }
+    process.exit(1);
+  });
+}
