@@ -156,11 +156,16 @@ test('assignProjectManager — admin and sales may hand a project over; a Manage
     ['pd']
   );
 
-  // A Solar Manager cannot be given an HVAC project, and nor can a non-Manager.
-  await assert.rejects(
-    () => service.assignProjectManager('pd', { projectManagerUserId: 'akshay' }, auth({ role: 'admin' }), store),
-    (err) => err.code === 'VALIDATION_ERROR'
+  // Owner request (19 Nov 2026): a Solar Manager MAY be given an HVAC
+  // project, and sees it — the division no longer decides, assignment does.
+  await service.assignProjectManager('pd', { projectManagerUserId: 'akshay' }, auth({ role: 'admin' }), store);
+  assert.deepEqual(
+    (await service.listProjects(auth({ userId: 'akshay', role: 'solar_pm' }), {}, store)).map((p) => p.id),
+    ['pd']
   );
+  await service.assignProjectManager('pd', { projectManagerUserId: 'vinod' }, auth({ role: 'admin' }), store);
+
+  // A non-Manager still cannot be given one.
   await assert.rejects(
     () => service.assignProjectManager('pd', { projectManagerUserId: 'kiran' }, auth({ role: 'admin' }), store),
     (err) => err.code === 'VALIDATION_ERROR'
@@ -171,7 +176,7 @@ test('assignProjectManager — admin and sales may hand a project over; a Manage
   assert.equal(cleared.projectManagerUserId, null);
 });
 
-test('listManagerCandidates — the division\'s Managers only, and only for admin/sales', async () => {
+test('listManagerCandidates — every Manager login, and only for admin/sales', async () => {
   const store = createEnquiryFakeStore({
     projects: [baseProject()],
     users: [
@@ -181,8 +186,11 @@ test('listManagerCandidates — the division\'s Managers only, and only for admi
       { id: 'gone', companyId: 'co1', name: 'Left the company', role: 'hvac_pm', active: false },
     ],
   });
+  // Owner request (19 Nov 2026): "assign will be show for every person with
+  // project manager/ solar login" — Akshay runs Solar and is offered on an
+  // HVAC project all the same.
   const got = await service.listManagerCandidates('HVAC', auth({ role: 'sales' }), store);
-  assert.deepEqual(got.map((u) => u.name), ['Deepak', 'Vinod']);
+  assert.deepEqual(got.map((u) => u.name), ['Akshay', 'Deepak', 'Vinod']);
   await assert.rejects(
     () => service.listManagerCandidates('HVAC', auth({ role: 'hvac_pm' }), store),
     (err) => err.code === 'FORBIDDEN'
@@ -198,8 +206,10 @@ test('listProjects — PM roles see their assigned projects only; other roles se
     users: [{ id: 'eng1', companyId: 'co1', name: 'Kiran Engineer', role: 'engineer' }],
     salesOrders: [baseSalesOrder()],
   });
+  // p2 is Solar and also assigned to this Manager: since 19 Nov 2026 a
+  // Manager sees what they were GIVEN, whatever division it is in.
   const hvacPm = await service.listProjects(auth({ role: 'hvac_pm' }), {}, store);
-  assert.deepEqual(hvacPm.map((p) => p.id), ['p1']);
+  assert.deepEqual(hvacPm.map((p) => p.id).sort(), ['p1', 'p2']);
 
   const admin = await service.listProjects(auth({ role: 'admin' }), {}, store);
   assert.equal(admin.length, 2);
@@ -298,9 +308,11 @@ test('setStage — once In Service, stage changes freely with zero effect on sta
   assert.equal(updated.status, 'In Service');
 });
 
-test('setStage — role enforcement: only the matching-division PM or admin may edit stage', async () => {
+test('setStage — role enforcement: only the ASSIGNED Manager or admin may edit stage', async () => {
   const store = createEnquiryFakeStore({ projects: [baseProject()] });
-  await assert.rejects(() => service.setStage('proj1', { stage: 'Piping' }, auth({ role: 'solar_pm' }), store), (err) => err.code === 'FORBIDDEN');
+  // Another Manager — the project is not theirs, whatever their division.
+  await assert.rejects(() => service.setStage('proj1', { stage: 'Piping' }, auth({ userId: 'someone-else', role: 'solar_pm' }), store), (err) => err.code === 'FORBIDDEN');
+  await assert.rejects(() => service.setStage('proj1', { stage: 'Piping' }, auth({ userId: 'someone-else', role: 'hvac_pm' }), store), (err) => err.code === 'FORBIDDEN');
   const ok = await service.setStage('proj1', { stage: 'Piping' }, auth({ role: 'admin' }), store);
   assert.equal(ok.stage, 'Piping');
 });
@@ -487,7 +499,7 @@ test('checklist item add/edit/remove — PM only', async () => {
   assert.equal(project.checklist[0].text, 'Renamed point');
   assert.equal(project.checklist[0].signResponsibility, 'SALES');
 
-  await assert.rejects(() => service.addChecklistItem('proj1', { text: 'X', signResponsibility: 'ENGINEER' }, auth({ role: 'solar_pm' }), store), (err) => err.code === 'FORBIDDEN');
+  await assert.rejects(() => service.addChecklistItem('proj1', { text: 'X', signResponsibility: 'ENGINEER' }, auth({ userId: 'someone-else', role: 'solar_pm' }), store), (err) => err.code === 'FORBIDDEN');
 
   await service.removeChecklistItem('proj1', 0, auth(), store);
   project = await service.getProject('proj1', auth(), store);
@@ -725,11 +737,11 @@ test('FIX-6-07 — role gate: admin/hvac_pm/solar_pm/mep_pm may export; every ot
   }
 });
 
-test('FIX-6-07 — division scoping preserved: a PM role only sees their own division\'s rows in the export (myDiv/hasDiv, unchanged)', async () => {
-  const store = richProjectFixtureStore(); // proj1 is HVAC
-  const csvSolar = await service.exportProjectsCsv(auth({ role: 'solar_pm' }), {}, store);
+test('FIX-6-07 — the export holds a Manager\'s OWN projects: another Manager gets no rows (19 Nov 2026: assignment, not division)', async () => {
+  const store = richProjectFixtureStore(); // proj1 is HVAC, assigned to u1
+  const csvSolar = await service.exportProjectsCsv(auth({ userId: 'someone-else', role: 'solar_pm' }), {}, store);
   const bodyLinesSolar = csvSolar.split('\n').slice(5).filter(Boolean);
-  assert.equal(bodyLinesSolar.length, 0, 'a solar_pm must not see the HVAC project row');
+  assert.equal(bodyLinesSolar.length, 0, 'a Manager it was not given to must not see the row');
 
   const csvHvac = await service.exportProjectsCsv(auth({ role: 'hvac_pm' }), {}, store);
   const bodyLinesHvac = csvHvac.split('\n').slice(5).filter(Boolean);

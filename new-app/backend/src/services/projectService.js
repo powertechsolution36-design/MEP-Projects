@@ -230,9 +230,13 @@ function isAssignedManager(actorAuth, project) {
 function isPmForProject(actorAuth, project) {
   if (actorAuth.role === 'admin') return true;
   if (!PM_DIVISION_FOR_ROLE[actorAuth.role]) return false;
-  // The division is still checked, so a Manager assigned a project outside
-  // their own division by mistake does not inherit it.
-  if (PM_DIVISION_FOR_ROLE[actorAuth.role] !== project.division) return false;
+  /*
+   * Owner request (19 Nov 2026): "assign will be show for every person with
+   * project manager/ solar login" — the division no longer decides. A
+   * Manager runs the projects they were GIVEN, whichever division those are
+   * in, because the people here are not split by division as neatly as the
+   * roles are. Assignment is the whole rule now.
+   */
   return isAssignedManager(actorAuth, project);
 }
 
@@ -361,10 +365,10 @@ const MANAGER_ROLES = Object.freeze(['hvac_pm', 'solar_pm', 'mep_pm']);
 /**
  * Hand this project to a Manager, or take it back (userId null).
  *
- * The Manager must be one of this company's, must hold a Manager role, and
- * must be of the project's OWN division — a Solar Manager cannot be given
- * an HVAC project, because the division rule would then hide it from them
- * anyway and the assignment would be a lie.
+ * The Manager must be one of this company's and must hold a Manager role.
+ * The division is NOT checked: a Solar Manager may be given an HVAC project
+ * and will see it, because assignment — not division — is what decides whose
+ * project it is.
  */
 async function assignProjectManager(projectId, input, actorAuth, deps) {
   assertCompanyContext(actorAuth);
@@ -391,13 +395,8 @@ async function assignProjectManager(projectId, input, actorAuth, deps) {
     if (!MANAGER_ROLES.includes(user.role)) {
       throw new ServiceError('A project is assigned to a Project Manager.', 'VALIDATION_ERROR', 400);
     }
-    if (PM_DIVISION_FOR_ROLE[user.role] !== project.division) {
-      throw new ServiceError(
-        `${user.name || 'That Manager'} runs ${PM_DIVISION_FOR_ROLE[user.role]}, and this is a ${project.division} project.`,
-        'VALIDATION_ERROR',
-        400
-      );
-    }
+    // No division check (owner request, 19 Nov 2026): any Manager login may
+    // be given any project, and they then see it whatever division it is.
   }
 
   const updated = await deps.projectRepo.update(actorAuth.companyId, projectId, {
@@ -428,10 +427,11 @@ async function listManagerCandidates(division, actorAuth, deps) {
       403
     );
   }
+  // `division` is accepted and deliberately ignored — every Manager login is
+  // offered, whatever division the project is (owner request, 19 Nov 2026).
   const all = await deps.userRepoForEnquiry.listByCompany(actorAuth.companyId);
   return all
-    .filter((u) => MANAGER_ROLES.includes(u.role) && u.active !== false
-      && (!division || PM_DIVISION_FOR_ROLE[u.role] === division))
+    .filter((u) => MANAGER_ROLES.includes(u.role) && u.active !== false)
     .map((u) => ({ id: String(u.id), name: u.name, role: u.role, division: PM_DIVISION_FOR_ROLE[u.role] }))
     .sort((a, b) => String(a.name).localeCompare(String(b.name)));
 }
@@ -567,7 +567,7 @@ async function listProjects(actorAuth, { filters = {}, enrich = false } = {}, de
    * has been given yet.
    */
   const divScoped = pmDiv
-    ? entitled.filter((p) => p.division === pmDiv && isAssignedManager(actorAuth, p))
+    ? entitled.filter((p) => isAssignedManager(actorAuth, p))
     : entitled;
   const scoped = ownOnly
     ? divScoped.filter((p) => (p.assignedEngineerIds || []).map(String).includes(String(actorAuth.userId)))

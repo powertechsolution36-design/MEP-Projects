@@ -715,8 +715,10 @@ export default function ProjectDetail() {
               onChange={(e) => assignManager(e.target.value)}
             >
               <option value="">— nobody (hidden from every Manager) —</option>
+              {/* Every Manager login is offered, so the division is shown
+                  beside the name rather than deciding the list. */}
               {managerOptions.map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
+                <option key={m.id} value={m.id}>{m.division ? `${m.name} — ${m.division}` : m.name}</option>
               ))}
             </select>
             {assignBusy && <span>Saving…</span>}
