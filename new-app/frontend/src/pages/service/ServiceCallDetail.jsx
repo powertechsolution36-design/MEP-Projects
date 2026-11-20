@@ -150,10 +150,16 @@ export default function ServiceCallDetail() {
       const r = call.report || {};
       const cl = {};
       CHECKLIST_KEYS.forEach(k => { cl[k] = r.checklistResults?.[k] || ''; });
+      /* Owner request (19 Nov 2026): "Use detail from AMC/PM list of AMC
+         client to Automatically fill service report make, model and
+         capacity." The server sends the client's own machine with the call;
+         it fills these three where the report has nothing yet, and whatever
+         the engineer types wins over it. */
+      const amc = call.amcEquipment || {};
       setReportForm({
-        make: r.make || '',
-        model: r.model || '',
-        capacity: r.capacity || '',
+        make: r.make || amc.make || '',
+        model: r.model || amc.model || '',
+        capacity: r.capacity || amc.capacity || '',
         type: r.type || '',
         materialUsed: r.materialUsed || '',
         serviceDescription: r.serviceDescription || '',

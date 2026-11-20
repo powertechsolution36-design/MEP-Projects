@@ -330,8 +330,16 @@ async function loadCompany(actorAuth, deps) {
  * other key, so this closes an API surface the UI never exposed, not a
  * business-rule narrowing).
  */
-function buildReport(input) {
+/**
+ * `fromContract` is the machine recorded on the client's AMC / Warranty
+ * record (owner request, 19 Nov 2026: "Use detail from AMC/PM list of AMC
+ * client to Automatically fill service report make, model and capacity").
+ * It fills ONLY what this report leaves blank — an engineer who types
+ * something different on the day is never overwritten by the file.
+ */
+function buildReport(input, fromContract) {
   const src = input || {};
+  const amc = fromContract || {};
   const checklistInput = src.checklistResults || src.chk || {};
   const checklistResults = {};
   for (const [key, value] of Object.entries(checklistInput)) {
@@ -349,9 +357,9 @@ function buildReport(input) {
     throw new ServiceError(`Invalid service type "${serviceType}". Must be one of: ${SERVICE_TYPES.join(', ')}.`, 'VALIDATION_ERROR', 400);
   }
   return {
-    make: src.make || '',
-    model: src.model || '',
-    capacity: src.capacity || '',
+    make: src.make || amc.make || '',
+    model: src.model || amc.model || '',
+    capacity: src.capacity || amc.capacity || '',
     type: src.type || src.rtype || '',
     materialUsed: src.materialUsed || src.material || '',
     serviceDescription: src.serviceDescription || src.service || '',
@@ -639,6 +647,22 @@ async function schedulePM(contractId, input, actorAuth, deps) {
   return { serviceCall, customerMessage: msgPM(psc, dayKeyUTC(appointmentDate), appointmentTime, company) };
 }
 
+/**
+ * The machine under cover for this call's client, when the call is linked
+ * to an AMC / Warranty record. Null for a walk-in complaint, which has no
+ * file to read from.
+ */
+async function equipmentFromContract(serviceCall, actorAuth, deps, session) {
+  if (!serviceCall || !serviceCall.contractId || !deps.contractRepo) return null;
+  const contract = await deps.contractRepo.findById(actorAuth.companyId, serviceCall.contractId, session);
+  if (!contract) return null;
+  return {
+    make: contract.make || '',
+    model: contract.equipmentModel || '',
+    capacity: contract.capacity || '',
+  };
+}
+
 /* ================= Read / search / report ================= */
 
 /**
@@ -661,7 +685,10 @@ async function getServiceCall(id, actorAuth, deps) {
   if (scope && serviceCall.division && serviceCall.division !== scope) {
     throw new ServiceError('Service Call not found.', 'NOT_FOUND', 404);
   }
-  return withAttentionFlags(serviceCall);
+  // Owner request (19 Nov 2026): the report form opens with the client's
+  // own machine already in it.
+  const amcEquipment = await equipmentFromContract(serviceCall, actorAuth, deps);
+  return { ...withAttentionFlags(serviceCall), amcEquipment };
 }
 
 async function engineerNameMap(actorAuth, deps) {
@@ -943,7 +970,7 @@ async function saveReportDraft(id, input, actorAuth, deps) {
   }
   assertCanEditReport(actorAuth, serviceCall);
 
-  const report = buildReport(input);
+  const report = buildReport(input, await equipmentFromContract(serviceCall, actorAuth, deps));
   return deps.serviceCallRepo.update(actorAuth.companyId, id, { report });
 }
 
@@ -983,7 +1010,12 @@ async function completeServiceCall(id, input, actorAuth, deps) {
     throw new ServiceError('Client signature required to complete the call.', 'MISSING_SIGNATURE', 400);
   }
 
-  const report = buildReport(input && (input.report || input));
+  // The client's own machine fills whatever the report left blank, so a
+  // completed report carries it even when nobody retyped it on site.
+  const report = buildReport(
+    input && (input.report || input),
+    await equipmentFromContract(existing, actorAuth, deps)
+  );
   const missing = missingReportFields(report);
   if (missing.length) {
     throw new ServiceError(

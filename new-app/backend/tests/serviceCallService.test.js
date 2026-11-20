@@ -1136,3 +1136,52 @@ test('engineer candidates — every role that goes to site, and none of the offi
     assert.ok(!service.ENGINEER_CANDIDATE_ROLES.includes(role), `${role} should not be offered`);
   }
 });
+
+/* ===== the client's own machine fills the report (owner request, 19 Nov 2026) ===== */
+
+test('the AMC client\'s make, model and capacity fill a blank report, and never overwrite what the engineer typed', async () => {
+  const store = baseStore({
+    contracts: [baseContract({ make: 'Samsung', equipmentModel: 'AM080', capacity: '20 TR' })],
+  });
+  const { serviceCall } = await service.schedulePM(
+    'c1', { date: '2026-04-10' }, auth({ role: 'service_mgr' }), store
+  );
+
+  // The screen is handed the machine with the call, so the form opens filled.
+  const read = await service.getServiceCall(serviceCall.id, auth(), store);
+  assert.deepEqual(read.amcEquipment, { make: 'Samsung', model: 'AM080', capacity: '20 TR' });
+
+  // A draft that says nothing about the machine gets the client's.
+  const drafted = await service.saveReportDraft(
+    serviceCall.id, { serviceDescription: 'Quarterly service' }, auth({ role: 'service_mgr' }), store
+  );
+  assert.equal(drafted.report.make, 'Samsung');
+  assert.equal(drafted.report.model, 'AM080');
+  assert.equal(drafted.report.capacity, '20 TR');
+
+  // What the engineer found on site wins — a second machine, a newer model.
+  const corrected = await service.saveReportDraft(
+    serviceCall.id,
+    { serviceDescription: 'Quarterly service', make: 'Daikin', model: 'FTKF35', capacity: '1.5 TR' },
+    auth({ role: 'service_mgr' }),
+    store
+  );
+  assert.equal(corrected.report.make, 'Daikin');
+  assert.equal(corrected.report.model, 'FTKF35');
+  assert.equal(corrected.report.capacity, '1.5 TR');
+});
+
+test('a complaint with no AMC record behind it fills nothing, and says so rather than failing', async () => {
+  const store = baseStore();
+  const { serviceCall } = await service.registerComplaint(
+    { customer: 'Walk-in', site: 'Shop 2' }, auth({ role: 'service_mgr' }), store
+  );
+  const read = await service.getServiceCall(serviceCall.id, auth(), store);
+  assert.equal(read.amcEquipment, null);
+
+  const drafted = await service.saveReportDraft(
+    serviceCall.id, { serviceDescription: 'Gas top-up' }, auth({ role: 'service_mgr' }), store
+  );
+  assert.equal(drafted.report.make, '');
+  assert.equal(drafted.report.capacity, '');
+});

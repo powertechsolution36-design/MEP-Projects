@@ -74,6 +74,16 @@ const contractSchema = new Schema(
     email: { type: String }, // PWA FACT
     site: { type: String, required: true }, // PWA FACT
     capacity: { type: String }, // PWA FACT
+    /*
+     * Owner request (19 Nov 2026): "Use detail from AMC/PM list of AMC
+     * client to Automatically fill service report make, model and
+     * capacity." The machine under cover is the client's, not the visit's,
+     * so it is recorded once here and every service report of theirs starts
+     * filled in. Optional: every contract made before this field existed has
+     * none, and those are left for staff to fill rather than guessed at.
+     */
+    make: { type: String },
+    equipmentModel: { type: String },
     startDate: { type: Date, required: true }, // PWA FACT
     // PWA FACT (manual `saveContract()`'s `end` field, audit §3/§18 #22): stored
     // with NO fallback/validation -- a blank end is accepted and, combined with

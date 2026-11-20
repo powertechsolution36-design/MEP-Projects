@@ -44,6 +44,8 @@ export default function ContractCreate() {
     email: '',
     site: '',
     capacity: '',
+    make: '',
+    equipmentModel: '',
     division: '',
     category: 'AMC',
     amcType: 'Quarterly',
@@ -82,6 +84,8 @@ export default function ContractCreate() {
         email: form.email,
         site: form.site,
         capacity: form.capacity,
+        make: form.make,
+        equipmentModel: form.equipmentModel,
         division: form.division,
         category: form.category,
         amcType: form.amcType,
@@ -141,6 +145,16 @@ export default function ContractCreate() {
             <div className="filter-field">
               <label>Capacity</label>
               <input value={form.capacity} onChange={e => setField('capacity', e.target.value)} />
+            </div>
+            {/* Owner request (19 Nov 2026): the machine under cover, kept on
+                the client so every service report of theirs starts filled. */}
+            <div className="filter-field">
+              <label>Make</label>
+              <input value={form.make} placeholder="e.g. Samsung" onChange={e => setField('make', e.target.value)} />
+            </div>
+            <div className="filter-field">
+              <label>Model</label>
+              <input value={form.equipmentModel} onChange={e => setField('equipmentModel', e.target.value)} />
             </div>
           </div>
 

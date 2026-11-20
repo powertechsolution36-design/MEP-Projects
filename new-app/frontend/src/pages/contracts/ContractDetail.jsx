@@ -248,6 +248,7 @@ export default function ContractDetail() {
       customer: c.customer || '', phone: c.phone || '', email: c.email || '',
       division: c.division || '',
       site: c.site || '', capacity: c.capacity || '',
+      make: c.make || '', equipmentModel: c.equipmentModel || '',
       startDate: c.startDate ? fmtDate(c.startDate) : '',
       endDate: c.endDate ? fmtDate(c.endDate) : '',
       amcType: c.amcType || 'Quarterly', category: c.category || 'AMC',
@@ -405,6 +406,14 @@ export default function ContractDetail() {
             <label className="filter-field">Capacity
               <input value={editForm.capacity} onChange={(e) => setEditForm((f) => ({ ...f, capacity: e.target.value }))} />
             </label>
+            {/* The machine under cover — it fills this client's service
+                reports (owner request, 19 Nov 2026). */}
+            <label className="filter-field">Make
+              <input value={editForm.make} placeholder="e.g. Samsung" onChange={(e) => setEditForm((f) => ({ ...f, make: e.target.value }))} />
+            </label>
+            <label className="filter-field">Model
+              <input value={editForm.equipmentModel} onChange={(e) => setEditForm((f) => ({ ...f, equipmentModel: e.target.value }))} />
+            </label>
             <label className="filter-field">Division
               <select value={editForm.division} onChange={(e) => setEditForm((f) => ({ ...f, division: e.target.value }))}>
                 <option value="">— not set —</option>
@@ -501,6 +510,8 @@ export default function ContractDetail() {
           <div><strong>Email</strong><br />{c.email || '—'}</div>
           <div><strong>Site</strong><br />{c.site || '—'}</div>
           <div><strong>Capacity</strong><br />{c.capacity || '—'}</div>
+          <div><strong>Make</strong><br />{c.make || '—'}</div>
+          <div><strong>Model</strong><br />{c.equipmentModel || '—'}</div>
           <div><strong>Division</strong><br />{c.division || '—'}</div>
           <div><strong>Cover</strong><br />{c.category} · {c.amcType}</div>
           <div><strong>Period</strong><br />{fmtDate(c.startDate)} – {fmtDate(c.endDate)}</div>
