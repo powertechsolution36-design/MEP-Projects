@@ -84,6 +84,10 @@ const contractSchema = new Schema(
      */
     make: { type: String },
     equipmentModel: { type: String },
+    // The report's own "Type" line (owner request, 20 Nov 2026) — what the
+    // machine is: cassette, hi-wall, ducted, VRF. Not `amcType`, which is
+    // how often the visits fall, nor `category`, which is AMC or Warranty.
+    equipmentType: { type: String },
     startDate: { type: Date, required: true }, // PWA FACT
     // PWA FACT (manual `saveContract()`'s `end` field, audit §3/§18 #22): stored
     // with NO fallback/validation -- a blank end is accepted and, combined with

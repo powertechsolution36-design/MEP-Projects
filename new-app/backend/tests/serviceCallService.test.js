@@ -1141,7 +1141,9 @@ test('engineer candidates — every role that goes to site, and none of the offi
 
 test('the AMC client\'s make, model and capacity fill a blank report, and never overwrite what the engineer typed', async () => {
   const store = baseStore({
-    contracts: [baseContract({ make: 'Samsung', equipmentModel: 'AM080', capacity: '20 TR' })],
+    contracts: [baseContract({
+      make: 'Samsung', equipmentModel: 'AM080', capacity: '20 TR', equipmentType: 'Cassette',
+    })],
   });
   const { serviceCall } = await service.schedulePM(
     'c1', { date: '2026-04-10' }, auth({ role: 'service_mgr' }), store
@@ -1149,7 +1151,9 @@ test('the AMC client\'s make, model and capacity fill a blank report, and never 
 
   // The screen is handed the machine with the call, so the form opens filled.
   const read = await service.getServiceCall(serviceCall.id, auth(), store);
-  assert.deepEqual(read.amcEquipment, { make: 'Samsung', model: 'AM080', capacity: '20 TR' });
+  assert.deepEqual(read.amcEquipment, {
+    make: 'Samsung', model: 'AM080', capacity: '20 TR', type: 'Cassette',
+  });
 
   // A draft that says nothing about the machine gets the client's.
   const drafted = await service.saveReportDraft(
@@ -1158,17 +1162,19 @@ test('the AMC client\'s make, model and capacity fill a blank report, and never 
   assert.equal(drafted.report.make, 'Samsung');
   assert.equal(drafted.report.model, 'AM080');
   assert.equal(drafted.report.capacity, '20 TR');
+  assert.equal(drafted.report.type, 'Cassette');
 
   // What the engineer found on site wins — a second machine, a newer model.
   const corrected = await service.saveReportDraft(
     serviceCall.id,
-    { serviceDescription: 'Quarterly service', make: 'Daikin', model: 'FTKF35', capacity: '1.5 TR' },
+    { serviceDescription: 'Quarterly service', make: 'Daikin', model: 'FTKF35', capacity: '1.5 TR', type: 'Hi-wall' },
     auth({ role: 'service_mgr' }),
     store
   );
   assert.equal(corrected.report.make, 'Daikin');
   assert.equal(corrected.report.model, 'FTKF35');
   assert.equal(corrected.report.capacity, '1.5 TR');
+  assert.equal(corrected.report.type, 'Hi-wall');
 });
 
 test('a complaint with no AMC record behind it fills nothing, and says so rather than failing', async () => {

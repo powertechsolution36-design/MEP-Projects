@@ -46,6 +46,7 @@ export default function ContractCreate() {
     capacity: '',
     make: '',
     equipmentModel: '',
+    equipmentType: '',
     division: '',
     category: 'AMC',
     amcType: 'Quarterly',
@@ -86,6 +87,7 @@ export default function ContractCreate() {
         capacity: form.capacity,
         make: form.make,
         equipmentModel: form.equipmentModel,
+        equipmentType: form.equipmentType,
         division: form.division,
         category: form.category,
         amcType: form.amcType,
@@ -155,6 +157,10 @@ export default function ContractCreate() {
             <div className="filter-field">
               <label>Model</label>
               <input value={form.equipmentModel} onChange={e => setField('equipmentModel', e.target.value)} />
+            </div>
+            <div className="filter-field">
+              <label>Type</label>
+              <input value={form.equipmentType} placeholder="e.g. Cassette, Hi-wall, VRF" onChange={e => setField('equipmentType', e.target.value)} />
             </div>
           </div>
 

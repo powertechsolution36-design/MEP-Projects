@@ -360,7 +360,7 @@ function buildReport(input, fromContract) {
     make: src.make || amc.make || '',
     model: src.model || amc.model || '',
     capacity: src.capacity || amc.capacity || '',
-    type: src.type || src.rtype || '',
+    type: src.type || src.rtype || amc.type || '',
     materialUsed: src.materialUsed || src.material || '',
     serviceDescription: src.serviceDescription || src.service || '',
     checklistResults,
@@ -660,6 +660,7 @@ async function equipmentFromContract(serviceCall, actorAuth, deps, session) {
     make: contract.make || '',
     model: contract.equipmentModel || '',
     capacity: contract.capacity || '',
+    type: contract.equipmentType || '',
   };
 }
 

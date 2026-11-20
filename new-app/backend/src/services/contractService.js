@@ -306,6 +306,7 @@ async function createManualContract(input, actorAuth, deps) {
     // service report of every visit to this client.
     make: (input && input.make) || '',
     equipmentModel: (input && input.equipmentModel) || '',
+    equipmentType: (input && input.equipmentType) || '',
     startDate,
     endDate,
     amcType,
@@ -711,6 +712,7 @@ async function searchClients(actorAuth, { q = '', limit = 25 } = {}, deps) {
       capacity: c.capacity || '',
       make: c.make || '',
       equipmentModel: c.equipmentModel || '',
+      equipmentType: c.equipmentType || '',
       category: c.category,
       amcType: c.amcType,
       startDate: c.startDate || null,
@@ -872,7 +874,7 @@ async function completePmVisitForContract(contractId, actorAuth, deps, { assigne
 const EDITABLE = Object.freeze([
   'customer', 'phone', 'email', 'site', 'capacity', 'amcType', 'category', 'amount',
   // The machine under cover (owner request, 19 Nov 2026).
-  'make', 'equipmentModel',
+  'make', 'equipmentModel', 'equipmentType',
   // Owner request (14 Nov 2026): a client tagged to the wrong side of the
   // business is corrected here, like any other detail.
   'division',

@@ -248,7 +248,7 @@ export default function ContractDetail() {
       customer: c.customer || '', phone: c.phone || '', email: c.email || '',
       division: c.division || '',
       site: c.site || '', capacity: c.capacity || '',
-      make: c.make || '', equipmentModel: c.equipmentModel || '',
+      make: c.make || '', equipmentModel: c.equipmentModel || '', equipmentType: c.equipmentType || '',
       startDate: c.startDate ? fmtDate(c.startDate) : '',
       endDate: c.endDate ? fmtDate(c.endDate) : '',
       amcType: c.amcType || 'Quarterly', category: c.category || 'AMC',
@@ -414,6 +414,9 @@ export default function ContractDetail() {
             <label className="filter-field">Model
               <input value={editForm.equipmentModel} onChange={(e) => setEditForm((f) => ({ ...f, equipmentModel: e.target.value }))} />
             </label>
+            <label className="filter-field">Type
+              <input value={editForm.equipmentType} placeholder="e.g. Cassette, Hi-wall, VRF" onChange={(e) => setEditForm((f) => ({ ...f, equipmentType: e.target.value }))} />
+            </label>
             <label className="filter-field">Division
               <select value={editForm.division} onChange={(e) => setEditForm((f) => ({ ...f, division: e.target.value }))}>
                 <option value="">— not set —</option>
@@ -512,6 +515,7 @@ export default function ContractDetail() {
           <div><strong>Capacity</strong><br />{c.capacity || '—'}</div>
           <div><strong>Make</strong><br />{c.make || '—'}</div>
           <div><strong>Model</strong><br />{c.equipmentModel || '—'}</div>
+          <div><strong>Type</strong><br />{c.equipmentType || '—'}</div>
           <div><strong>Division</strong><br />{c.division || '—'}</div>
           <div><strong>Cover</strong><br />{c.category} · {c.amcType}</div>
           <div><strong>Period</strong><br />{fmtDate(c.startDate)} – {fmtDate(c.endDate)}</div>

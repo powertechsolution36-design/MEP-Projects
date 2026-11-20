@@ -160,7 +160,7 @@ export default function ServiceCallDetail() {
         make: r.make || amc.make || '',
         model: r.model || amc.model || '',
         capacity: r.capacity || amc.capacity || '',
-        type: r.type || '',
+        type: r.type || amc.type || '',
         materialUsed: r.materialUsed || '',
         serviceDescription: r.serviceDescription || '',
         checklistResults: cl,
