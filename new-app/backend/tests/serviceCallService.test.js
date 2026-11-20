@@ -854,7 +854,7 @@ test('exportServiceCallsCsv — exact 22-column header, Client Signed Yes/No fla
   const lines = csv.split('\n');
   assert.equal(
     lines[0],
-    'PSC No,Type,Registered On,Customer,Phone,Site,Appt Date,Appt Time,Engineer,Status,Complaint,Make,Model,Capacity,Unit Type,Material Used,Service Done,Service Type,Amount,Engineer Remark,Customer Remark,Client Signed'
+    'PSC No,Type,Registered On,Customer,Phone,Site,Appt Date,Appt Time,Engineer,Status,Complaint,Make,Type,Capacity,System,Material Used,Service Done,Service Type,Amount,Engineer Remark,Customer Remark,Client Signed'
   );
   assert.ok(csv.includes('Yes')); // Client Signed flag, not raw signature data
   assert.ok(!csv.includes('data:image'));

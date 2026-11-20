@@ -830,7 +830,9 @@ async function exportServiceCallsCsv(actorAuth, { filters = {} } = {}, deps) {
   lines.push(
     [
       'PSC No', 'Type', 'Registered On', 'Customer', 'Phone', 'Site', 'Appt Date', 'Appt Time', 'Engineer', 'Status',
-      'Complaint', 'Make', 'Model', 'Capacity', 'Unit Type', 'Material Used', 'Service Done', 'Service Type', 'Amount',
+      // 'Type' and 'System' are the owner's names (20 Nov 2026) for what
+      // the columns have always held: report.model and report.type.
+      'Complaint', 'Make', 'Type', 'Capacity', 'System', 'Material Used', 'Service Done', 'Service Type', 'Amount',
       'Engineer Remark', 'Customer Remark', 'Client Signed',
     ].map(csvEscape).join(',')
   );

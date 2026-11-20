@@ -569,7 +569,10 @@ export default function ServiceCallDetail() {
                   <input type="text" value={reportForm.make} onChange={e => setReportForm(prev => ({ ...prev, make: e.target.value }))} />
                 </div>
                 <div className="filter-field">
-                  <label>Model</label>
+                  {/* Owner request (20 Nov 2026): Model is called Type here
+                      and Type is called System. The stored fields keep their
+                      old names so earlier reports still read. */}
+                  <label>Type</label>
                   <input type="text" value={reportForm.model} onChange={e => setReportForm(prev => ({ ...prev, model: e.target.value }))} />
                 </div>
                 <div className="filter-field">
@@ -577,7 +580,7 @@ export default function ServiceCallDetail() {
                   <input type="text" value={reportForm.capacity} onChange={e => setReportForm(prev => ({ ...prev, capacity: e.target.value }))} />
                 </div>
                 <div className="filter-field">
-                  <label>Type</label>
+                  <label>System</label>
                   <input type="text" value={reportForm.type} onChange={e => setReportForm(prev => ({ ...prev, type: e.target.value }))} />
                 </div>
                 <div className="filter-field">
@@ -750,9 +753,9 @@ export default function ServiceCallDetail() {
           <h3>Service Report</h3>
           <div className="detail-grid">
             <div><strong>Make:</strong> {sc.report.make || '—'}</div>
-            <div><strong>Model:</strong> {sc.report.model || '—'}</div>
+            <div><strong>Type:</strong> {sc.report.model || '—'}</div>
             <div><strong>Capacity:</strong> {sc.report.capacity || '—'}</div>
-            <div><strong>Type:</strong> {sc.report.type || '—'}</div>
+            <div><strong>System:</strong> {sc.report.type || '—'}</div>
             <div><strong>Material Used:</strong> {sc.report.materialUsed || '—'}</div>
             <div><strong>Service Type:</strong> {sc.report.serviceType || '—'}</div>
             <div><strong>Amount:</strong> {money(sc.report.amount)}</div>

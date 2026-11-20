@@ -197,10 +197,16 @@ function buildServiceReportPdf({ company, serviceCall, engineerName }) {
     /* ---------- Equipment ---------- */
     section('Equipment');
     grid([
+      /*
+       * Owner request (20 Nov 2026): "In Service Record change the name of
+       * Model to Type and Type to System." The stored field names are left
+       * alone — renaming `report.model` would break every report already
+       * written — so this is the label, not the data.
+       */
       ['Make', r.make],
-      ['Model', r.model],
+      ['Type', r.model],
       ['Capacity', r.capacity],
-      ['Unit type', r.type],
+      ['System', r.type],
       ['Material used', r.materialUsed],
       ['Service type', r.serviceType],
     ], 3);
