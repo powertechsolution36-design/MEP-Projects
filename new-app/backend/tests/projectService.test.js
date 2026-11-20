@@ -1011,3 +1011,47 @@ test('the project screen is given the sales order’s milestones to choose from'
     ['Advance 30%', 'On delivery 50%', 'After commissioning 20%']);
   assert.deepEqual(p.paymentMilestones.map((m) => m.index), [0, 1, 2]);
 });
+
+/* ===== the standard points, applied from the screen (owner report, 20 Nov 2026) ===== */
+
+test('applyChecklistTemplate — "standard" puts the division\'s own thirteen points on a project that has none', async () => {
+  const { LEGACY_CHECKLIST_FALLBACK } = require('../src/models/shared/legacyChecklists');
+  const store = createEnquiryFakeStore({ projects: [baseProject({ checklist: [], division: 'HVAC' })] });
+
+  const applied = await service.applyChecklistTemplate(
+    'proj1',
+    { templateId: service.STANDARD_CHECKLIST_ID, mode: 'replace' },
+    auth({ role: 'admin' }),
+    store
+  );
+  assert.equal(applied.checklist.length, LEGACY_CHECKLIST_FALLBACK.HVAC.length);
+  assert.deepEqual(
+    applied.checklist.map((c) => c.text),
+    LEGACY_CHECKLIST_FALLBACK.HVAC.map((c) => c.text)
+  );
+  // Every point arrives fresh — nothing done, nothing signed, no dates.
+  assert.ok(applied.checklist.every((c) => c.done === false && c.pmSigned === false && c.completedDate === null));
+  assert.equal(applied.checklistTemplateName, 'Standard HVAC');
+});
+
+test('applyChecklistTemplate — "standard" appends, and refuses a project with no division to guess at', async () => {
+  const store = createEnquiryFakeStore({
+    projects: [
+      baseProject({ id: 'p1', division: 'Solar', checklist: [chk({ text: 'Site survey', done: true })] }),
+      baseProject({ id: 'p2', division: '', checklist: [] }),
+    ],
+  });
+
+  const appended = await service.applyChecklistTemplate(
+    'p1', { templateId: 'standard', mode: 'append' }, auth({ role: 'admin' }), store
+  );
+  // The point already ticked is still there, and still ticked.
+  assert.equal(appended.checklist[0].text, 'Site survey');
+  assert.equal(appended.checklist[0].done, true);
+  assert.ok(appended.checklist.length > 1);
+
+  await assert.rejects(
+    () => service.applyChecklistTemplate('p2', { templateId: 'standard', mode: 'replace' }, auth({ role: 'admin' }), store),
+    (err) => err.code === 'VALIDATION_ERROR'
+  );
+});

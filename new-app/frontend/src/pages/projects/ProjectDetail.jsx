@@ -201,7 +201,8 @@ export default function ProjectDetail() {
   const [dateForm, setDateForm] = useState({ targetDate: '', completedDate: '' });
   const [showApplyChk, setShowApplyChk] = useState(false);
   const [chkTemplates, setChkTemplates] = useState([]);
-  const [applyTplId, setApplyTplId] = useState('');
+  // 'standard' is the division's own built-in list — the dialog opens on it.
+  const [applyTplId, setApplyTplId] = useState('standard');
   const [photoView, setPhotoView] = useState(null);
   const [approveForm, setApproveForm] = useState({ approverName: '', approvalRemark: '', signatureImage: '' });
 
@@ -544,7 +545,9 @@ export default function ProjectDetail() {
       const data = await api.get(`/api/checklist-templates?division=${encodeURIComponent(proj.division)}`);
       const list = data.templates || [];
       setChkTemplates(list);
-      setApplyTplId(list[0]?.id || '');
+      // The standard points are the answer for a project with none, so the
+      // dialog opens on them rather than on whatever is first in the library.
+      setApplyTplId('standard');
       setShowApplyChk(true);
     } catch (err) { alert(err.message); }
   }
@@ -1288,12 +1291,18 @@ export default function ProjectDetail() {
             ) : (
               <p className="muted">Pick a {proj.division} checklist from the library. You can still add or edit points afterwards.</p>
             )}
-            {chkTemplates.length === 0 ? <p className="muted">No {proj.division} checklists in the library.</p> : (
-              <div className="filter-field"><label>Checklist</label>
-                <select value={applyTplId} onChange={e => setApplyTplId(e.target.value)}>
-                  {chkTemplates.map(t => <option key={t.id} value={t.id}>{t.name} ({(t.items || []).length} points){t.isDefault ? ' — default' : ''}</option>)}
-                </select>
-              </div>
+            {/* Owner report (20 Nov 2026): a project that ended up with no
+                checklist had no way back to the standard points from here —
+                this list held the template library and nothing else. The
+                division's own standard list is offered first. */}
+            <div className="filter-field"><label>Checklist</label>
+              <select value={applyTplId} onChange={e => setApplyTplId(e.target.value)}>
+                <option value="standard">Standard {proj.division} checklist — the points every new project gets</option>
+                {chkTemplates.map(t => <option key={t.id} value={t.id}>{t.name} ({(t.items || []).length} points){t.isDefault ? ' — default' : ''}</option>)}
+              </select>
+            </div>
+            {chkTemplates.length === 0 && (
+              <p className="muted">No {proj.division} checklists in the library — the standard list above is the one to use.</p>
             )}
             <div className="modal-actions">
               <button className="btn sec sm" onClick={() => setShowApplyChk(false)}>Cancel</button>

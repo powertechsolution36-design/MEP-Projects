@@ -4,6 +4,14 @@ const { ServiceError } = require('../errors');
 const ProjectPhoto = require('../models/ProjectPhoto');
 const { getEffectiveDivisions } = require('./subscriptionService');
 const { SIGN_RESPONSIBILITIES, PROJECT_STAGES_BY_DIVISION } = require('../models/shared/enums');
+const { LEGACY_CHECKLIST_FALLBACK } = require('../models/shared/legacyChecklists');
+/*
+ * The id the Choose Checklist dialog sends for "the division's own standard
+ * points" — the same list a new project is created with. Not a real
+ * template id, and deliberately not a valid ObjectId, so it can never
+ * collide with one in the library.
+ */
+const STANDARD_CHECKLIST_ID = 'standard';
 // Owner decision (31 Oct 2026): a published update reaches the client's own
 // app. Never blocks, never fails the work — see portalPushService.
 const portalPush = require('./portalPushService');
@@ -1512,8 +1520,30 @@ async function applyChecklistTemplate(projectId, input, actorAuth, deps) {
   if (mode !== 'replace' && mode !== 'append') {
     throw new ServiceError('mode must be "replace" or "append".', 'VALIDATION_ERROR', 400);
   }
-  const template = await deps.checklistTemplateRepo.findById(actorAuth.companyId, templateId);
-  if (!template) throw new ServiceError('Checklist template not found.', 'NOT_FOUND', 404);
+  /*
+   * Owner report (20 Nov 2026): "this project is not showing 13
+   * checklists." The standard points live in code and were reachable only
+   * when a project was CREATED. A project that ended up empty — made
+   * before the 18 Nov fix, or from a division with no standard list — had
+   * no way back to them from the screen, because this dialog offered the
+   * template library and nothing else. STANDARD_CHECKLIST_ID applies the
+   * division's own built-in list, the same thirteen a new project gets.
+   */
+  let template;
+  if (String(templateId) === STANDARD_CHECKLIST_ID) {
+    const standard = LEGACY_CHECKLIST_FALLBACK[project.division];
+    if (!standard || standard.length === 0) {
+      throw new ServiceError(
+        `There is no standard checklist for ${project.division || 'a project with no division'}.`,
+        'VALIDATION_ERROR',
+        400
+      );
+    }
+    template = { name: `Standard ${project.division}`, division: project.division, items: standard };
+  } else {
+    template = await deps.checklistTemplateRepo.findById(actorAuth.companyId, templateId);
+    if (!template) throw new ServiceError('Checklist template not found.', 'NOT_FOUND', 404);
+  }
   // PWA FACT (mApplyChkList, index.html:2786): only the project's own
   // division's checklists are offered.
   if (template.division !== project.division) {
@@ -2231,6 +2261,7 @@ module.exports = {
   isAssignedEngineer,
   SIGN_ROLES,
   ENGINEER_CANDIDATE_ROLES,
+  STANDARD_CHECKLIST_ID,
   PM_DIVISION_FOR_ROLE,
 };
 
