@@ -42,6 +42,18 @@ function todayDate() {
  * standalone "+ New SO" (PWA FACT: `mSO()` with no args — `e=null` in the
  * PWA's own `var e=enqId?DB.enquiries.find(...):null`).
  */
+/*
+ * The accessories target expense: the cost less 35% (owner request, 20 Nov
+ * 2026), rounded to the rupee. Zero cost means zero target — there is
+ * nothing to spend — rather than a number conjured from nothing.
+ */
+const TARGET_EXPENSE_SHARE = 0.65;
+
+function targetExpenseFor(lowSideCost) {
+  const cost = Number(lowSideCost) || 0;
+  return cost > 0 ? Math.round(cost * TARGET_EXPENSE_SHARE) : 0;
+}
+
 function buildSalesOrderDraft(enquiry, soOverrides, actorUserName) {
   const overrides = soOverrides || {};
   const division = enquiry
@@ -89,7 +101,16 @@ function buildSalesOrderDraft(enquiry, soOverrides, actorUserName) {
     highSideSelling: overrides.highSideSelling || 0,
     highSidePurchase: overrides.highSidePurchase || 0,
     lowSideCost: overrides.lowSideCost || 0,
-    lowSideTargetExpense: overrides.lowSideTargetExpense || 0,
+    /*
+     * Owner request (20 Nov 2026): "SO required automatic target exp less
+     * 35%." The accessories target is what the job is allowed to spend —
+     * the cost less 35% — and typing it by hand was both a chore and a
+     * place to slip. It fills itself from the cost, and a figure actually
+     * supplied still wins, so a job that does not fit the rule can be
+     * given its own target.
+     */
+    lowSideTargetExpense: overrides.lowSideTargetExpense
+      || targetExpenseFor(overrides.lowSideCost || 0),
     lowSideActualExpense: overrides.lowSideActualExpense || 0,
     termsAndConditions: overrides.termsAndConditions || DEFAULT_TERMS_AND_CONDITIONS, // PWA FACT: fixed boilerplate default
     // PWA FACT (`saveSO`'s milestone-collection loop): at most 5 rows, and a
@@ -396,6 +417,8 @@ async function runCreationCascade({ draft, orderNumber, companyId, enquiryId, qu
 }
 
 module.exports = {
+  targetExpenseFor,
+  TARGET_EXPENSE_SHARE,
   DEFAULT_TERMS_AND_CONDITIONS,
   DIVISION_PM_ROLE,
   buildSalesOrderDraft,

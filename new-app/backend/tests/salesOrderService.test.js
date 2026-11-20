@@ -260,3 +260,90 @@ test('editSalesOrder — correcting the project name renames the project it crea
   const project = store.state.projects.find((p) => String(p.id) === String(made.project.id));
   assert.equal(project.name, 'Sangeeta Bungalow');
 });
+
+/* ===== the accessories target, and finance closing an order (20 Nov 2026) ===== */
+
+test('a new sales order gets its accessories target automatically: the cost less 35%', async () => {
+  const service = require('../src/services/salesOrderService');
+  const store = createEnquiryFakeStore({ companies: [{ id: 'co1', name: 'Co', divisions: ['HVAC'] }] });
+  const auth = (o) => ({ userId: 'u1', companyId: 'co1', role: 'sales', name: 'Sales', ...o });
+
+  const made = await service.createSalesOrder(
+    { division: 'HVAC', projectName: 'Tower', contacts: [{ name: 'R', phone: '9' }], lowSideCost: 556200, paymentMilestones: [] },
+    auth(), store
+  );
+  assert.equal(made.salesOrder.lowSideTargetExpense, 361530); // the workbook's own figure
+
+  // Correcting the cost moves the target with it...
+  const edited = await service.editSalesOrder(made.salesOrder.id, { lowSideCost: 100000 }, auth({ role: 'admin' }), store);
+  assert.equal(edited.lowSideTargetExpense, 65000);
+
+  // ...but a target typed on purpose wins and is left alone.
+  const override = await service.editSalesOrder(
+    made.salesOrder.id, { lowSideCost: 200000, lowSideTargetExpense: 180000 }, auth({ role: 'admin' }), store
+  );
+  assert.equal(override.lowSideTargetExpense, 180000);
+});
+
+test('closing a sales order — finance only, once the project is Completed and no payment is pending', async () => {
+  const service = require('../src/services/salesOrderService');
+  const store = createEnquiryFakeStore({ companies: [{ id: 'co1', name: 'Co', divisions: ['HVAC'] }] });
+  const auth = (o) => ({ userId: 'u_fin', companyId: 'co1', role: 'finance', name: 'Finance', ...o });
+
+  const made = await service.createSalesOrder(
+    {
+      division: 'HVAC', projectName: 'Tower', contacts: [{ name: 'R', phone: '9' }],
+      lowSideCost: 100000, paymentMilestones: [{ description: 'Advance', amount: 50000 }],
+    },
+    auth({ userId: 'u1', role: 'sales' }), store
+  );
+  const soId = made.salesOrder.id;
+
+  for (const role of ['sales', 'hvac_pm', 'engineer']) {
+    await assert.rejects(
+      () => service.closeSalesOrder(soId, {}, auth({ role }), store),
+      (err) => err.code === 'FORBIDDEN'
+    );
+  }
+
+  // The work is not finished.
+  await assert.rejects(
+    () => service.closeSalesOrder(soId, {}, auth(), store),
+    (err) => err.code === 'VALIDATION_ERROR' && /still Ongoing/.test(err.message)
+  );
+
+  store.state.projects[0].status = 'Completed';
+  // The money is not in.
+  await assert.rejects(
+    () => service.closeSalesOrder(soId, {}, auth(), store),
+    (err) => err.code === 'VALIDATION_ERROR' && /pending/.test(err.message)
+  );
+  // Nothing is on finance's list while either half is outstanding.
+  assert.equal((await service.listSalesOrdersForClosing(auth(), store)).length, 0);
+
+  store.state.payments[0].status = 'Received';
+  const ready = await service.listSalesOrdersForClosing(auth(), store);
+  assert.equal(ready.length, 1);
+  assert.equal(ready[0].readyToClose, true);
+
+  const closed = await service.closeSalesOrder(soId, { lowSideActualExpense: 61000 }, auth(), store);
+  assert.ok(closed.closedAt);
+  assert.equal(closed.lowSideActualExpense, 61000);
+
+  // Closing twice is refused; the closed order stays on the list, below.
+  await assert.rejects(() => service.closeSalesOrder(soId, {}, auth(), store), (err) => err.code === 'VALIDATION_ERROR');
+  const after = await service.listSalesOrdersForClosing(auth(), store);
+  assert.equal(after.length, 1);
+  assert.ok(after[0].closedAt);
+
+  // Finance may correct that one figure afterwards, and nothing else.
+  const corrected = await service.editSalesOrder(soId, { lowSideActualExpense: 62500 }, auth(), store);
+  assert.equal(corrected.lowSideActualExpense, 62500);
+  await assert.rejects(
+    () => service.editSalesOrder(soId, { totalCost: 1 }, auth(), store),
+    (err) => err.code === 'FORBIDDEN'
+  );
+
+  const reopened = await service.reopenSalesOrder(soId, auth(), store);
+  assert.equal(reopened.closedAt, null);
+});

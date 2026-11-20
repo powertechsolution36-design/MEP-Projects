@@ -10,11 +10,12 @@ const { requireCompanyContext, rejectClientSuppliedCompanyId } = require('../mid
  * Enquiry business API.
  *
  *   POST   /api/enquiries                    create (sales only)
- *   GET    /api/enquiries                    list/search/filter (Enquiry List scope, excludes Lost)
+ *   GET    /api/enquiries                    list/search/filter (Enquiry List scope, excludes Lost and Won)
  *   GET    /api/enquiries/lost               list/search/filter (Lost Enquiries scope)
+ *   GET    /api/enquiries/won                list/search/filter (Won Enquiries scope, 20 Nov 2026)
  *   GET    /api/enquiries/reports/summary     segment/status reporting summary
  *   GET    /api/enquiries/reports/followups-due   follow-ups-due-today dashboard data
- *   GET    /api/enquiries/export.csv          CSV export (Enquiry List or Lost scope via ?lost=true)
+ *   GET    /api/enquiries/export.csv          CSV export (Enquiry List, or Lost via ?lost=true, or Won via ?won=true)
  *   GET    /api/enquiries/:id                 detail
  *   PATCH  /api/enquiries/:id                 direct field edit (no edit-history, #17 HOLD FOR #3)
  *   POST   /api/enquiries/:id/follow-ups      add a follow-up
@@ -68,7 +69,17 @@ function createEnquiryRouter(deps) {
   router.get(
     '/lost',
     handle(async (req, res) => {
-      const enquiries = await service.listEnquiries(req.auth, { includeLost: true, filters: parseFilters(req.query) }, deps);
+      const enquiries = await service.listEnquiries(req.auth, { scope: 'lost', filters: parseFilters(req.query) }, deps);
+      return res.status(200).json({ enquiries });
+    })
+  );
+
+  // Owner request (20 Nov 2026): a won lead leaves the Enquiry List and
+  // gets a screen of its own, beside the lost ones.
+  router.get(
+    '/won',
+    handle(async (req, res) => {
+      const enquiries = await service.listEnquiries(req.auth, { scope: 'won', filters: parseFilters(req.query) }, deps);
       return res.status(200).json({ enquiries });
     })
   );
@@ -92,8 +103,10 @@ function createEnquiryRouter(deps) {
   router.get(
     '/export.csv',
     handle(async (req, res) => {
-      const includeLost = req.query.lost === 'true';
-      const csv = await service.exportEnquiriesCsv(req.auth, { includeLost, filters: parseFilters(req.query) }, deps);
+      // ?lost=true and ?won=true pick those screens' scopes; neither picks
+      // the Enquiry List, which is the leads still being chased.
+      const scope = req.query.lost === 'true' ? 'lost' : req.query.won === 'true' ? 'won' : 'open';
+      const csv = await service.exportEnquiriesCsv(req.auth, { scope, filters: parseFilters(req.query) }, deps);
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', `attachment; filename="enquiries.csv"`);
       return res.status(200).send(csv);
@@ -103,7 +116,7 @@ function createEnquiryRouter(deps) {
   router.get(
     '/',
     handle(async (req, res) => {
-      const enquiries = await service.listEnquiries(req.auth, { includeLost: false, filters: parseFilters(req.query) }, deps);
+      const enquiries = await service.listEnquiries(req.auth, { scope: 'open', filters: parseFilters(req.query) }, deps);
       return res.status(200).json({ enquiries });
     })
   );

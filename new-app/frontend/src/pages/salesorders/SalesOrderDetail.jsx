@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
-import { money, fmtDate } from '../../utils/format';
+import { money, fmtDate, targetExpenseFor } from '../../utils/format';
 import useMyDivisions from '../../hooks/useMyDivisions';
 import MilestonePointSelect, { useChecklistPoints } from '../../components/MilestonePoints';
 import TeamSelect, { useTeamCandidates } from '../../components/TeamSelect';
@@ -404,7 +404,7 @@ export default function SalesOrderDetail() {
                     <div className="filter-field"><label>Total Cost</label><input type="number" value={editForm.totalCost} onChange={e => setEditForm(f => ({ ...f, totalCost: e.target.value }))} /></div>
                     <div className="filter-field"><label>Equipment Selling</label><input type="number" value={editForm.highSideSelling} onChange={e => setEditForm(f => ({ ...f, highSideSelling: e.target.value }))} /></div>
                     <div className="filter-field"><label>Equipment Purchase</label><input type="number" value={editForm.highSidePurchase} onChange={e => setEditForm(f => ({ ...f, highSidePurchase: e.target.value }))} /></div>
-                    <div className="filter-field"><label>Accessories Cost</label><input type="number" value={editForm.lowSideCost} onChange={e => setEditForm(f => ({ ...f, lowSideCost: e.target.value }))} /></div>
+                    <div className="filter-field"><label>Accessories Cost</label><input type="number" value={editForm.lowSideCost} onChange={e => setEditForm(f => ({ ...f, lowSideCost: e.target.value, lowSideTargetExpense: targetExpenseFor(e.target.value) }))} /></div>
                     <div className="filter-field"><label>Accessories Target Exp.</label><input type="number" value={editForm.lowSideTargetExpense} onChange={e => setEditForm(f => ({ ...f, lowSideTargetExpense: e.target.value }))} /></div>
                     <div className="filter-field"><label>Accessories Actual Exp.</label><input type="number" value={editForm.lowSideActualExpense} onChange={e => setEditForm(f => ({ ...f, lowSideActualExpense: e.target.value }))} /></div>
                   </div>

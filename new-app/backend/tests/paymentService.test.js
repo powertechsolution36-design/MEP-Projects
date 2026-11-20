@@ -313,3 +313,53 @@ test('paymentRepo.create — a SECOND payment for the same SO milestone is still
   });
   assert.ok(other.id);
 });
+
+/* ===== writing a payment off as lost (owner request, 20 Nov 2026) ===== */
+
+test('markPaymentLost — finance and admin only; it leaves the pending pile and can be put back', async () => {
+  const store = createEnquiryFakeStore({
+    payments: [
+      { id: 'pay1', companyId: 'co1', projectOrReference: 'Mask Spaces', amount: 74143, status: 'Pending', partPayments: [] },
+    ],
+  });
+  const auth = (o) => ({ userId: 'u1', companyId: 'co1', role: 'finance', name: 'Finance', ...o });
+
+  for (const role of ['sales', 'hvac_pm', 'engineer', 'service_mgr']) {
+    await assert.rejects(
+      () => service.markPaymentLost('pay1', { reason: 'client refused' }, auth({ role }), store),
+      (err) => err.code === 'FORBIDDEN'
+    );
+  }
+
+  const lost = await service.markPaymentLost('pay1', { reason: 'Client refused to pay' }, auth(), store);
+  assert.equal(lost.status, 'Lost');
+  assert.equal(lost.lostReason, 'Client refused to pay');
+  assert.ok(lost.lostDate);
+
+  // It is out of the pending list, and nothing was deleted.
+  const all = await service.listPayments(auth({ role: 'admin' }), {}, store);
+  assert.equal(all.length, 1);
+  assert.equal(all.filter((p) => p.status === 'Pending').length, 0);
+
+  const back = await service.restoreLostPayment('pay1', auth(), store);
+  assert.equal(back.status, 'Pending');
+  assert.equal(back.lostReason, '');
+  assert.equal(back.lostDate, null);
+});
+
+test('markPaymentLost — refused once any money has come in against it', async () => {
+  const store = createEnquiryFakeStore({
+    payments: [
+      {
+        id: 'pay2', companyId: 'co1', projectOrReference: 'Beacon Associate', amount: 407772, status: 'Pending',
+        partPayments: [{ id: 'pp1', amount: 100000, date: new Date('2026-11-01'), mode: 'UPI' }],
+      },
+    ],
+  });
+  const auth = { userId: 'u1', companyId: 'co1', role: 'finance', name: 'Finance' };
+  await assert.rejects(
+    () => service.markPaymentLost('pay2', { reason: 'giving up' }, auth, store),
+    (err) => err.code === 'VALIDATION_ERROR' && /1,00,000/.test(err.message)
+  );
+  assert.equal(store.state.payments[0].status, 'Pending');
+});

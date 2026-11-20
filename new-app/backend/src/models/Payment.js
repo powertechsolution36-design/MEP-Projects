@@ -68,7 +68,16 @@ const paymentSchema = new Schema(
     lastCallDate: { type: Date }, // PWA `lastCall`
     discussionNotes: { type: String }, // PWA `disc`
     nextCallDate: { type: Date }, // PWA `nextCall`
-    status: { type: String, enum: ['Pending', 'Received'], required: true, default: 'Pending' }, // PWA `status`, derived
+    /*
+     * Owner request (20 Nov 2026): "Add payment lost option below Mark
+     * Recived. And that payment get out from this list. Make another lost
+     * payment list." Money written off — the client will not pay, the job
+     * fell through — is neither pending nor received, and leaving it in
+     * the pending pile makes finance chase a debt nobody is collecting.
+     */
+    status: { type: String, enum: ['Pending', 'Received', 'Lost'], required: true, default: 'Pending' }, // PWA `status`, derived
+    lostReason: { type: String, default: '' },
+    lostDate: { type: Date, default: null },
     // PWA `soNo` (display no.) -> NEW BACKEND DESIGN (durable ref instead of string match).
     salesOrderId: { type: Schema.Types.ObjectId, ref: 'SalesOrder', default: null },
     milestoneIndex: { type: Number, default: null }, // PWA `mi`

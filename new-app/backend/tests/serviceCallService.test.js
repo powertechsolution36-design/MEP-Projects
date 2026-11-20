@@ -263,7 +263,7 @@ test('editServiceCallClient — only admin / service_mgr may correct a client, a
 
 /* ================= Assignment ================= */
 
-test('assignEngineer — valid candidate role transitions Registered -> Assigned, sets date/time, notifies ["*"]', async () => {
+test('assignEngineer — an engineer AND a date make the call Scheduled, sets date/time, notifies ["*"]', async () => {
   const store = baseStore({ users: [engineerUser()] });
   const { serviceCall } = await service.registerComplaint({ customer: 'Priya' }, auth(), store);
   const updated = await service.assignEngineer(
@@ -273,7 +273,9 @@ test('assignEngineer — valid candidate role transitions Registered -> Assigned
     store
   );
   assert.equal(updated.engineerId, 'eng1');
-  assert.equal(updated.status, 'Assigned');
+  // Owner request (20 Nov 2026): "Once it get scheduled then this service
+  // call should move to scheduled list." A day is fixed, so it is Scheduled.
+  assert.equal(updated.status, 'Scheduled');
   assert.equal(updated.appointmentTime, '02:00 PM');
 
   const assignNotif = store.state.notifications.find((n) => n.text.includes('assigned to Suresh Engineer'));
@@ -1000,7 +1002,21 @@ test('the Solar Manager may register and assign, like the service manager', asyn
     store
   );
   assert.equal(updated.engineerId, 'eng1');
-  assert.equal(updated.status, 'Assigned');
+  assert.equal(updated.status, 'Scheduled'); // a date was given — 20 Nov 2026
+});
+
+test('assignEngineer — an engineer with no date is Assigned, and a date later moves it to Scheduled', async () => {
+  const store = baseStore({ users: [engineerUser()] });
+  const { serviceCall } = await service.registerComplaint({ customer: 'Priya' }, auth(), store);
+
+  const assigned = await service.assignEngineer(serviceCall.id, { engineerId: 'eng1' }, auth(), store);
+  assert.equal(assigned.status, 'Assigned', 'somebody is going, but no day is fixed');
+
+  const scheduled = await service.assignEngineer(
+    serviceCall.id, { engineerId: 'eng1', date: '2026-11-25', time: '10:00 AM' }, auth(), store
+  );
+  assert.equal(scheduled.status, 'Scheduled');
+  assert.equal(scheduled.appointmentTime, '10:00 AM');
 });
 
 /* ============ A call nobody has been sent to (owner request, 17 Nov 2026) ============

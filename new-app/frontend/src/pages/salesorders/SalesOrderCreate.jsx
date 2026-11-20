@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
-import { today } from '../../utils/format';
+import { today, targetExpenseFor } from '../../utils/format';
 import useMyDivisions from '../../hooks/useMyDivisions';
 import TeamSelect, { useTeamCandidates, managerIdForName } from '../../components/TeamSelect';
 import DraftBar, { useDrafts } from '../../components/DraftBar';
@@ -250,7 +250,8 @@ export default function SalesOrderCreate() {
             <div className="filter-field"><label>Total Cost</label><input type="number" value={form.totalCost} onChange={e => setField('totalCost', e.target.value)} /></div>
             <div className="filter-field"><label>Equipment Selling</label><input type="number" value={form.highSideSelling} onChange={e => setField('highSideSelling', e.target.value)} /></div>
             <div className="filter-field"><label>Equipment Purchase</label><input type="number" value={form.highSidePurchase} onChange={e => setField('highSidePurchase', e.target.value)} /></div>
-            <div className="filter-field"><label>Accessories Cost</label><input type="number" value={form.lowSideCost} onChange={e => setField('lowSideCost', e.target.value)} /></div>
+            <div className="filter-field"><label>Accessories Cost</label><input type="number" value={form.lowSideCost} onChange={e => setForm(f => ({ ...f, lowSideCost: e.target.value, lowSideTargetExpense: targetExpenseFor(e.target.value) }))} /></div>
+            {/* Fills itself from the cost (less 35%), and can be typed over. */}
             <div className="filter-field"><label>Accessories Target Exp.</label><input type="number" value={form.lowSideTargetExpense} onChange={e => setField('lowSideTargetExpense', e.target.value)} /></div>
             <div className="filter-field"><label>Accessories Actual Exp.</label><input type="number" value={form.lowSideActualExpense} onChange={e => setField('lowSideActualExpense', e.target.value)} /></div>
           </div>

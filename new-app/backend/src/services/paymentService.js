@@ -79,6 +79,55 @@ async function syncPayStatus(companyId, payment, deps, session) {
   return updated;
 }
 
+/**
+ * Write a payment off as lost, or put it back (owner request, 20 Nov 2026).
+ *
+ * Finance and admin only, like every other money action here. A payment
+ * with receipts against it is refused: part of it HAS been collected, so
+ * it is not lost — the milestone would be edited down instead. Writing one
+ * off never touches the sales order's own milestone `received` flag, which
+ * says what was collected, not what was given up on.
+ */
+async function markPaymentLost(id, input, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  assertRole(actorAuth, LEDGER_ROLES, 'write a payment off as lost');
+  const payment = await deps.paymentRepo.findById(actorAuth.companyId, id);
+  if (!payment) throw new ServiceError('Payment not found.', 'NOT_FOUND', 404);
+  if (payment.status === 'Received') {
+    throw new ServiceError('This payment has been received in full.', 'VALIDATION_ERROR', 400);
+  }
+  const received = computeReceived(payment);
+  if (received > 0) {
+    throw new ServiceError(
+      `₹${received.toLocaleString('en-IN')} has already been received against this payment, so it is not lost. `
+      + 'Correct the milestone amount instead.',
+      'VALIDATION_ERROR',
+      400
+    );
+  }
+  return deps.paymentRepo.update(actorAuth.companyId, id, {
+    status: 'Lost',
+    lostReason: String((input && input.reason) || '').trim(),
+    lostDate: todayDate(),
+  });
+}
+
+/** Put a written-off payment back among the pending ones. */
+async function restoreLostPayment(id, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  assertRole(actorAuth, LEDGER_ROLES, 'restore a written-off payment');
+  const payment = await deps.paymentRepo.findById(actorAuth.companyId, id);
+  if (!payment) throw new ServiceError('Payment not found.', 'NOT_FOUND', 404);
+  if (payment.status !== 'Lost') {
+    throw new ServiceError('Only a written-off payment can be restored.', 'VALIDATION_ERROR', 400);
+  }
+  return deps.paymentRepo.update(actorAuth.companyId, id, {
+    status: 'Pending',
+    lostReason: '',
+    lostDate: null,
+  });
+}
+
 async function getPayment(id, actorAuth, deps) {
   assertCompanyContext(actorAuth);
   assertRole(actorAuth, LEDGER_ROLES, 'view Payments');
@@ -678,6 +727,8 @@ async function exportReceiptsCsv(actorAuth, deps) {
 
 module.exports = {
   getPayment,
+  markPaymentLost,
+  restoreLostPayment,
   listPayments,
   createManualPayment,
   addPartPayment,

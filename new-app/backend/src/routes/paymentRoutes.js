@@ -111,6 +111,23 @@ function createPaymentRouter(deps) {
     })
   );
 
+  // Owner request (20 Nov 2026): write a payment off, or put it back.
+  router.post(
+    '/:id/lost',
+    handle(async (req, res) => {
+      const payment = await service.markPaymentLost(req.params.id, req.body, req.auth, deps);
+      return res.status(200).json({ payment });
+    })
+  );
+
+  router.post(
+    '/:id/restore',
+    handle(async (req, res) => {
+      const payment = await service.restoreLostPayment(req.params.id, req.auth, deps);
+      return res.status(200).json({ payment });
+    })
+  );
+
   router.post(
     '/:id/part-payments',
     handle(async (req, res) => {

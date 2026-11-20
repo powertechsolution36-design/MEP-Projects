@@ -356,3 +356,26 @@ test('deleteEnquiry — admin only, and refused once the lead became a sales ord
   assert.equal(result.deletedEnquiryId, 'enq1');
   assert.equal(store.state.enquiries.length, 0);
 });
+
+test('listEnquiries — a Won lead leaves the list and has its own scope (owner request, 20 Nov 2026)', async () => {
+  const { deps } = makeDeps({
+    enquiries: [
+      { id: 'e_open', companyId: 'co1', name: 'Still chasing', status: 'Open', segment: 'HVAC', followUpLog: [] },
+      { id: 'e_lost', companyId: 'co1', name: 'Gone elsewhere', status: 'Lost', segment: 'HVAC', followUpLog: [] },
+      { id: 'e_won', companyId: 'co1', name: 'Sangeeta Bungalow', status: 'Won', segment: 'HVAC', followUpLog: [] },
+    ],
+  });
+
+  const list = await service.listEnquiries(auth(), {}, deps);
+  assert.deepEqual(list.map((e) => e.id), ['e_open'], 'the list holds the leads still in play');
+
+  const won = await service.listEnquiries(auth(), { scope: 'won' }, deps);
+  assert.deepEqual(won.map((e) => e.id), ['e_won']);
+
+  const lost = await service.listEnquiries(auth(), { scope: 'lost' }, deps);
+  assert.deepEqual(lost.map((e) => e.id), ['e_lost']);
+
+  // The old spelling still means the Lost screen, not the whole list.
+  const legacy = await service.listEnquiries(auth(), { includeLost: true }, deps);
+  assert.deepEqual(legacy.map((e) => e.id), ['e_lost']);
+});

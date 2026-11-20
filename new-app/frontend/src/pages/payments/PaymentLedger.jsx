@@ -126,6 +126,9 @@ export default function PaymentLedger() {
     .sort((a, b) => (b.raisedToFinance ? 1 : 0) - (a.raisedToFinance ? 1 : 0));
   // PWA FACT (index.html:3886): settled milestones show newest first.
   const settled = filtered.filter(p => p.status === 'Received').slice().reverse();
+  // Written off — out of the pending pile, kept in a list of its own.
+  const lost = filtered.filter(p => p.status === 'Lost').slice().reverse();
+  const lostValue = lost.reduce((a, p) => a + (p.amount || 0), 0);
   const raised = pending.filter(p => p.raisedToFinance);
   // A payment belongs to a sales order when it was raised from one of its
   // milestones; everything else was typed in on this screen.
@@ -137,8 +140,13 @@ export default function PaymentLedger() {
      ALL of the company's payments — the search box narrows the tables, not
      the cards, so the totals stay a stable statement of where finance
      stands. "Raised by PM" counts only PENDING raised milestones. */
-  const totalBilled = payments.reduce((a, p) => a + (p.amount || 0), 0);
-  const totalCollected = payments.reduce((a, p) => a + received(p), 0);
+  /* A payment written off as lost (owner request, 20 Nov 2026) is money
+     nobody is collecting, so it is left out of Billed and Outstanding —
+     counting it would have the cards state a debt that has been given up
+     on. It is counted in its own panel below instead. */
+  const live = payments.filter((p) => p.status !== 'Lost');
+  const totalBilled = live.reduce((a, p) => a + (p.amount || 0), 0);
+  const totalCollected = live.reduce((a, p) => a + received(p), 0);
   const outstanding = totalBilled - totalCollected;
   const partPaid = payments.filter(p => p.status === 'Pending' && received(p) > 0).length;
   const raisedCount = payments.filter(p => p.status === 'Pending' && p.raisedToFinance).length;
@@ -170,6 +178,38 @@ export default function PaymentLedger() {
   // receipt for exactly the balance against the SAME payment (the app keeps one
   // payment per SO milestone); when the receipts cover the amount the status
   // flips to Received automatically. It does NOT create a second payment.
+  /*
+   * Owner request (20 Nov 2026): "Add payment lost option below Mark
+   * Recived. And that payment get out from this list. Make another lost
+   * payment list." Money nobody is going to collect stops being chased,
+   * but it is not deleted — it moves to its own list, with the reason, and
+   * can be brought back.
+   */
+  async function handleMarkLost(p) {
+    const reason = window.prompt(
+      `Write off ₹${balance(p).toLocaleString('en-IN')} for "${p.projectOrReference || 'this payment'}" as lost?\n\n`
+      + 'It leaves the pending list and moves to Lost Payments. Why is it lost? (optional)',
+      ''
+    );
+    if (reason === null) return;
+    setBusy(true);
+    try {
+      await api.post(`/api/payments/${p.id}/lost`, { reason });
+      await load();
+    } catch (err) { alert(err.message); }
+    finally { setBusy(false); }
+  }
+
+  async function handleRestoreLost(p) {
+    if (!window.confirm(`Put "${p.projectOrReference || 'this payment'}" back among the pending payments?`)) return;
+    setBusy(true);
+    try {
+      await api.post(`/api/payments/${p.id}/restore`, {});
+      await load();
+    } catch (err) { alert(err.message); }
+    finally { setBusy(false); }
+  }
+
   async function handleMarkFullyReceived(p) {
     const bal = balance(p);
     if (bal <= 0) { alert('This payment is already fully received.'); return; }
@@ -603,9 +643,15 @@ export default function PaymentLedger() {
                           </td>
                           {/* Pinned to the right edge. */}
                           <td data-label="Received?" className="nowrap">
-                            {balance(p) > 0
-                              ? <button className="btn grn sm" onClick={() => handleMarkFullyReceived(p)}>✓ Mark Received</button>
-                              : <span className="status-badge status-received">Received</span>}
+                            {balance(p) > 0 ? (
+                              <>
+                                <button className="btn grn sm" onClick={() => handleMarkFullyReceived(p)}>✓ Mark Received</button>
+                                {/* Owner request (20 Nov 2026): below Mark Received. */}
+                                <div style={{ marginTop: 4 }}>
+                                  <button className="btn sec sm" onClick={() => handleMarkLost(p)} disabled={busy}>✕ Payment Lost</button>
+                                </div>
+                              </>
+                            ) : <span className="status-badge status-received">Received</span>}
                           </td>
                         </tr>
 
@@ -729,6 +775,50 @@ export default function PaymentLedger() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Lost Payments — owner request (20 Nov 2026). Its own list, so the
+          pending pile is only what is still being chased. */}
+      {!loading && lost.length > 0 && (
+        <div className="panel flush">
+          <div className="panel-head">
+            <h3>❌ Lost Payments</h3>
+            <div className="panel-head-meta">
+              <span className="status-badge status-lost">{lost.length} written off · {money(lostValue) || '₹ 0'}</span>
+            </div>
+          </div>
+          <div className="table-wrap">
+            <table className="data-table stacks-on-phone">
+              <thead>
+                <tr>
+                  <th>Project</th>
+                  <th>Person</th>
+                  <th>Amount</th>
+                  <th>Written off</th>
+                  <th>Reason</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lost.map((p) => (
+                  <tr key={p.id}>
+                    <td data-label="Project">
+                      <strong>{p.projectOrReference}</strong>
+                      {p.orderNumber && <div className="cell-sub">SO-{p.orderNumber}</div>}
+                    </td>
+                    <td data-label="Person">{p.personName || '-'}</td>
+                    <td data-label="Amount"><strong>{money(p.amount)}</strong></td>
+                    <td data-label="Written off">{fmtDate(p.lostDate) || '-'}</td>
+                    <td data-label="Reason">{p.lostReason || <span className="muted">—</span>}</td>
+                    <td data-label="Actions">
+                      <button className="btn sec sm" onClick={() => handleRestoreLost(p)} disabled={busy}>Put back</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

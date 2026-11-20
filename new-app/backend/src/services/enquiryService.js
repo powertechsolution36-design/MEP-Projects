@@ -420,11 +420,20 @@ function applyEnquiryFilters(rows, filters) {
 }
 
 /**
- * PWA FACT: the Enquiry List screen excludes Lost by default
- * (`x.status!=="Lost"`); the Lost Enquiries screen shows only Lost. Both
- * apply the same `applyEnqFilt`. `includeLost: true` reproduces the Lost
- * Enquiries screen's scope; the default reproduces the Enquiry List screen.
+ * PWA FACT: the Enquiry List screen excludes Lost (`x.status!=="Lost"`);
+ * the Lost Enquiries screen shows only Lost. Both apply the same
+ * `applyEnqFilt`.
+ *
+ * Owner request (20 Nov 2026): "Won enquiries should moved out from enquiry
+ * list. like lost enquiries." A won lead has become a quotation and an
+ * order; it is finished business, and leaving it among the leads still
+ * being chased is the same clutter the PWA already removed for Lost. So
+ * the list is the leads still in play, and Won has a screen of its own.
+ *
+ * scope: 'lost' and 'won' are those two screens; anything else is the
+ * Enquiry List, which holds neither.
  */
+const CLOSED_ENQUIRY_STATUSES = Object.freeze(['Lost', 'Won']);
 /**
  * The segment a login is confined to, or null for one that sees them all.
  * An enquiry's "segment" is its division (or AMC), so a division-confined
@@ -434,14 +443,19 @@ function segmentScope(actorAuth) {
   return ROLE_DIVISION_MAP[actorAuth && actorAuth.role] || null;
 }
 
-async function listEnquiries(actorAuth, { includeLost = false, filters = {} } = {}, deps) {
+async function listEnquiries(actorAuth, { scope, includeLost = false, filters = {} } = {}, deps) {
   assertCompanyContext(actorAuth);
   assertRole(actorAuth, MANAGE_ROLES, 'view Enquiries');
 
   const all = await deps.enquiryRepo.listByCompany(actorAuth.companyId);
   const mine = segmentScope(actorAuth);
   const owned = mine ? all.filter((x) => x.segment === mine) : all;
-  const scoped = includeLost ? owned.filter((x) => x.status === 'Lost') : owned.filter((x) => x.status !== 'Lost');
+  // `includeLost` is the old spelling of scope: 'lost', kept so an older
+  // caller cannot silently start listing the wrong leads.
+  const which = scope || (includeLost ? 'lost' : 'open');
+  const scoped = which === 'lost' ? owned.filter((x) => x.status === 'Lost')
+    : which === 'won' ? owned.filter((x) => x.status === 'Won')
+      : owned.filter((x) => !CLOSED_ENQUIRY_STATUSES.includes(x.status));
   return applyEnquiryFilters(scoped, filters);
 }
 
@@ -515,8 +529,8 @@ function formatDateForCsv(value) {
  * "Sr" uses this backend's own id (DOMAIN_MODEL.md: the PWA never shows an
  * enquiry number to the user in the first place, only an internal id).
  */
-async function exportEnquiriesCsv(actorAuth, { includeLost = false, filters = {} } = {}, deps) {
-  const rows = await listEnquiries(actorAuth, { includeLost, filters }, deps);
+async function exportEnquiriesCsv(actorAuth, { scope, includeLost = false, filters = {} } = {}, deps) {
+  const rows = await listEnquiries(actorAuth, { scope, includeLost, filters }, deps);
 
   const header = [
     'Sr', 'Project/Address', 'Site Type', 'Capacity', 'Customer Phone', 'Reference', 'Segment',

@@ -11,10 +11,12 @@ import ClientList from './pages/clients/ClientList';
 import ClientDetail from './pages/clients/ClientDetail';
 import EnquiryList from './pages/enquiries/EnquiryList';
 import LostEnquiries from './pages/enquiries/LostEnquiries';
+import WonEnquiries from './pages/enquiries/WonEnquiries';
 import EnquiryDetail from './pages/enquiries/EnquiryDetail';
 import EnquiryCreate from './pages/enquiries/EnquiryCreate';
 import SalesOrderList from './pages/salesorders/SalesOrderList';
 import SalesOrderDetail from './pages/salesorders/SalesOrderDetail';
+import SalesOrderClosing from './pages/salesorders/SalesOrderClosing';
 import SalesOrderCreate from './pages/salesorders/SalesOrderCreate';
 import PaymentLedger from './pages/payments/PaymentLedger';
 import ProjectList from './pages/projects/ProjectList';
@@ -112,6 +114,8 @@ export default function App() {
           {/* Owner request (17 Nov 2026): everything we hold on one client. */}
           <Route path="clients/:id" element={<ClientDetail />} />
           <Route path="enquiries" element={<EnquiryList />} />
+          {/* Owner request (20 Nov 2026): won leads leave the list, like lost ones. */}
+          <Route path="enquiries/won" element={<WonEnquiries />} />
           <Route path="enquiries/lost" element={<LostEnquiries />} />
           <Route path="enquiries/new" element={<EnquiryCreate />} />
           <Route path="enquiries/:id" element={<EnquiryDetail />} />
@@ -119,6 +123,8 @@ export default function App() {
           {/* ── Sales Orders ── */}
           <Route path="sales-orders" element={<SalesOrderList />} />
           <Route path="sales-orders/new" element={<SalesOrderCreate />} />
+          {/* Owner request (20 Nov 2026): finance closes a finished order. */}
+          <Route path="sales-orders/closing" element={<SalesOrderClosing />} />
           <Route path="sales-orders/:id" element={<SalesOrderDetail />} />
 
           {/* ── Payments / Finance ── */}

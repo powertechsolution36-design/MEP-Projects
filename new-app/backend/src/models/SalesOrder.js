@@ -115,6 +115,16 @@ const salesOrderSchema = new Schema(
     lowSideCost: { type: Number }, // PWA FACT
     lowSideTargetExpense: { type: Number }, // PWA FACT
     lowSideActualExpense: { type: Number }, // PWA FACT
+    /*
+     * Owner decision (20 Nov 2026): "when project is completed and all
+     * payment is completed finance team can close Sales order" — and the
+     * actual accessories expense is finance's to fill in at that point,
+     * once the real bills are in. A closed order is the record of a
+     * finished job: nothing here stops it being reopened, but closing is
+     * deliberate and says who did it and when.
+     */
+    closedAt: { type: Date, default: null },
+    closedByUserId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     termsAndConditions: { type: String }, // PWA FACT
     paymentMilestones: {
       type: [paymentMilestoneSchema],

@@ -903,7 +903,26 @@ async function assignEngineer(id, input, actorAuth, deps) {
   const rawAssignDate = input && (input.date || input.appointmentDate);
   const appointmentDate = rawAssignDate ? new Date(rawAssignDate) : null;
   const appointmentTime = (input && (input.time || input.appointmentTime)) || '';
-  const nextStatus = engineerId && serviceCall.status === 'Registered' ? 'Assigned' : serviceCall.status; // PWA FACT: DO NOT FIX.
+  /*
+   * Owner request (20 Nov 2026): "For every service call Once it get
+   * scheduled then this service call should move to scheduled list." A
+   * complaint given an engineer AND a date is a scheduled visit, so it
+   * reads Scheduled and stands in the Scheduled band with the PM visits —
+   * it had been stuck on "Assigned" with an appointment date beside it,
+   * which told the office nothing.
+   *
+   * PWA FACT, amended in one direction only: the PWA flipped
+   * Registered->Assigned and left a PM call Scheduled. A date now carries a
+   * call UP to Scheduled, whatever it was. Nothing here carries a call back
+   * DOWN — a PM visit with no date typed stays Scheduled, as it always has
+   * — so this adds a transition rather than replacing one. A Completed call
+   * never reaches this point.
+   */
+  const nextStatus = !engineerId
+    ? serviceCall.status
+    : appointmentDate
+      ? 'Scheduled'
+      : (serviceCall.status === 'Registered' ? 'Assigned' : serviceCall.status);
 
   const updated = await deps.withTransaction(deps, async (txnDeps) => {
     const { session } = txnDeps;

@@ -56,6 +56,15 @@ const EDIT_ROLES = Object.freeze(['sales', 'admin', 'hvac_pm', 'solar_pm', 'mep_
  * the order out of the Manager's own division, which is the one edit that
  * could take a record away from the person making it.
  */
+/*
+ * Owner decision (20 Nov 2026): "when project is completed and all payment
+ * is completed finance team can close Sales order", and the actual
+ * accessories expense is theirs to fill in once the real bills are in.
+ * Finance may touch that ONE figure on a sales order and nothing else.
+ */
+const CLOSE_ROLES = Object.freeze(['finance', 'admin']);
+const FINANCE_EDITABLE_FIELDS = Object.freeze(['lowSideActualExpense']);
+
 const PM_EDITABLE_FIELDS = Object.freeze([
   'projectName', 'startDate', 'endDate', 'siteAddress', 'contacts',
   'projectTeam', 'crucialPoints', 'termsAndConditions',
@@ -308,6 +317,103 @@ async function deleteSalesOrder(id, actorAuth, deps) {
   };
 }
 
+/**
+ * The state of a sales order's closing: is the work finished, is the money
+ * in, and has finance closed it yet.
+ */
+async function closingStateFor(companyId, salesOrder, deps) {
+  const project = deps.projectRepo && deps.projectRepo.findBySalesOrderId
+    ? await deps.projectRepo.findBySalesOrderId(companyId, salesOrder.id)
+    : null;
+  const payments = deps.paymentRepo && deps.paymentRepo.listBySalesOrder
+    ? await deps.paymentRepo.listBySalesOrder(companyId, salesOrder.id)
+    : [];
+  const pendingPayments = payments.filter((p) => p.status === 'Pending');
+  const projectCompleted = Boolean(project && project.status === 'Completed');
+  return {
+    projectId: project ? String(project.id) : null,
+    projectStatus: project ? project.status : null,
+    projectCompleted,
+    pendingPaymentCount: pendingPayments.length,
+    pendingPaymentValue: pendingPayments.reduce((a, p) => a + (Number(p.amount) || 0), 0),
+    // Both halves, as the owner put them: the job is finished AND the money
+    // is in. A payment written off as lost is not pending, so it does not
+    // hold an order open for ever.
+    readyToClose: projectCompleted && pendingPayments.length === 0 && !salesOrder.closedAt,
+    closedAt: salesOrder.closedAt || null,
+  };
+}
+
+/**
+ * The orders finance works through: the ones ready to close, and the ones
+ * already closed (owner request, 20 Nov 2026).
+ */
+async function listSalesOrdersForClosing(actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  assertRole(actorAuth, CLOSE_ROLES, 'work through sales order closing');
+  const all = await deps.salesOrderRepo.listByCompany(actorAuth.companyId);
+  const rows = [];
+  for (const so of all) {
+    const state = await closingStateFor(actorAuth.companyId, so, deps);
+    if (!state.readyToClose && !state.closedAt) continue;
+    rows.push({ ...redactCostForRole(so, actorAuth.role), ...state });
+  }
+  // Ready to close first, newest order first within each group.
+  return rows.sort((a, b) => (a.closedAt ? 1 : 0) - (b.closedAt ? 1 : 0) || b.orderNumber - a.orderNumber);
+}
+
+/**
+ * Close a sales order (owner decision, 20 Nov 2026): finance's act, once
+ * the project team has finished the job and every payment is in. The
+ * actual accessories expense may be set in the same breath, because that
+ * is the figure finance comes here to write.
+ */
+async function closeSalesOrder(id, input, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  assertRole(actorAuth, CLOSE_ROLES, 'close a sales order');
+  const existing = await deps.salesOrderRepo.findById(actorAuth.companyId, id);
+  if (!existing) throw new ServiceError('SalesOrder not found.', 'NOT_FOUND', 404);
+  if (existing.closedAt) {
+    throw new ServiceError('This sales order is already closed.', 'VALIDATION_ERROR', 400);
+  }
+
+  const state = await closingStateFor(actorAuth.companyId, existing, deps);
+  if (!state.projectCompleted) {
+    throw new ServiceError(
+      state.projectStatus
+        ? `The project is still ${state.projectStatus}. A sales order is closed once the work is finished.`
+        : 'This order has no project, so there is no finished work to close it on.',
+      'VALIDATION_ERROR',
+      400
+    );
+  }
+  if (state.pendingPaymentCount > 0) {
+    throw new ServiceError(
+      `${state.pendingPaymentCount} payment(s) worth ₹${state.pendingPaymentValue.toLocaleString('en-IN')} are still pending.`,
+      'VALIDATION_ERROR',
+      400
+    );
+  }
+
+  const patch = { closedAt: new Date(), closedByUserId: actorAuth.userId };
+  if (input && input.lowSideActualExpense !== undefined && input.lowSideActualExpense !== null && input.lowSideActualExpense !== '') {
+    patch.lowSideActualExpense = Number(input.lowSideActualExpense) || 0;
+  }
+  return deps.salesOrderRepo.update(actorAuth.companyId, id, patch);
+}
+
+/** Put a closed order back, when it was closed too soon. */
+async function reopenSalesOrder(id, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  assertRole(actorAuth, CLOSE_ROLES, 'reopen a sales order');
+  const existing = await deps.salesOrderRepo.findById(actorAuth.companyId, id);
+  if (!existing) throw new ServiceError('SalesOrder not found.', 'NOT_FOUND', 404);
+  if (!existing.closedAt) {
+    throw new ServiceError('This sales order is not closed.', 'VALIDATION_ERROR', 400);
+  }
+  return deps.salesOrderRepo.update(actorAuth.companyId, id, { closedAt: null, closedByUserId: null });
+}
+
 async function getSalesOrder(id, actorAuth, deps) {
   assertCompanyContext(actorAuth);
   assertRole(actorAuth, VIEW_ROLES, 'view SalesOrders');
@@ -339,7 +445,19 @@ async function getSalesOrder(id, actorAuth, deps) {
  */
 async function editSalesOrder(id, patchInput, actorAuth, deps) {
   assertCompanyContext(actorAuth);
-  assertRole(actorAuth, EDIT_ROLES, 'edit a SalesOrder');
+  if (actorAuth.role === 'finance') {
+    const sent = Object.keys(patchInput || {});
+    const refused = sent.filter((f) => !FINANCE_EDITABLE_FIELDS.includes(f));
+    if (refused.length > 0) {
+      throw new ServiceError(
+        `Finance may set ${FINANCE_EDITABLE_FIELDS.join(', ')} on a sales order, nothing else: ${refused.join(', ')}.`,
+        'FORBIDDEN',
+        403
+      );
+    }
+  } else {
+    assertRole(actorAuth, EDIT_ROLES, 'edit a SalesOrder');
+  }
 
   const existing = await deps.salesOrderRepo.findById(actorAuth.companyId, id);
   if (!existing) {
@@ -404,6 +522,18 @@ async function editSalesOrder(id, patchInput, actorAuth, deps) {
       // durable identity. Intentionally NOT "fixed."
       received: (existing.paymentMilestones[i] && existing.paymentMilestones[i].received) || false,
     }));
+  }
+
+  /*
+   * Owner request (20 Nov 2026): the accessories target is the cost less
+   * 35%. When the cost is corrected and no target is sent with it, the
+   * target follows — otherwise it keeps a figure derived from a cost that
+   * no longer exists. A target sent explicitly always wins.
+   */
+  if (Object.prototype.hasOwnProperty.call(patch, 'lowSideCost')
+    && !Object.prototype.hasOwnProperty.call(patch, 'lowSideTargetExpense')
+    && Number(patch.lowSideCost) !== Number(existing.lowSideCost || 0)) {
+    patch.lowSideTargetExpense = cascade.targetExpenseFor(patch.lowSideCost);
   }
 
   const updated = await deps.salesOrderRepo.update(actorAuth.companyId, id, patch);
@@ -572,6 +702,11 @@ async function exportSalesOrdersCsv(actorAuth, { filters = {} } = {}, deps) {
 
 module.exports = {
   deleteSalesOrder,
+  closeSalesOrder,
+  reopenSalesOrder,
+  listSalesOrdersForClosing,
+  closingStateFor,
+  CLOSE_ROLES,
   computeMargins,
   createSalesOrder,
   getSalesOrder,

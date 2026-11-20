@@ -760,7 +760,10 @@ async function group6g(browser) {
 /* ------------------------------------------------ 6h every CSV export, per role, and expired-session handling */
 async function group6h(browser) {
   const pages = [
-    ['admin', '/enquiries', 'button:has-text("Export CSV")', 'Poonawalla'],
+    // Owner request (20 Nov 2026): a Won lead leaves the Enquiry List, so
+    // the export of that list carries the open one, not the won one.
+    ['admin', '/enquiries', 'button:has-text("Export CSV")', 'Sai Residency'],
+    ['admin', '/enquiries/won', 'button:has-text("Export CSV")', 'Poonawalla'],
     ['admin', '/enquiries/lost', 'button:has-text("Export CSV")', ''],
     ['admin', '/sales-orders', 'button:has-text("Export CSV")', 'Poonawalla'],
     ['amol', '/projects', 'button:has-text("Report")', 'Poonawalla'],
@@ -790,7 +793,7 @@ async function group6h(browser) {
     await s.ctx.close();
   }
   // Reports hub (each role sees only its own module buttons)
-  for (const [user, label, must] of [['admin', 'Enquiry CSV', 'Poonawalla'], ['finance', 'Receipts CSV', ''], ['store', 'Stock Report CSV', ''], ['vinod', 'My Material CSV', '']]) {
+  for (const [user, label, must] of [['admin', 'Enquiry CSV', 'Sai Residency'], ['finance', 'Receipts CSV', ''], ['store', 'Stock Report CSV', ''], ['vinod', 'My Material CSV', '']]) {
     const s = await session(browser, user);
     await open(s, '/reports');
     const dl = await download(s, s.page.locator(`button:has-text("${label}")`));
@@ -971,7 +974,8 @@ async function group6j(browser) {
   // reach the quotation they are allowed to edit.
   // Owner request (20 Nov 2026): "Add my Service Task and Daily task to
   // Project manager and Solar Manager Account."
-  const want = ['Dashboard', 'Clients', 'Enquiries', 'Quotations', 'Sales Orders', 'Lost Enquiries',
+  // Owner request (20 Nov 2026): Won Enquiries sits above Lost.
+  const want = ['Dashboard', 'Clients', 'Enquiries', 'Quotations', 'Sales Orders', 'Won Enquiries', 'Lost Enquiries',
     'Projects', 'Service Calls', 'My Service Tasks', 'Daily Tasks', 'AMC / PM List', 'Issue Material', 'Checklists'];
   rec('Solar Manager: the menu is the screens asked for, Clients included',
     want.every((w) => menu.some((m) => m.includes(w))) && menu.length === want.length,
@@ -1008,8 +1012,11 @@ async function group6j(browser) {
   const engineers = (await api(solarToken, 'GET', '/api/service-calls/engineer-candidates')).json.candidates || [];
   const assigned = await api(solarToken, 'PUT', `/api/service-calls/${ownCall.json.serviceCall.id}/assign`,
     { engineerId: engineers[0] && engineers[0].id, date: plusDays(2), time: '10:00 AM' });
-  rec('Solar Manager: can send a company engineer to it',
-    assigned.status === 200 && assigned.json.serviceCall.status === 'Assigned', String(assigned.status));
+  // Owner request (20 Nov 2026): an engineer AND a date make the call
+  // Scheduled, so it stands in the Scheduled band with the PM visits.
+  rec('Solar Manager: can send a company engineer to it, and the dated call is Scheduled',
+    assigned.status === 200 && assigned.json.serviceCall.status === 'Scheduled',
+    `${assigned.status} ${assigned.json.serviceCall?.status}`);
 
   // Owner report (14 Nov 2026): "Solar Manager is able to see HVAC Sales
   // order ... can only see Solar Sales order".

@@ -37,6 +37,8 @@ export const MENUS = {
     ['clients', '🏢 Clients', '/clients'],
     ['enquiries', '📋 Enquiries', '/enquiries'],
     ['sos', '🧾 Sales Orders', '/sales-orders'],
+    // Owner request (20 Nov 2026): "Above Lost Enquiries add Won Enquiries."
+    ['won', '🏆 Won Enquiries', '/enquiries/won'],
     ['lost', '❌ Lost Enquiries', '/enquiries/lost'],
     ['projects', '🏗️ Projects', '/projects'],
     ['service', '🛠️ Service Calls', '/service-calls'],
@@ -54,6 +56,8 @@ export const MENUS = {
     ['clients', '🏢 Clients', '/clients'],
     ['enquiries', '📋 Enquiries', '/enquiries'],
     ['sos', '🧾 Sales Orders', '/sales-orders'],
+    // Owner request (20 Nov 2026): "Above Lost Enquiries add Won Enquiries."
+    ['won', '🏆 Won Enquiries', '/enquiries/won'],
     ['lost', '❌ Lost Enquiries', '/enquiries/lost'],
   ],
 /*
@@ -92,6 +96,8 @@ export const MENUS = {
     ['enquiries', '📋 Enquiries', '/enquiries'],
     ['quotations', '📄 Quotations', '/quotations'],
     ['sos', '🧾 Sales Orders', '/sales-orders'],
+    // Owner request (20 Nov 2026): "Above Lost Enquiries add Won Enquiries."
+    ['won', '🏆 Won Enquiries', '/enquiries/won'],
     ['lost', '❌ Lost Enquiries', '/enquiries/lost'],
     ['projects', '🏗️ Projects', '/projects'],
     ['service', '🛠️ Service Calls', '/service-calls'],
@@ -145,6 +151,9 @@ export const MENUS = {
     ['clients', '🏢 Clients', '/clients'],
     ['payments', '💰 Pending Payments', '/payments'],
     ['sos', '🧾 Sales Orders', '/sales-orders'],
+    // Owner decision (20 Nov 2026): finance closes an order once the work
+    // is finished and the money is in, and writes the actual expense.
+    ['soclosing', '✅ Closing Sales Orders', '/sales-orders/closing'],
   ],
 };
 
@@ -156,6 +165,7 @@ export const MENUS = {
 export const NEW_APP_MENU_ADDITIONS = {
   super: [['subscriptions', '💳 Subscriptions', '/admin/subscriptions']],
   admin: [
+    ['soclosing', '✅ Closing Sales Orders', '/sales-orders/closing'],
     ['dailyTasks', '✅ Daily Tasks', '/daily-tasks'],
     ['quotations', '📄 Quotations', '/quotations'],
     // Owner decision (27 Oct 2026): approving a client's portal login.
@@ -180,7 +190,7 @@ export function menuForRole(role) {
 const MOBILE_NAV_KEYS = {
   super: ['dash', 'companies', 'usage', 'reports'],
   admin: ['dash', 'dailyTasks', 'users', 'checklists'],
-  sales: ['dash', 'enquiries', 'sos', 'lost'],
+  sales: ['dash', 'enquiries', 'sos', 'won', 'lost'],
   hvac_pm: ['dash', 'projects', 'sos', 'checklists'],
   solar_pm: ['dash', 'enquiries', 'projects', 'service'],
   mep_pm: ['dash', 'projects', 'sos', 'checklists'],

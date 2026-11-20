@@ -64,6 +64,15 @@ export default function ServiceCallList() {
   const [search, setSearch] = useState('');
   // '' is every status, banded. A chip narrows it to one band.
   const [statusFilter, setStatusFilter] = useState('');
+  /*
+   * Owner request (20 Nov 2026): "add quick time and date filter also for
+   * Scheduled Service/PM." One tap for today, tomorrow or the next seven
+   * days, and a date box for any other day. It narrows the SCHEDULED and
+   * PM visits by their appointment date — a call with no date fixed is not
+   * what this question is about, so it drops out while a day filter is on.
+   */
+  const [whenFilter, setWhenFilter] = useState('');
+  const [whenDate, setWhenDate] = useState('');
   // Owner request (14 Nov 2026): admin narrows the register to one division.
   // A division-confined login never sees this — the server has already
   // limited it to that division.
@@ -159,9 +168,28 @@ export default function ServiceCallList() {
      is nothing waiting, but it is not given an empty band in the table.
      Anything with an unexpected status is banded under its own name rather
      than dropped — a row must never vanish from the register. */
+  /* Which appointment days the quick filter lets through. */
+  const dayKey = (d) => (d ? String(d).slice(0, 10) : '');
+  const addDays = (n) => {
+    const d = new Date();
+    d.setDate(d.getDate() + n);
+    return d.toISOString().slice(0, 10);
+  };
+  function matchesWhen(c) {
+    if (!whenFilter) return true;
+    const appt = dayKey(c.appointmentDate);
+    if (!appt) return false;
+    if (whenFilter === 'today') return appt === addDays(0);
+    if (whenFilter === 'tomorrow') return appt === addDays(1);
+    if (whenFilter === 'week') return appt >= addDays(0) && appt <= addDays(7);
+    if (whenFilter === 'overdue') return appt < addDays(0);
+    if (whenFilter === 'day') return whenDate ? appt === whenDate : true;
+    return true;
+  }
+
   const byStatus = {};
   STATUS_ORDER.forEach((st) => { byStatus[st] = []; });
-  calls.forEach((c) => {
+  calls.filter(matchesWhen).forEach((c) => {
     const st = c.status || 'Registered';
     if (!byStatus[st]) byStatus[st] = [];
     byStatus[st].push(c);
@@ -248,13 +276,34 @@ export default function ServiceCallList() {
             </div>
           )}
 
+          {/* Owner request (20 Nov 2026): a quick day filter for the
+              scheduled visits. */}
+          <div className="sc-chips" role="group" aria-label="Filter by appointment day">
+            {[['', 'Any day'], ['today', 'Today'], ['tomorrow', 'Tomorrow'], ['week', 'Next 7 days'], ['overdue', 'Past due']].map(([key, label]) => (
+              <button
+                key={key || 'any'}
+                type="button"
+                className={`sc-chip${whenFilter === key ? ' is-on' : ''}`}
+                onClick={() => { setWhenFilter(key); if (key !== 'day') setWhenDate(''); }}
+              >
+                {label}
+              </button>
+            ))}
+            <input
+              type="date"
+              value={whenDate}
+              aria-label="Appointment on this day"
+              onChange={(e) => { setWhenDate(e.target.value); setWhenFilter(e.target.value ? 'day' : ''); }}
+            />
+          </div>
+
           <div className="sc-chips" role="group" aria-label="Filter by status">
             <button
               type="button"
               className={`sc-chip${statusFilter === '' ? ' is-on' : ''}`}
               onClick={() => setStatusFilter('')}
             >
-              All <span className="sc-chip-n">{calls.length}</span>
+              All <span className="sc-chip-n">{calls.filter(matchesWhen).length}</span>
             </button>
             {STATUS_ORDER.map((st) => (
               <button
@@ -323,7 +372,12 @@ export default function ServiceCallList() {
                       <td>{c.phone || '—'}</td>
                       <td>{c.site || '—'}</td>
                       <td>{c.division || '—'}</td>
-                      <td>{fmtDate(c.appointmentDate || c.registeredDate)}</td>
+                      <td>
+                        {fmtDate(c.appointmentDate || c.registeredDate)}
+                        {c.appointmentDate && c.appointmentTime && (
+                          <div className="cell-sub">{c.appointmentTime}</div>
+                        )}
+                      </td>
                       <td><span className={`status-badge ${statusClass(c.status)}`}>{c.status}</span></td>
                       <td>{engineerMap[c.engineerId] || '—'}</td>
                       <td>{c.report?.amount ? money(c.report.amount) : '—'}</td>

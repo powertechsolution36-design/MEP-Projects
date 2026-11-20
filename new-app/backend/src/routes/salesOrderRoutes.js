@@ -87,10 +87,36 @@ function createSalesOrderRouter(deps) {
     })
   );
 
+  // Owner request (20 Nov 2026): finance's closing list and the two
+  // actions on it. Declared before '/:id' so "closing" is not read as an id.
+  router.get(
+    '/closing',
+    handle(async (req, res) => {
+      const salesOrders = await service.listSalesOrdersForClosing(req.auth, deps);
+      return res.status(200).json({ salesOrders });
+    })
+  );
+
   router.get(
     '/:id',
     handle(async (req, res) => {
       const salesOrder = await service.getSalesOrder(req.params.id, req.auth, deps);
+      return res.status(200).json({ salesOrder });
+    })
+  );
+
+  router.post(
+    '/:id/close',
+    handle(async (req, res) => {
+      const salesOrder = await service.closeSalesOrder(req.params.id, req.body, req.auth, deps);
+      return res.status(200).json({ salesOrder });
+    })
+  );
+
+  router.post(
+    '/:id/reopen',
+    handle(async (req, res) => {
+      const salesOrder = await service.reopenSalesOrder(req.params.id, req.auth, deps);
       return res.status(200).json({ salesOrder });
     })
   );

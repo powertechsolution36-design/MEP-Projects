@@ -28,3 +28,14 @@ export function fmtDate(value) {
 export function today() {
   return new Date().toISOString().slice(0, 10);
 }
+
+/*
+ * Owner request (20 Nov 2026): "SO required automatic target exp less 35%."
+ * The accessories target is the cost less 35%, filled in as the cost is
+ * typed and still editable — a job that does not fit the rule can be given
+ * its own target, and the server leaves a figure it was sent alone.
+ */
+export function targetExpenseFor(lowSideCost) {
+  const cost = Number(lowSideCost) || 0;
+  return cost > 0 ? Math.round(cost * 0.65) : 0;
+}
