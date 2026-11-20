@@ -1618,6 +1618,39 @@ async function deleteProject(projectId, actorAuth, deps) {
   return { deletedProjectId: String(projectId), name: project.name || '' };
 }
 
+/**
+ * Rename a project (owner request, 20 Nov 2026: "need to change name of the
+ * project this was wrong need edit option for this" — a project called "AC
+ * Quotation" because that is what the quotation's subject said).
+ *
+ * The sales order's Project Name is renamed with it. The two are one name
+ * in everybody's head, and letting them drift is what produced this
+ * complaint in the first place.
+ *
+ * Who: admin, sales, and the Manager the project is assigned to — the same
+ * people who can already change it on the sales order.
+ */
+async function renameProject(projectId, input, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  const project = await deps.projectRepo.findById(actorAuth.companyId, projectId);
+  if (!project) throw new ServiceError('Project not found.', 'NOT_FOUND', 404);
+  if (actorAuth.role !== 'sales') {
+    assertIsPM(actorAuth, project, 'rename this project');
+  }
+
+  const name = String((input && input.name) || '').trim();
+  if (!name) throw new ServiceError('A project needs a name.', 'VALIDATION_ERROR', 400);
+  if (name.length > 160) {
+    throw new ServiceError('That name is too long (160 characters at most).', 'VALIDATION_ERROR', 400);
+  }
+
+  const updated = await deps.projectRepo.update(actorAuth.companyId, projectId, { name });
+  if (project.salesOrderId && deps.salesOrderRepo && deps.salesOrderRepo.update) {
+    await deps.salesOrderRepo.update(actorAuth.companyId, project.salesOrderId, { projectName: name });
+  }
+  return updated;
+}
+
 /* ================= EXECUTION UPDATES ================= */
 
 /**
@@ -2322,6 +2355,7 @@ module.exports = {
   ENGINEER_CANDIDATE_ROLES,
   STANDARD_CHECKLIST_ID,
   deleteProject,
+  renameProject,
   PM_DIVISION_FOR_ROLE,
 };
 

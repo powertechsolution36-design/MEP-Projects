@@ -158,6 +158,28 @@ export default function ProjectDetail() {
     return () => { alive = false; };
   }, [canAssignManager, proj && proj.division]);
 
+  /* Owner request (20 Nov 2026): "need to change name of the project this
+     was wrong need edit option for this." The sales order's Project Name
+     follows it, so the two can never drift apart again. */
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const canRename = ['admin', 'sales'].includes(user?.role) || isPM;
+
+  async function saveName() {
+    const name = nameDraft.trim();
+    if (!name) { alert('A project needs a name.'); return; }
+    setBusy(true);
+    try {
+      const d = await api.patch(`/api/projects/${id}/name`, { name });
+      applyProject(d.project);
+      setRenaming(false);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleDeleteProject() {
     const ok = window.confirm(
       `Delete project "${proj.name}"?\n\n`
@@ -704,7 +726,33 @@ export default function ProjectDetail() {
       {/* ======== Identity Panel ======== */}
       <div className="panel" style={{ maxWidth: 900 }}>
         <div className="detail-head">
-          <h2>{proj.name}</h2>
+          {renaming ? (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', width: '100%' }}>
+              <input
+                value={nameDraft}
+                autoFocus
+                style={{ flex: '1 1 320px', fontSize: 18 }}
+                aria-label="Project name"
+                onChange={(e) => setNameDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') setRenaming(false); }}
+              />
+              <button className="btn pri sm" onClick={saveName} disabled={busy}>Save</button>
+              <button className="btn sec sm" onClick={() => setRenaming(false)} disabled={busy}>Cancel</button>
+            </div>
+          ) : (
+            <>
+              <h2>{proj.name}</h2>
+              {canRename && (
+                <button
+                  className="btn sec sm"
+                  title="Correct this project's name — the sales order follows it"
+                  onClick={() => { setNameDraft(proj.name || ''); setRenaming(true); }}
+                >
+                  ✏️ Edit Name
+                </button>
+              )}
+            </>
+          )}
         </div>
 
         <div className="detail-grid">

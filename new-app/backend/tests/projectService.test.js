@@ -1124,3 +1124,30 @@ test('deleteProject — admin only, permanent, and the sales order behind it is 
     (err) => err.code === 'NOT_FOUND'
   );
 });
+
+test('renameProject — admin, sales and the assigned Manager; the sales order\'s Project Name follows it', async () => {
+  const store = createEnquiryFakeStore({
+    projects: [baseProject({ name: 'AC Quotation' })],
+    salesOrders: [baseSalesOrder({ projectName: 'AC Quotation' })],
+  });
+
+  // An engineer, and a Manager it was not given to, are refused.
+  for (const actor of [{ role: 'engineer' }, { userId: 'someone-else', role: 'hvac_pm' }]) {
+    await assert.rejects(
+      () => service.renameProject('proj1', { name: 'Khandekar Residence' }, auth(actor), store),
+      (err) => err.code === 'FORBIDDEN'
+    );
+  }
+
+  const renamed = await service.renameProject('proj1', { name: '  Khandekar Residence  ' }, auth({ role: 'sales' }), store);
+  assert.equal(renamed.name, 'Khandekar Residence');
+  // The order it came from says the same thing.
+  assert.equal(store.state.salesOrders[0].projectName, 'Khandekar Residence');
+
+  // A blank name is refused rather than wiping it.
+  await assert.rejects(
+    () => service.renameProject('proj1', { name: '   ' }, auth({ role: 'admin' }), store),
+    (err) => err.code === 'VALIDATION_ERROR'
+  );
+  assert.equal(store.state.projects[0].name, 'Khandekar Residence');
+});

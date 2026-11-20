@@ -181,6 +181,16 @@ function createProjectRouter(deps) {
     })
   );
 
+  // Owner request (20 Nov 2026): correct a project's name from its own
+  // screen. The sales order's Project Name follows it.
+  router.patch(
+    '/:id/name',
+    handle(async (req, res) => {
+      const project = await service.renameProject(req.params.id, req.body, req.auth, deps);
+      return res.status(200).json({ project });
+    })
+  );
+
   router.patch(
     '/:id/manager',
     handle(async (req, res) => {
