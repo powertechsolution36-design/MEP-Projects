@@ -1055,3 +1055,34 @@ test('applyChecklistTemplate — "standard" appends, and refuses a project with 
     (err) => err.code === 'VALIDATION_ERROR'
   );
 });
+
+test('opening a project that has no checklist at all gives it the standard points, once (owner report, 20 Nov 2026)', async () => {
+  const { LEGACY_CHECKLIST_FALLBACK } = require('../src/models/shared/legacyChecklists');
+  const store = createEnquiryFakeStore({
+    projects: [
+      // Made before the 18 Nov fix: no points and no list name.
+      baseProject({ id: 'old', division: 'HVAC', checklist: [], checklistTemplateName: '' }),
+      // Emptied on purpose by somebody — it remembers which list it had.
+      baseProject({ id: 'emptied', division: 'HVAC', checklist: [], checklistTemplateName: 'Standard HVAC' }),
+      // A division with no standard list of its own.
+      baseProject({ id: 'nodiv', division: '', checklist: [], checklistTemplateName: '' }),
+    ],
+  });
+
+  const repaired = await service.getProject('old', auth({ role: 'admin' }), store);
+  assert.equal(repaired.checklist.length, LEGACY_CHECKLIST_FALLBACK.HVAC.length);
+  assert.equal(repaired.checklistTemplateName, 'Standard HVAC');
+  // It was SAVED, not just shown: the next read finds the same points.
+  const again = await service.getProject('old', auth({ role: 'admin' }), store);
+  assert.equal(again.checklist.length, LEGACY_CHECKLIST_FALLBACK.HVAC.length);
+
+  // Rename a point, reopen: the repair does not run again and the edit stands.
+  await service.editChecklistItem('old', 0, { text: 'Site handed over' }, auth({ role: 'admin' }), store);
+  const third = await service.getProject('old', auth({ role: 'admin' }), store);
+  assert.equal(third.checklist.length, LEGACY_CHECKLIST_FALLBACK.HVAC.length);
+  assert.equal(third.checklist[0].text, 'Site handed over');
+
+  // The other two are left exactly as they are.
+  assert.equal((await service.getProject('emptied', auth({ role: 'admin' }), store)).checklist.length, 0);
+  assert.equal((await service.getProject('nodiv', auth({ role: 'admin' }), store)).checklist.length, 0);
+});

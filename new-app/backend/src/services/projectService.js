@@ -320,6 +320,37 @@ async function getProject(projectId, actorAuth, deps) {
   if (PM_DIVISION_FOR_ROLE[actorAuth.role] && !isPmForProject(actorAuth, project)) {
     throw new ServiceError('Project not found.', 'NOT_FOUND', 404);
   }
+  /*
+   * Owner request, said twice (18 Nov 2026: "show those 13 checklist
+   * default to every project current and new"; 20 Nov 2026: "still not
+   * showing"). The 18 Nov fix gave the thirteen to every project made from
+   * then on, and the Choose Checklist dialog offers them by hand — but a
+   * project made BEFORE that fix still opens empty, and the owner is not
+   * going to click through them one at a time.
+   *
+   * So a project found with NO checklist AND no checklist name is given its
+   * division's standard points the first time anybody opens it, and keeps
+   * them. It is a repair, not a rule, and both halves of that condition
+   * matter: a project with even one point is never touched, and a project
+   * whose points were deliberately deleted carries the name of the list
+   * they came from, so they are not silently put back. A division with no
+   * standard list is left alone rather than guessed at. Running it twice
+   * changes nothing.
+   */
+  if ((!project.checklist || project.checklist.length === 0)
+    && !String(project.checklistTemplateName || '').trim()
+    && LEGACY_CHECKLIST_FALLBACK[project.division]) {
+    const standard = LEGACY_CHECKLIST_FALLBACK[project.division];
+    const repaired = await deps.projectRepo.update(actorAuth.companyId, projectId, {
+      checklist: standard.map((t) => freshChecklistItem(t)),
+      checklistTemplateName: `Standard ${project.division}`,
+    });
+    if (repaired) {
+      project.checklist = repaired.checklist;
+      project.checklistTemplateName = repaired.checklistTemplateName;
+      project.revision = repaired.revision;
+    }
+  }
   // PWA FACT (vProject, index.html:2100/2122): engineers are shown by name.
   if ((project.assignedEngineerIds || []).length && deps.userRepoForEnquiry && deps.userRepoForEnquiry.listByCompany) {
     const users = await deps.userRepoForEnquiry.listByCompany(actorAuth.companyId);
