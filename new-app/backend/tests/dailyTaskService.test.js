@@ -12,6 +12,8 @@ function setup() {
     { id: 'eng2', name: 'Engineer Two', role: 'service_eng', companyId: 'co1', active: true },
     { id: 'other', name: 'Other Tenant', role: 'engineer', companyId: 'co2', active: true },
     { id: 'inactive', name: 'Inactive Engineer', role: 'engineer', companyId: 'co1', active: false },
+    // Owner request (20 Nov 2026): a Manager receives daily tasks too.
+    { id: 'pm1', name: 'Deepak HVAC', role: 'hvac_pm', companyId: 'co1', active: true },
   ];
   const tasks = [];
   const notifications = [];
@@ -117,4 +119,37 @@ test('only a service manager can approve a submitted completion and it is record
   assert.equal(approved.approvedByUserId, 'mgr1');
   assert.equal(approved.approvedByName, 'Service Manager');
   assert.ok(approved.approvedAt instanceof Date);
+});
+
+/* ===== Managers receive tasks, and only receive them (owner, 20 Nov 2026) ===== */
+
+test('a Manager can be given a daily task, sees their own, submits it — and cannot hand one out', async () => {
+  const { deps } = setup();
+  const admin = { userId: 'admin1', companyId: 'co1', role: 'admin' };
+  const pm = { userId: 'pm1', companyId: 'co1', role: 'hvac_pm' };
+
+  const task = await service.createDailyTask(
+    { title: 'Visit Poonawalla site', taskDate: '2026-11-20', assigneeUserId: 'pm1' }, admin, deps
+  );
+  assert.equal(task.assigneeRole, 'hvac_pm');
+
+  // A Manager appears in the list admin picks from.
+  const assignees = await service.listAssignees(admin, deps);
+  assert.ok(assignees.some((u) => u.id === 'pm1'), 'the Manager is offered as an assignee');
+
+  // Their own list, for that day, and nobody else's.
+  await service.createDailyTask({ title: 'Someone else', taskDate: '2026-11-20', assigneeUserId: 'eng1' }, admin, deps);
+  const mine = await service.listDailyTasks(pm, { date: '2026-11-20' }, deps);
+  assert.deepEqual(mine.map((t) => t.title), ['Visit Poonawalla site']);
+
+  // They tick it off...
+  const submitted = await service.submitDailyTask(task.id, pm, deps);
+  assert.equal(submitted.status, 'AwaitingReview');
+
+  // ...but handing tasks out stays with admin and the service manager.
+  await assert.rejects(
+    service.createDailyTask({ title: 'Do this', taskDate: '2026-11-20', assigneeUserId: 'eng1' }, pm, deps),
+    { code: 'FORBIDDEN' }
+  );
+  await assert.rejects(service.listAssignees(pm, deps), { code: 'FORBIDDEN' });
 });

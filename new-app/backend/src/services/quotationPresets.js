@@ -373,6 +373,9 @@ function clonePreset(p) {
  */
 const OWNER_EDITABLE_FIELDS = Object.freeze([
   'system', 'offerValidity', 'delivery', 'notes', 'excludedWorks',
+  // Owner request (20 Nov 2026): "Subject Should be editable for Sales And
+  // Admin ... Benefits of System Should be editable for Admin and sales."
+  'subject', 'benefitsOfSystem',
 ]);
 
 const FIXED_PAGE_FIELDS = Object.freeze([

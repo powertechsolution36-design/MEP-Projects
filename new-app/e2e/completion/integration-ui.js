@@ -969,8 +969,10 @@ async function group6j(browser) {
   // so the Solar Manager can reach the client directory like everyone else.
   // Owner request (18 Nov 2026): Quotations joins it too, so a Manager can
   // reach the quotation they are allowed to edit.
+  // Owner request (20 Nov 2026): "Add my Service Task and Daily task to
+  // Project manager and Solar Manager Account."
   const want = ['Dashboard', 'Clients', 'Enquiries', 'Quotations', 'Sales Orders', 'Lost Enquiries',
-    'Projects', 'Service Calls', 'AMC / PM List', 'Issue Material', 'Checklists'];
+    'Projects', 'Service Calls', 'My Service Tasks', 'Daily Tasks', 'AMC / PM List', 'Issue Material', 'Checklists'];
   rec('Solar Manager: the menu is the screens asked for, Clients included',
     want.every((w) => menu.some((m) => m.includes(w))) && menu.length === want.length,
     menu.join(' | '));

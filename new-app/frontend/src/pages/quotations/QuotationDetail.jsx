@@ -301,6 +301,12 @@ export default function QuotationDetail() {
    * locked. Capacity, the customer and the prices stay editable.
    */
   const fixedByType = Boolean(q.offerType);
+  /*
+   * Owner request (20 Nov 2026): Subject and Benefits of System are sales's
+   * and admin's to write, whatever the offer type fills in. The other
+   * cover-letter boxes stay fixed for everybody.
+   */
+  const canEditCover = ['admin', 'sales'].includes(user?.role);
   // The system wordings the built-in offer types carry, offered as a list.
   const systemOptions = [...new Set(presets.map((p) => p.system).filter(Boolean))];
   /* The offer type's own wording, shown as the placeholder on a field left
@@ -347,12 +353,12 @@ export default function QuotationDetail() {
               </label>
               {fixedByType && (
                 <p className="muted" style={{ gridColumn: '1 / -1', margin: 0, fontSize: 13 }}>
-                  The cover letter is fixed for this offer type. The system line and the commercial terms below
-                  arrive filled in with your standard wording — change them and this quotation prints what you
-                  typed; leave one blank and it prints the standard wording.
+                  Subject, System, Benefits of System and the commercial terms below arrive filled in with your
+                  standard wording for this offer type — change them and this quotation prints what you typed;
+                  leave one blank and it prints the standard wording. The rest of the cover letter is fixed.
                 </p>
               )}
-              <label className="filter-field">Subject <input value={form.subject} onChange={e => setField('subject', e.target.value)} disabled={fixedByType} /></label>
+              <label className="filter-field">Subject <input value={form.subject} placeholder={stdText('subject')} onChange={e => setField('subject', e.target.value)} disabled={fixedByType && !canEditCover} /></label>
               {/* Owner request (19 Nov 2026): "System coming directly Samsung.
                   Required option to select or manual type." The built-in
                   wordings are offered, and anything else is typed. */}
@@ -399,10 +405,9 @@ export default function QuotationDetail() {
             </div>
             <div className="form-grid" style={{ marginTop: 12 }}>
               <label className="filter-field" style={{ gridColumn: '1 / -1' }}>Site Description <textarea rows={2} value={form.siteDescription} onChange={e => setField('siteDescription', e.target.value)} disabled={fixedByType} /></label>
-              <label className="filter-field" style={{ gridColumn: '1 / -1' }}>Summary Text <textarea rows={2} value={form.summaryText} onChange={e => setField('summaryText', e.target.value)} disabled={fixedByType} /></label>
               <label className="filter-field" style={{ gridColumn: '1 / -1' }}>Technical Description <textarea rows={3} value={form.technicalDescription} onChange={e => setField('technicalDescription', e.target.value)} /></label>
               <label className="filter-field" style={{ gridColumn: '1 / -1' }}>Design Approval <textarea rows={2} value={form.designApproval} onChange={e => setField('designApproval', e.target.value)} /></label>
-              <label className="filter-field" style={{ gridColumn: '1 / -1' }}>Benefits of System <textarea rows={2} value={form.benefitsOfSystem} onChange={e => setField('benefitsOfSystem', e.target.value)} disabled={fixedByType} /></label>
+              <label className="filter-field" style={{ gridColumn: '1 / -1' }}>Benefits of System <textarea rows={4} value={form.benefitsOfSystem} placeholder={stdText('benefitsOfSystem')} onChange={e => setField('benefitsOfSystem', e.target.value)} disabled={fixedByType && !canEditCover} /></label>
               <label className="filter-field">Design By <input value={form.designBy} onChange={e => setField('designBy', e.target.value)} /></label>
               <label className="filter-field">System Approved By <input value={form.systemApprovedBy} onChange={e => setField('systemApprovedBy', e.target.value)} /></label>
             </div>

@@ -69,6 +69,13 @@ export const MENUS = {
     ['projects', '🏗️ Projects', '/projects'],
     ['quotations', '📄 Quotations', '/quotations'],
     ['sos', '🧾 Sales Orders', '/sales-orders'],
+    // Owner request (20 Nov 2026): "Add my Service Task and Daily task to
+    // Project manager and Solar Manager Account." A Manager can be sent to
+    // a service call like any engineer, and can be given a daily task —
+    // given one, not handing them out, which stays with admin and the
+    // service manager.
+    ['myservice', '🛠️ My Service Tasks', '/my-service-tasks'],
+    ['dailyTasks', '✅ Daily Tasks', '/daily-tasks'],
     ['stock', '📦 Stock', '/inventory/stock'],
     ['checklists', '✅ Checklist Template', '/checklists'],
   ],
@@ -88,6 +95,10 @@ export const MENUS = {
     ['lost', '❌ Lost Enquiries', '/enquiries/lost'],
     ['projects', '🏗️ Projects', '/projects'],
     ['service', '🛠️ Service Calls', '/service-calls'],
+    // Owner request (20 Nov 2026): the Solar Manager's own calls, beside
+    // the division register it already has, and its daily tasks.
+    ['myservice', '🛠️ My Service Tasks', '/my-service-tasks'],
+    ['dailyTasks', '✅ Daily Tasks', '/daily-tasks'],
     ['pmlist', '🔁 AMC / PM List', '/contracts'],
     ['invissue', '📤 Issue Material', '/inventory/issue'],
     ['checklists', '✅ Checklists', '/checklists'],
@@ -98,6 +109,8 @@ export const MENUS = {
     ['projects', '🏗️ Projects', '/projects'],
     ['quotations', '📄 Quotations', '/quotations'],
     ['sos', '🧾 Sales Orders', '/sales-orders'],
+    ['myservice', '🛠️ My Service Tasks', '/my-service-tasks'],
+    ['dailyTasks', '✅ Daily Tasks', '/daily-tasks'],
     ['checklists', '✅ Checklist Template', '/checklists'],
   ],
   engineer: [

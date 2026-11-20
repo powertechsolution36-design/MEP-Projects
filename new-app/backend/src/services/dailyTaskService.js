@@ -3,7 +3,13 @@
 const { ServiceError } = require('../errors');
 
 const ASSIGNER_ROLES = ['admin', 'service_mgr'];
-const ASSIGNEE_ROLES = ['engineer', 'service_eng'];
+/*
+ * Owner request (20 Nov 2026): "Add my Service Task and Daily task to
+ * Project manager and Solar Manager Account", and his choice of the three
+ * options — RECEIVE ONLY. A Manager is given tasks and ticks them off; the
+ * handing out stays with admin and the service manager.
+ */
+const ASSIGNEE_ROLES = ['engineer', 'service_eng', 'hvac_pm', 'solar_pm', 'mep_pm'];
 
 function assertCompany(auth) {
   if (!auth?.companyId) throw new ServiceError('No company context for this account.', 'NO_COMPANY_CONTEXT', 403);
@@ -31,7 +37,7 @@ async function listDailyTasks(auth, { date } = {}, deps) {
   assertCompany(auth);
   const query = {};
   if (date) query.taskDate = dateFromDay(date);
-  if (['engineer', 'service_eng'].includes(auth.role)) {
+  if (ASSIGNEE_ROLES.includes(auth.role)) {
     query.assigneeUserId = auth.userId;
     query.taskDate = dateFromDay(date || new Date().toISOString().slice(0, 10));
   } else if (!ASSIGNER_ROLES.includes(auth.role)) {

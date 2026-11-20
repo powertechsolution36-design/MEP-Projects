@@ -7,7 +7,14 @@ function localDateKey(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
-const ROLE_NAME = { engineer: 'Engineer', service_eng: 'Service Engineer' };
+const ROLE_NAME = {
+  engineer: 'Engineer',
+  service_eng: 'Service Engineer',
+  // Owner request (20 Nov 2026): a Manager is given tasks too.
+  hvac_pm: 'HVAC Manager',
+  solar_pm: 'Solar Manager',
+  mep_pm: 'MEP Manager',
+};
 const STATUS = {
   Assigned: ['Assigned', ''],
   AwaitingReview: ['Awaiting review', 'status-pending'],

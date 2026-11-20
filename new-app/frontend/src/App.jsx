@@ -71,6 +71,7 @@ import CompanyProfile from './pages/company/CompanyProfile';
 import CustomerAccounts from './pages/company/CustomerAccounts';
 import PortalApp from './portal/PortalApp';
 import DailyTasks from './pages/DailyTasks';
+import MyServiceTasks from './pages/service/MyServiceTasks';
 
 function LoginRoute() {
   const { status } = useAuth();
@@ -148,6 +149,8 @@ export default function App() {
           <Route path="service-calls/:id" element={<ServiceCallDetail />} />
           <Route path="my-material" element={<MyMaterial />} />
           <Route path="daily-tasks" element={<DailyTasks />} />
+          {/* Owner request (20 Nov 2026): a Manager's own service calls. */}
+          <Route path="my-service-tasks" element={<MyServiceTasks />} />
           <Route path="users" element={<UserManagement />} />
           <Route path="reports" element={<Reports />} />
           <Route path="notifications" element={<Notifications />} />

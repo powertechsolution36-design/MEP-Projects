@@ -500,10 +500,6 @@ export default function QuotationCreate() {
               <textarea rows={2} value={form.siteDescription} onChange={e => setField('siteDescription', e.target.value)} />
             </label>
             <label className="filter-field" style={{ gridColumn: '1 / -1' }}>
-              Summary Text
-              <textarea rows={2} value={form.summaryText} onChange={e => setField('summaryText', e.target.value)} />
-            </label>
-            <label className="filter-field" style={{ gridColumn: '1 / -1' }}>
               Technical Description
               <textarea rows={3} value={form.technicalDescription} onChange={e => setField('technicalDescription', e.target.value)} />
             </label>
