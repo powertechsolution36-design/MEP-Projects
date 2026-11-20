@@ -502,8 +502,14 @@ test('checklist item add/edit/remove — PM only', async () => {
   await assert.rejects(() => service.addChecklistItem('proj1', { text: 'X', signResponsibility: 'ENGINEER' }, auth({ userId: 'someone-else', role: 'solar_pm' }), store), (err) => err.code === 'FORBIDDEN');
 
   await service.removeChecklistItem('proj1', 0, auth(), store);
+  // The point is gone from the stored project...
+  assert.equal(store.state.projects[0].checklist.length, 0);
+  // ...and reopening an EMPTY project hands it the division's standard
+  // points (owner request, 20 Nov 2026). That is the repair, not this
+  // function's doing: removeChecklistItem itself removed exactly one point.
   project = await service.getProject('proj1', auth(), store);
-  assert.equal(project.checklist.length, 0);
+  const { LEGACY_CHECKLIST_FALLBACK: STD } = require('../src/models/shared/legacyChecklists');
+  assert.equal(project.checklist.length, STD.HVAC.length);
 });
 
 test('editChecklistItem — allowed even after approval exists, with no consequence to the existing approval record', async () => {
@@ -1062,8 +1068,13 @@ test('opening a project that has no checklist at all gives it the standard point
     projects: [
       // Made before the 18 Nov fix: no points and no list name.
       baseProject({ id: 'old', division: 'HVAC', checklist: [], checklistTemplateName: '' }),
-      // Emptied on purpose by somebody — it remembers which list it had.
-      baseProject({ id: 'emptied', division: 'HVAC', checklist: [], checklistTemplateName: 'Standard HVAC' }),
+      /*
+       * Carries a template NAME but no points — which is what all 17 of the
+       * owner's empty projects look like: an empty template called "Test"
+       * was default, so it stamped its name on them and gave them nothing.
+       * A name is no evidence of intent; this gets the thirteen too.
+       */
+      baseProject({ id: 'emptied', division: 'HVAC', checklist: [], checklistTemplateName: 'Test' }),
       // A division with no standard list of its own.
       baseProject({ id: 'nodiv', division: '', checklist: [], checklistTemplateName: '' }),
     ],
@@ -1082,7 +1093,11 @@ test('opening a project that has no checklist at all gives it the standard point
   assert.equal(third.checklist.length, LEGACY_CHECKLIST_FALLBACK.HVAC.length);
   assert.equal(third.checklist[0].text, 'Site handed over');
 
-  // The other two are left exactly as they are.
-  assert.equal((await service.getProject('emptied', auth({ role: 'admin' }), store)).checklist.length, 0);
+  // The one stamped "Test" is repaired as well, and renamed to what it now holds.
+  const stamped = await service.getProject('emptied', auth({ role: 'admin' }), store);
+  assert.equal(stamped.checklist.length, LEGACY_CHECKLIST_FALLBACK.HVAC.length);
+  assert.equal(stamped.checklistTemplateName, 'Standard HVAC');
+
+  // A project with no division has no standard list to give it — left alone.
   assert.equal((await service.getProject('nodiv', auth({ role: 'admin' }), store)).checklist.length, 0);
 });

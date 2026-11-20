@@ -328,17 +328,25 @@ async function getProject(projectId, actorAuth, deps) {
    * project made BEFORE that fix still opens empty, and the owner is not
    * going to click through them one at a time.
    *
-   * So a project found with NO checklist AND no checklist name is given its
-   * division's standard points the first time anybody opens it, and keeps
-   * them. It is a repair, not a rule, and both halves of that condition
-   * matter: a project with even one point is never touched, and a project
-   * whose points were deliberately deleted carries the name of the list
-   * they came from, so they are not silently put back. A division with no
-   * standard list is left alone rather than guessed at. Running it twice
-   * changes nothing.
+   * So a project found with NO checklist at all is given its division's
+   * standard points the first time anybody opens it, and keeps them.
+   *
+   * The first cut of this repair also demanded a blank checklist name, to
+   * avoid putting back points somebody had deliberately deleted. Looking at
+   * the live data (20 Nov 2026) killed that idea: all 17 empty projects
+   * carry the name "Test" — an empty template, left default on the
+   * Checklist Template screen, that stamped its name on every project made
+   * before the 18 Nov fix while giving them no points. A name is therefore
+   * no evidence of intent, and a project with no checklist can neither show
+   * the client anything nor ever complete itself. Empty is empty: it gets
+   * the thirteen.
+   *
+   * It only ever fires on an EMPTY checklist, so a project with even one
+   * point — ticked or not — is never touched, and running it twice changes
+   * nothing. A division with no standard list is left alone rather than
+   * guessed at.
    */
   if ((!project.checklist || project.checklist.length === 0)
-    && !String(project.checklistTemplateName || '').trim()
     && LEGACY_CHECKLIST_FALLBACK[project.division]) {
     const standard = LEGACY_CHECKLIST_FALLBACK[project.division];
     const repaired = await deps.projectRepo.update(actorAuth.companyId, projectId, {
