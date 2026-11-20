@@ -116,6 +116,15 @@ export default function EnquiryDetail() {
     }
   }
 
+
+  async function handleDeleteEnquiry() {
+    if (!window.confirm(`Delete enquiry "${enq.name}"? There is no undo.`)) return;
+    try {
+      await api.delete(`/api/enquiries/${id}`);
+      navigate('/enquiries');
+    } catch (err) { alert(err.message); }
+  }
+
   function openEdit() {
     setEditData({
       name: enq.name || '',
@@ -198,6 +207,11 @@ export default function EnquiryDetail() {
         {canManage && (
           <div className="detail-actions">
             <button className="btn sec sm" onClick={openEdit}>✏️ Edit</button>
+            {/* Owner request (20 Nov 2026): admin alone. A lead that became
+                an order is refused by the server, naming the order. */}
+            {user?.role === 'admin' && (
+              <button className="btn danger sm" onClick={handleDeleteEnquiry}>🗑 Delete</button>
+            )}
             {enq.status === 'Open' && (
               <>
                 {/* Owner decision (14 Nov 2026): a lead is quoted before it

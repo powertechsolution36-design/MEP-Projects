@@ -328,3 +328,31 @@ test('listEnquiries — a lead is found by the name of whoever we deal with ther
   const none = await service.listEnquiries(auth(), { filters: { q: 'nobody-by-that-name' } }, deps);
   assert.equal(none.length, 0);
 });
+
+test('deleteEnquiry — admin only, and refused once the lead became a sales order', async () => {
+  const store = createEnquiryFakeStore({
+    enquiries: [{ id: 'enq1', companyId: 'co1', name: 'Nashik Textiles', status: 'Open', followUpLog: [] }],
+    salesOrders: [],
+  });
+  const auth = (o) => ({ userId: 'u1', companyId: 'co1', role: 'admin', name: 'Admin', ...o });
+
+  for (const role of ['sales', 'finance', 'hvac_pm', 'engineer']) {
+    await assert.rejects(
+      () => service.deleteEnquiry('enq1', auth({ role }), store),
+      (err) => err.code === 'FORBIDDEN' && err.status === 403,
+      `${role} must not delete an enquiry`
+    );
+  }
+
+  // Converted: the order carries the work, so the lead under it stays.
+  store.state.salesOrders.push({ id: 'so1', companyId: 'co1', orderNumber: 1001, enquiryId: 'enq1' });
+  await assert.rejects(
+    () => service.deleteEnquiry('enq1', auth(), store),
+    (err) => err.code === 'VALIDATION_ERROR' && /SO-1001/.test(err.message)
+  );
+
+  store.state.salesOrders.length = 0;
+  const result = await service.deleteEnquiry('enq1', auth(), store);
+  assert.equal(result.deletedEnquiryId, 'enq1');
+  assert.equal(store.state.enquiries.length, 0);
+});

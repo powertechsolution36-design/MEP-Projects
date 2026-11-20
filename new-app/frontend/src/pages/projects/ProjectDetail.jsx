@@ -158,6 +158,19 @@ export default function ProjectDetail() {
     return () => { alive = false; };
   }, [canAssignManager, proj && proj.division]);
 
+  async function handleDeleteProject() {
+    const ok = window.confirm(
+      `Delete project "${proj.name}"?\n\n`
+      + 'Its checklist, timeline, updates and delivery challans go with it, and there is no undo. '
+      + 'The sales order behind it is NOT deleted.'
+    );
+    if (!ok) return;
+    try {
+      await api.del(`/api/projects/${id}`);
+      navigate('/projects');
+    } catch (err) { alert(err.message); }
+  }
+
   async function assignManager(userId) {
     setAssignBusy(true);
     setAssignError('');
@@ -747,6 +760,13 @@ export default function ProjectDetail() {
               </button>
             )}
             {quotePdfError && <span className="err">{quotePdfError}</span>}
+          </p>
+        )}
+
+        {/* Owner request (20 Nov 2026): admin alone may delete a project. */}
+        {user?.role === 'admin' && (
+          <p style={{ marginTop: 8 }}>
+            <button className="btn danger sm" onClick={handleDeleteProject}>🗑 Delete Project</button>
           </p>
         )}
 

@@ -91,6 +91,11 @@ function createEnquiryFakeStore(seed = {}) {
   }
 
   const enquiryRepo = {
+    async deleteById(companyId, id) {
+      const before = state.enquiries.length;
+      state.enquiries = state.enquiries.filter((e) => !(matchesId(e, id) && String(e.companyId) === String(companyId)));
+      return state.enquiries.length < before;
+    },
     async create(data) {
       const doc = { id: nextId('enq'), followUpLog: [], ...data };
       state.enquiries.push(doc);
@@ -175,6 +180,11 @@ function createEnquiryFakeStore(seed = {}) {
   }
 
   const salesOrderRepo = {
+    async deleteById(companyId, id) {
+      const before = state.salesOrders.length;
+      state.salesOrders = state.salesOrders.filter((x) => !(matchesId(x, id) && String(x.companyId) === String(companyId)));
+      return state.salesOrders.length < before;
+    },
     async findByQuotationId(companyId, quotationId) {
       if (quotationId === null || quotationId === undefined) return null;
       const doc = state.salesOrders.find(
@@ -229,6 +239,11 @@ function createEnquiryFakeStore(seed = {}) {
   };
 
   const projectRepo = {
+    async deleteById(companyId, id) {
+      const before = state.projects.length;
+      state.projects = state.projects.filter((p) => !(matchesId(p, id) && String(p.companyId) === String(companyId)));
+      return state.projects.length < before;
+    },
     async create(data) {
       const doc = { id: nextId('proj'), ...data };
       state.projects.push(doc);
@@ -282,6 +297,18 @@ function createEnquiryFakeStore(seed = {}) {
   };
 
   const paymentRepo = {
+    async listBySalesOrder(companyId, salesOrderId) {
+      return state.payments
+        .filter((p) => String(p.companyId) === String(companyId)
+          && p.salesOrderId != null && String(p.salesOrderId) === String(salesOrderId))
+        .map((p) => cloneDeep(p));
+    },
+    async deleteBySalesOrder(companyId, salesOrderId) {
+      const before = state.payments.length;
+      state.payments = state.payments.filter((p) => !(String(p.companyId) === String(companyId)
+        && p.salesOrderId != null && String(p.salesOrderId) === String(salesOrderId)));
+      return before - state.payments.length;
+    },
     async create(data) {
       // Mirrors the real unique partial index on
       // (companyId, salesOrderId, milestoneIndex): it applies ONLY to

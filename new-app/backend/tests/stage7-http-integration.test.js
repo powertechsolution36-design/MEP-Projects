@@ -312,9 +312,12 @@ test('quotation API: CRUD, calculation, CSV export, role gates, division entitle
     assert.equal(dup.status, 201);
     assert.notEqual(dup.json.quotation.quotationNumber, q.quotationNumber);
     await call(base, 'PATCH', `/api/quotations/${q.id}`, { token: tokens.salesa, body: { status: 'Sent' } });
-    assert.equal((await call(base, 'DELETE', `/api/quotations/${q.id}`, { token: tokens.salesa })).status, 400);
+    // Owner request (20 Nov 2026): "delete button only in Admin login" —
+    // sales may raise, edit and send a quotation, but no longer delete one.
+    assert.equal((await call(base, 'DELETE', `/api/quotations/${q.id}`, { token: tokens.salesa })).status, 403);
+    assert.equal((await call(base, 'DELETE', `/api/quotations/${q.id}`, { token: tokens.admina })).status, 400); // Sent: still refused
     assert.equal((await call(base, 'DELETE', `/api/quotations/${dup.json.quotation.id}`, { token: tokens.fina })).status, 403);
-    assert.equal((await call(base, 'DELETE', `/api/quotations/${dup.json.quotation.id}`, { token: tokens.salesa })).status, 200);
+    assert.equal((await call(base, 'DELETE', `/api/quotations/${dup.json.quotation.id}`, { token: tokens.admina })).status, 200);
 
     // Item-name delete is admin only.
     const itemId = state.itemNames.find((i) => i.companyId === CO_A).id;

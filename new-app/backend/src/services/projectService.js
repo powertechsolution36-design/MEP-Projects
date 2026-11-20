@@ -1598,6 +1598,26 @@ async function applyChecklistTemplate(projectId, input, actorAuth, deps) {
   return deps.projectRepo.update(actorAuth.companyId, projectId, patch, undefined, { expectedRevision: project.revision });
 }
 
+/**
+ * Throw a project away (owner request, 20 Nov 2026). Admin only, and
+ * permanent.
+ *
+ * The sales order it came from is NOT deleted with it — deleting the order
+ * is its own action, and it takes the project with it. This one is for a
+ * project that should not exist while its order should: the order is left
+ * with no project, which is what the screen then shows.
+ */
+async function deleteProject(projectId, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  if (actorAuth.role !== 'admin') {
+    throw new ServiceError('Only an admin can delete a project.', 'FORBIDDEN', 403);
+  }
+  const project = await deps.projectRepo.findById(actorAuth.companyId, projectId);
+  if (!project) throw new ServiceError('Project not found.', 'NOT_FOUND', 404);
+  await deps.projectRepo.deleteById(actorAuth.companyId, projectId);
+  return { deletedProjectId: String(projectId), name: project.name || '' };
+}
+
 /* ================= EXECUTION UPDATES ================= */
 
 /**
@@ -2301,6 +2321,7 @@ module.exports = {
   SIGN_ROLES,
   ENGINEER_CANDIDATE_ROLES,
   STANDARD_CHECKLIST_ID,
+  deleteProject,
   PM_DIVISION_FOR_ROLE,
 };
 

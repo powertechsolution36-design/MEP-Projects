@@ -882,8 +882,10 @@ async function group5f(browser) {
     const q = hvacId ? await getQ(hvacId) : null;
     rec('quotation create (HVAC): a 0% GST quotation is saved at 0% (not 18%)', !!q && Number(q.gstPercent) === 0 && Number(q.gstAmount) === 0, q ? `${q.gstPercent}% ${q.gstAmount}` : s.page.url());
     rec('quotation detail (HVAC): totals show GST (0%)', (await bodyText(s.page)).includes('GST (0%)'));
-    rec('quotation detail (sales): Draft quotation offers Edit, Duplicate and Delete',
-      (await s.page.locator('button:text-is("Edit")').count()) === 1 && (await s.page.locator('button:text-is("Duplicate")').count()) === 1 && (await s.page.locator('button:text-is("Delete")').count()) === 1);
+    // Owner request (20 Nov 2026): "delete button only in Admin login" —
+    // sales raises, edits and duplicates, and no longer deletes.
+    rec('quotation detail (sales): Draft quotation offers Edit and Duplicate, Delete withheld',
+      (await s.page.locator('button:text-is("Edit")').count()) === 1 && (await s.page.locator('button:text-is("Duplicate")').count()) === 1 && (await s.page.locator('button:text-is("Delete")').count()) === 0);
     rec('quotation (HVAC): no errors', s.errors.length === 0, s.errors.join('|'));
     await s.ctx.close();
   }
@@ -913,7 +915,9 @@ async function group5f(browser) {
     await s.ctx.close();
   }
 
-  // List (sales): both quotations listed; Delete works for a Draft.
+  // List (sales): both quotations listed. Deleting is ADMIN's since 20 Nov
+  // 2026 ("delete button only in Admin login"), so the delete itself is
+  // exercised in an admin session below.
   {
     const s = await session(browser, 'sales');
     await open(s, '/quotations');
@@ -922,11 +926,17 @@ async function group5f(browser) {
     await s.page.locator('tr', { hasText: 'E2E Export Customer' }).first().click();
     await s.page.waitForLoadState('networkidle'); await s.page.waitForTimeout(300);
     rec('quotation list (sales): a row opens its quotation', s.page.url().endsWith(`/quotations/${hvacId}`), s.page.url());
+    rec('quotation list (sales): no errors', s.errors.length === 0, s.errors.join('|'));
+    await s.ctx.close();
+  }
+  {
+    const s = await session(browser, 'admin');
+    await open(s, `/quotations/${hvacId}`);
     await s.page.locator('button:text-is("Delete")').click();
     await s.page.waitForLoadState('networkidle'); await s.page.waitForTimeout(300);
     const g = await api(adminT, 'GET', `/api/quotations/${hvacId}`);
-    rec('quotation detail (sales): Delete removes the Draft quotation', g.status === 404, `${g.status}`);
-    rec('quotation list (sales): no errors', s.errors.length === 0, s.errors.join('|'));
+    rec('quotation detail (admin): Delete removes the Draft quotation', g.status === 404, `${g.status}`);
+    rec('quotation delete (admin): no errors', s.errors.length === 0, s.errors.join('|'));
     await s.ctx.close();
   }
 

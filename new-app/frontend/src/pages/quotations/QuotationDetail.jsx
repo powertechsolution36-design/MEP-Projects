@@ -50,7 +50,8 @@ export default function QuotationDetail() {
   // division (quotationService.assertDivisionVisible). Raising, duplicating
   // and deleting one stay with the commercial roles.
   const canEdit = ['admin', 'sales', 'finance', 'hvac_pm', 'solar_pm', 'mep_pm'].includes(user?.role);
-  const canDelete = ['admin', 'sales'].includes(user?.role);
+  // Owner request (20 Nov 2026): "delete button only in Admin login".
+  const canDelete = user?.role === 'admin';
   // Raising a new quotation from this one, and keeping it as a starting
   // point, stay with the commercial roles — a Manager edits, nothing more.
   const canCommercial = ['admin', 'sales', 'finance'].includes(user?.role);

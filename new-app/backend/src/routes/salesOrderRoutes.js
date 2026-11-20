@@ -103,6 +103,16 @@ function createSalesOrderRouter(deps) {
     })
   );
 
+  // Owner request (20 Nov 2026): admin alone, and it takes the project and
+  // the order's payments with it. The service holds the rules.
+  router.delete(
+    '/:id',
+    handle(async (req, res) => {
+      const result = await service.deleteSalesOrder(req.params.id, req.auth, deps);
+      return res.status(200).json(result);
+    })
+  );
+
   router.post(
     '/:id/milestones/:mi/raise',
     handle(async (req, res) => {

@@ -184,3 +184,79 @@ test('createSalesOrder — validation: project name and division required (PWA F
     (err) => err.code === 'VALIDATION_ERROR'
   );
 });
+
+/* ===== deleting a sales order (owner request + decisions, 20 Nov 2026) ===== */
+
+test('deleteSalesOrder — admin only; takes the project and the order\'s payments; refused once money is in', async () => {
+  const service = require('../src/services/salesOrderService');
+  const store = createEnquiryFakeStore({
+    companies: [{ id: 'co1', name: 'Co', divisions: ['HVAC'] }],
+    checklistTemplates: [],
+  });
+  const auth = (o) => ({ userId: 'u1', companyId: 'co1', role: 'admin', name: 'Admin', ...o });
+
+  const made = await service.createSalesOrder(
+    {
+      division: 'HVAC',
+      projectName: 'Tower chiller',
+      contacts: [{ name: 'Ravi', phone: '900' }],
+      totalCost: 100000,
+      paymentMilestones: [{ description: 'Advance', amount: 50000 }],
+    },
+    auth({ role: 'sales' }),
+    store
+  );
+  const soId = made.salesOrder.id;
+  assert.ok(made.project, 'the order created a project');
+
+  for (const role of ['sales', 'finance', 'hvac_pm', 'engineer']) {
+    await assert.rejects(
+      () => service.deleteSalesOrder(soId, auth({ role }), store),
+      (err) => err.code === 'FORBIDDEN' && err.status === 403,
+      `${role} must not delete a sales order`
+    );
+  }
+
+  // Money received against it: refused, and the order is still there.
+  const pay = store.state.payments.find((p) => String(p.salesOrderId) === String(soId));
+  assert.ok(pay, 'the milestone raised a payment');
+  pay.partPayments = [{ amount: 20000, date: new Date(), mode: 'Cash' }];
+  await assert.rejects(
+    () => service.deleteSalesOrder(soId, auth(), store),
+    (err) => err.code === 'VALIDATION_ERROR' && /20,000/.test(err.message)
+  );
+  assert.equal(store.state.salesOrders.length, 1);
+
+  // Nothing received: the order, its project and its payments all go.
+  pay.partPayments = [];
+  const result = await service.deleteSalesOrder(soId, auth(), store);
+  assert.equal(result.deletedProjectId, String(made.project.id));
+  assert.equal(result.deletedPayments, 1);
+  assert.equal(store.state.salesOrders.length, 0);
+  assert.equal(store.state.projects.length, 0);
+  assert.equal(store.state.payments.length, 0);
+
+  await assert.rejects(
+    () => service.deleteSalesOrder(soId, auth(), store),
+    (err) => err.code === 'NOT_FOUND'
+  );
+});
+
+test('editSalesOrder — correcting the project name renames the project it created', async () => {
+  const service = require('../src/services/salesOrderService');
+  const store = createEnquiryFakeStore({
+    companies: [{ id: 'co1', name: 'Co', divisions: ['HVAC'] }],
+  });
+  const auth = (o) => ({ userId: 'u1', companyId: 'co1', role: 'admin', name: 'Admin', ...o });
+
+  const made = await service.createSalesOrder(
+    { division: 'HVAC', projectName: 'Wrong name', contacts: [{ name: 'Ravi', phone: '900' }], totalCost: 1, paymentMilestones: [] },
+    auth({ role: 'sales' }),
+    store
+  );
+  assert.equal(made.project.name, 'Wrong name');
+
+  await service.editSalesOrder(made.salesOrder.id, { projectName: 'Sangeeta Bungalow' }, auth(), store);
+  const project = store.state.projects.find((p) => String(p.id) === String(made.project.id));
+  assert.equal(project.name, 'Sangeeta Bungalow');
+});

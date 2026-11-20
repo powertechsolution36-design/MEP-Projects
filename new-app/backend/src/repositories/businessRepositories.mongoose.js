@@ -81,6 +81,11 @@ const enquiryRepo = {
     const doc = await Enquiry.findOneAndUpdate({ _id: id, companyId }, { $set: patch }, { new: true }).lean();
     return toPlainLean(doc);
   },
+  // Owner request (20 Nov 2026): an admin can throw a record away.
+  async deleteById(companyId, id, session) {
+    const res = await Enquiry.deleteOne({ _id: id, companyId }, { session });
+    return res.deletedCount > 0;
+  },
   async pushFollowUp(companyId, id, patch, logEntry) {
     const doc = await Enquiry.findOneAndUpdate(
       { _id: id, companyId },
@@ -190,6 +195,11 @@ const salesOrderRepo = {
     const docs = await SalesOrder.find({ companyId }).lean();
     return docs.map((d) => withSalesOrderLinks({ ...d, id: String(d._id) }));
   },
+  // Owner request (20 Nov 2026): an admin can throw a record away.
+  async deleteById(companyId, id, session) {
+    const res = await SalesOrder.deleteOne({ _id: id, companyId }, { session });
+    return res.deletedCount > 0;
+  },
   /** Plain field merge — PWA FACT (`saveSO`'s edit branch): no cascade re-run on edit. */
   async update(companyId, id, patch) {
     const doc = await SalesOrder.findOneAndUpdate({ _id: id, companyId }, { $set: patch }, { new: true }).lean();
@@ -259,6 +269,11 @@ const projectRepo = {
    * valid ObjectIds are dropped rather than thrown on, so one stale entry
    * in an account's list cannot break the whole page.
    */
+  // Owner request (20 Nov 2026): an admin can throw a record away.
+  async deleteById(companyId, id, session) {
+    const res = await Project.deleteOne({ _id: id, companyId }, { session });
+    return res.deletedCount > 0;
+  },
   async listByIdsForCompany(companyId, ids) {
     const clean = (Array.isArray(ids) ? ids : []).filter((id) => mongoose.isValidObjectId(id));
     if (clean.length === 0) return [];
@@ -351,6 +366,15 @@ const paymentRepo = {
     if (status) query.status = status;
     const docs = await Payment.find(query).lean();
     return docs.map(toPlainPayment);
+  },
+  /** Every payment raised from one sales order's milestones. */
+  async listBySalesOrder(companyId, salesOrderId) {
+    const docs = await Payment.find({ companyId, salesOrderId }).lean();
+    return docs.map(toPlainPayment);
+  },
+  async deleteBySalesOrder(companyId, salesOrderId, session) {
+    const res = await Payment.deleteMany({ companyId, salesOrderId }, { session });
+    return res.deletedCount || 0;
   },
   async update(companyId, id, patch, session) {
     const doc = await Payment.findOneAndUpdate({ _id: id, companyId }, { $set: patch }, { new: true, session }).lean();

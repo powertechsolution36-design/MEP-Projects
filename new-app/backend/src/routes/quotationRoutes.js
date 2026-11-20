@@ -122,8 +122,9 @@ function createQuotationRouter(deps) {
     }
   });
 
-  // Delete quotation (Draft/Cancelled only; admin, sales only)
-  router.delete('/:quotationId', requireRole('super', 'admin', 'sales'), async (req, res) => {
+  // Delete quotation (Draft/Cancelled only). Owner request (20 Nov 2026):
+  // "delete button only in Admin login" — sales had this and no longer does.
+  router.delete('/:quotationId', requireRole('super', 'admin'), async (req, res) => {
     try {
       const result = await deleteQuotation(req.auth.companyId, req.params.quotationId, deps);
       return res.json(result);

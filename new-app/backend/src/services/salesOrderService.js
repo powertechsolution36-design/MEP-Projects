@@ -254,6 +254,60 @@ async function createSalesOrder(input, actorAuth, deps) {
   });
 }
 
+/**
+ * Throw a sales order away, with the project it created and the payments
+ * its milestones raised (owner request and decision, 20 Nov 2026: "Order,
+ * project and payments", refused when money has been received).
+ *
+ * Admin only, and permanent — there is no trash to take any of it back out
+ * of. The money guard is not a formality: a payment with even one part
+ * payment against it is somebody's receipt, so the whole delete is refused
+ * and the amount is named, rather than quietly erasing a collection.
+ */
+async function deleteSalesOrder(id, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  if (actorAuth.role !== 'admin') {
+    throw new ServiceError('Only an admin can delete a sales order.', 'FORBIDDEN', 403);
+  }
+  const existing = await deps.salesOrderRepo.findById(actorAuth.companyId, id);
+  if (!existing) throw new ServiceError('SalesOrder not found.', 'NOT_FOUND', 404);
+
+  const payments = deps.paymentRepo && deps.paymentRepo.listBySalesOrder
+    ? await deps.paymentRepo.listBySalesOrder(actorAuth.companyId, id)
+    : [];
+  const collected = payments.reduce(
+    (sum, p) => sum + (p.partPayments || []).reduce((a, pp) => a + (Number(pp.amount) || 0), 0),
+    0
+  );
+  if (collected > 0) {
+    throw new ServiceError(
+      `₹${collected.toLocaleString('en-IN')} has been received against this order's payments. `
+      + 'Clear those receipts on the Payments screen first if this order really is to be deleted.',
+      'VALIDATION_ERROR',
+      400
+    );
+  }
+
+  const project = deps.projectRepo && deps.projectRepo.findBySalesOrderId
+    ? await deps.projectRepo.findBySalesOrderId(actorAuth.companyId, id)
+    : null;
+
+  const deletedPayments = deps.paymentRepo && deps.paymentRepo.deleteBySalesOrder
+    ? await deps.paymentRepo.deleteBySalesOrder(actorAuth.companyId, id)
+    : 0;
+  if (project && deps.projectRepo.deleteById) {
+    await deps.projectRepo.deleteById(actorAuth.companyId, project.id);
+  }
+  await deps.salesOrderRepo.deleteById(actorAuth.companyId, id);
+
+  return {
+    deletedSalesOrderId: String(id),
+    orderNumber: existing.orderNumber,
+    deletedProjectId: project ? String(project.id) : null,
+    deletedPayments,
+  };
+}
+
 async function getSalesOrder(id, actorAuth, deps) {
   assertCompanyContext(actorAuth);
   assertRole(actorAuth, VIEW_ROLES, 'view SalesOrders');
@@ -356,13 +410,21 @@ async function editSalesOrder(id, patchInput, actorAuth, deps) {
   // Owner request (19 Nov 2026): changing the Manager on the order has to
   // move the PROJECT too, or the order would name one person while the
   // project still showed up in somebody else's list.
-  if (Object.prototype.hasOwnProperty.call(patch, 'projectManagerUserId') && deps.projectRepo) {
+  // Owner request (19 and 20 Nov 2026): the Manager, and the project's
+  // NAME, follow the order. "Some of the sales order have wrong Project
+  // name" — correcting it here had been leaving the project itself called
+  // the old thing, which is the name everybody actually works under.
+  const projectPatch = {};
+  if (Object.prototype.hasOwnProperty.call(patch, 'projectManagerUserId')) {
+    projectPatch.projectManagerUserId = patch.projectManagerUserId || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'projectName')
+    && patch.projectName !== existing.projectName) {
+    projectPatch.name = patch.projectName;
+  }
+  if (Object.keys(projectPatch).length > 0 && deps.projectRepo) {
     const linked = await deps.projectRepo.findBySalesOrderId(actorAuth.companyId, id);
-    if (linked) {
-      await deps.projectRepo.update(actorAuth.companyId, linked.id, {
-        projectManagerUserId: patch.projectManagerUserId || null,
-      });
-    }
+    if (linked) await deps.projectRepo.update(actorAuth.companyId, linked.id, projectPatch);
   }
   if (patch.paymentMilestones) {
     await applyMilestoneLinksToProject(actorAuth.companyId, id, patch.paymentMilestones, deps);
@@ -509,6 +571,7 @@ async function exportSalesOrdersCsv(actorAuth, { filters = {} } = {}, deps) {
 }
 
 module.exports = {
+  deleteSalesOrder,
   computeMargins,
   createSalesOrder,
   getSalesOrder,

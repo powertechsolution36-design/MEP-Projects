@@ -158,6 +158,37 @@ async function createEnquiry(input, actorAuth, deps) {
   return enquiry;
 }
 
+/**
+ * Throw an enquiry away (owner request, 20 Nov 2026: "add delete button only
+ * in Admin login to delete enquiries, Sales Order, project, Quotation").
+ *
+ * Admin only, and permanent. An enquiry that was already converted is
+ * refused: its quotation and sales order carry the work that came out of
+ * it, and deleting the lead underneath them would leave those pointing at
+ * nothing. Delete the sales order first if that is really the intent.
+ */
+async function deleteEnquiry(id, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  if (actorAuth.role !== 'admin') {
+    throw new ServiceError('Only an admin can delete an enquiry.', 'FORBIDDEN', 403);
+  }
+  const enquiry = await deps.enquiryRepo.findById(actorAuth.companyId, id);
+  if (!enquiry) throw new ServiceError('Enquiry not found.', 'NOT_FOUND', 404);
+
+  if (deps.salesOrderRepo && deps.salesOrderRepo.findByEnquiryId) {
+    const so = await deps.salesOrderRepo.findByEnquiryId(actorAuth.companyId, id);
+    if (so) {
+      throw new ServiceError(
+        `This enquiry became sales order SO-${so.orderNumber}. Delete that order first.`,
+        'VALIDATION_ERROR',
+        400
+      );
+    }
+  }
+  await deps.enquiryRepo.deleteById(actorAuth.companyId, id);
+  return { deletedEnquiryId: String(id), name: enquiry.name || '' };
+}
+
 async function getEnquiry(id, actorAuth, deps) {
   assertCompanyContext(actorAuth);
   assertRole(actorAuth, MANAGE_ROLES, 'view Enquiries');
@@ -576,6 +607,7 @@ const validateSalesOrderDraft = cascade.validateSalesOrderDraft;
  */
 
 module.exports = {
+  deleteEnquiry,
   createEnquiry,
   getEnquiry,
   editEnquiry,

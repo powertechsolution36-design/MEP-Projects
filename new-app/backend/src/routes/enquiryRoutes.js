@@ -148,6 +148,16 @@ function createEnquiryRouter(deps) {
     })
   );
 
+  // Owner request (20 Nov 2026): admin alone may delete. The service
+  // refuses every other role, so this is not the only guard.
+  router.delete(
+    '/:id',
+    handle(async (req, res) => {
+      const result = await service.deleteEnquiry(req.params.id, req.auth, deps);
+      return res.status(200).json(result);
+    })
+  );
+
 
   return router;
 }

@@ -1101,3 +1101,26 @@ test('opening a project that has no checklist at all gives it the standard point
   // A project with no division has no standard list to give it — left alone.
   assert.equal((await service.getProject('nodiv', auth({ role: 'admin' }), store)).checklist.length, 0);
 });
+
+test('deleteProject — admin only, permanent, and the sales order behind it is left alone', async () => {
+  const store = createEnquiryFakeStore({
+    projects: [baseProject()],
+    salesOrders: [baseSalesOrder()],
+  });
+  for (const role of ['hvac_pm', 'sales', 'engineer', 'finance', 'service_mgr']) {
+    await assert.rejects(
+      () => service.deleteProject('proj1', auth({ role }), store),
+      (err) => err.code === 'FORBIDDEN' && err.status === 403,
+      `${role} must not delete a project`
+    );
+  }
+  const result = await service.deleteProject('proj1', auth({ role: 'admin' }), store);
+  assert.equal(result.deletedProjectId, 'proj1');
+  assert.equal(store.state.projects.length, 0);
+  assert.equal(store.state.salesOrders.length, 1, 'the order it came from stays');
+
+  await assert.rejects(
+    () => service.deleteProject('proj1', auth({ role: 'admin' }), store),
+    (err) => err.code === 'NOT_FOUND'
+  );
+});

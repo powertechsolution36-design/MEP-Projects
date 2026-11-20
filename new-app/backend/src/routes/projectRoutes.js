@@ -135,6 +135,16 @@ function createProjectRouter(deps) {
     })
   );
 
+  // Owner request (20 Nov 2026): admin alone may delete a project. The
+  // sales order behind it is left alone — deleting THAT takes the project.
+  router.delete(
+    '/:id',
+    handle(async (req, res) => {
+      const result = await service.deleteProject(req.params.id, req.auth, deps);
+      return res.status(200).json(result);
+    })
+  );
+
   // Owner request (14 Nov 2026): the quotation the site was won on, for
   // whoever may open the project -- the Project Manager included.
   router.get(

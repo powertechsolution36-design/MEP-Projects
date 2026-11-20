@@ -78,6 +78,19 @@ export default function SalesOrderDetail() {
 
   useEffect(() => { load(); }, [load]);
 
+  async function handleDeleteOrder() {
+    const ok = window.confirm(
+      `Delete sales order SO-${so.orderNumber} — ${so.projectName || ''}?\n\n`
+      + 'The project it created and this order\'s payment records go with it. '
+      + 'There is no undo.'
+    );
+    if (!ok) return;
+    try {
+      await api.delete(`/api/sales-orders/${id}`);
+      navigate('/sales-orders');
+    } catch (err) { alert(err.message); }
+  }
+
   function openEdit() {
     setEditForm({
       // A Manager may not move an order to another division — that is the
@@ -294,6 +307,12 @@ export default function SalesOrderDetail() {
         {canEdit && (
           <div className="detail-actions">
             <button className="btn sec sm" onClick={openEdit}>✏️ Edit Sales Order</button>
+            {/* Owner request (20 Nov 2026): admin alone. It takes the
+                project and this order's payments with it, which the
+                confirmation says in as many words. */}
+            {user?.role === 'admin' && (
+              <button className="btn danger sm" onClick={handleDeleteOrder}>🗑 Delete Sales Order</button>
+            )}
           </div>
         )}
       </div>
