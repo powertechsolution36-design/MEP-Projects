@@ -437,3 +437,41 @@ test('allocating a lead — admin only, to a sales person or an admin, and it ca
   const cleared = await service.assignEnquirySales('e1', { assignedSalesUserId: null }, admin, deps);
   assert.equal(cleared.assignedSalesUserId, null);
 });
+
+test('won leads carry the quotation and the sales order they turned into (owner request, 21 Nov 2026)', async () => {
+  const { deps } = makeDeps({
+    enquiries: [
+      { id: 'e_both', companyId: 'co1', name: 'Sayli Khandekar', status: 'Won', segment: 'HVAC', followUpLog: [] },
+      { id: 'e_direct', companyId: 'co1', name: 'Walk-in win', status: 'Won', segment: 'HVAC', followUpLog: [] },
+      { id: 'e_bare', companyId: 'co1', name: 'Won long ago', status: 'Won', segment: 'HVAC', followUpLog: [] },
+    ],
+    quotations: [
+      { id: 'q_old', companyId: 'co1', quotationNumber: 4, status: 'Rejected', enquiryId: 'e_both', grandTotal: 390000 },
+      { id: 'q_new', companyId: 'co1', quotationNumber: 9, status: 'Accepted', enquiryId: 'e_both', grandTotal: 403398 },
+    ],
+    salesOrders: [
+      // Linked through the quotation, the usual route.
+      { id: 'so_q', companyId: 'co1', orderNumber: 21, projectName: 'Sangeeta Bungalow', quotationId: 'q_new' },
+      // Raised straight from the lead (20 Nov 2026 route).
+      { id: 'so_e', companyId: 'co1', orderNumber: 22, projectName: 'Walk-in win', enquiryId: 'e_direct' },
+    ],
+  });
+  const admin = { userId: 'u_admin', companyId: 'co1', role: 'admin', name: 'Admin' };
+
+  const won = await service.listEnquiries(admin, { scope: 'won' }, deps);
+  const byId = Object.fromEntries(won.map((e) => [e.id, e]));
+
+  // The newest quotation is the one shown — the accepted one.
+  assert.equal(byId.e_both.quotation.quotationNumber, 9);
+  assert.equal(byId.e_both.salesOrder.orderNumber, 21, 'found through its quotation');
+
+  assert.equal(byId.e_direct.quotation, null);
+  assert.equal(byId.e_direct.salesOrder.orderNumber, 22, 'found through the lead itself');
+
+  assert.equal(byId.e_bare.quotation, null);
+  assert.equal(byId.e_bare.salesOrder, null);
+
+  // The Enquiry List pays for none of this.
+  const open = await service.listEnquiries(admin, {}, deps);
+  assert.ok(open.every((e) => e.quotation === undefined));
+});

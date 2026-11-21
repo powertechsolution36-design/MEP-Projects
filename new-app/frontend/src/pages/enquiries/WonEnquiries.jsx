@@ -137,7 +137,34 @@ export default function WonEnquiries() {
             rows={ordered}
             todayKey={today}
             onOpen={(e) => navigate(`/enquiries/${e.id}`)}
+            /* Owner request (21 Nov 2026): "In won Enquiries we can view
+               each client their quotation and Sales order." Each one opens
+               the document itself; a lead with none says so. */
             extraColumns={[
+              {
+                key: 'quotation',
+                label: 'Quotation',
+                render: (e) => (e.quotation ? (
+                  <button
+                    className="btn sec sm"
+                    onClick={(ev) => { ev.stopPropagation(); navigate(`/quotations/${e.quotation.id}`); }}
+                  >
+                    {e.quotation.quotationNumber || 'View'}
+                  </button>
+                ) : <span className="muted">—</span>),
+              },
+              {
+                key: 'salesOrder',
+                label: 'Sales Order',
+                render: (e) => (e.salesOrder ? (
+                  <button
+                    className="btn sec sm"
+                    onClick={(ev) => { ev.stopPropagation(); navigate(`/sales-orders/${e.salesOrder.id}`); }}
+                  >
+                    SO-{e.salesOrder.orderNumber}
+                  </button>
+                ) : <span className="muted">—</span>),
+              },
               { key: 'reviewDate', label: 'Won On', render: (e) => fmtDate(e.lastReviewDate) || '-' },
             ]}
           />

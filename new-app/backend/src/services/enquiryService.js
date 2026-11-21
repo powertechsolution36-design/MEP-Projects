@@ -465,6 +465,53 @@ function visibleToSales(actorAuth, enquiry) {
 const ALLOCATE_ROLES = Object.freeze(['admin']);
 const SALES_ASSIGNEE_ROLES = Object.freeze(['sales', 'admin']);
 
+/**
+ * What a won lead turned into: its quotation and its sales order (owner
+ * request, 21 Nov 2026). Matched by the ids those records carry — never by
+ * name — so a row either names the real document or says there is none.
+ *
+ * A lead can have more than one quotation (a revision raised separately);
+ * the newest is the one shown, which is the one that was accepted.
+ */
+async function withWonPaperwork(rows, actorAuth, deps) {
+  if (rows.length === 0) return rows;
+  const companyId = actorAuth.companyId;
+  const quotations = deps.quotationRepo && deps.quotationRepo.listByCompany
+    ? await deps.quotationRepo.listByCompany(companyId)
+    : [];
+  const salesOrders = deps.salesOrderRepo && deps.salesOrderRepo.listByCompany
+    ? await deps.salesOrderRepo.listByCompany(companyId)
+    : [];
+
+  const quotationByEnquiry = new Map();
+  for (const q of quotations) {
+    if (!q.enquiryId) continue;
+    const key = String(q.enquiryId);
+    const kept = quotationByEnquiry.get(key);
+    // Newest wins — the accepted one, when a revision was raised separately.
+    if (!kept || Number(q.quotationNumber || 0) > Number(kept.quotationNumber || 0)) {
+      quotationByEnquiry.set(key, q);
+    }
+  }
+  const orderByEnquiry = new Map();
+  const orderByQuotation = new Map();
+  for (const so of salesOrders) {
+    if (so.enquiryId) orderByEnquiry.set(String(so.enquiryId), so);
+    if (so.quotationId) orderByQuotation.set(String(so.quotationId), so);
+  }
+
+  return rows.map((e) => {
+    const q = quotationByEnquiry.get(String(e.id)) || null;
+    // The order is linked to the lead, or to the quotation that came from it.
+    const so = orderByEnquiry.get(String(e.id)) || (q ? orderByQuotation.get(String(q.id)) : null) || null;
+    return {
+      ...e,
+      quotation: q ? { id: String(q.id), quotationNumber: q.quotationNumber, status: q.status, grandTotal: q.grandTotal } : null,
+      salesOrder: so ? { id: String(so.id), orderNumber: so.orderNumber, projectName: so.projectName } : null,
+    };
+  });
+}
+
 /** The allocated sales person's name on each row, for the screens to show. */
 async function withSalesNames(rows, actorAuth, deps) {
   const ids = [...new Set(rows.map((r) => r.assignedSalesUserId).filter(Boolean).map(String))];
@@ -535,7 +582,11 @@ async function listEnquiries(actorAuth, { scope, includeLost = false, filters = 
   // sees them all, with the sales person's name on the row.
   const scoped = byScope.filter((x) => visibleToSales(actorAuth, x));
   const rows = applyEnquiryFilters(scoped, filters);
-  return withSalesNames(rows, actorAuth, deps);
+  const named = await withSalesNames(rows, actorAuth, deps);
+  // Owner request (21 Nov 2026): "In won Enquiries we can view each client
+  // their quotation and Sales order." Only that screen asks for it, so
+  // only that screen pays for the two extra reads.
+  return which === 'won' ? withWonPaperwork(named, actorAuth, deps) : named;
 }
 
 /**
