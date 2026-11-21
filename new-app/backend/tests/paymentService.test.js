@@ -363,3 +363,29 @@ test('markPaymentLost — refused once any money has come in against it', async 
   );
   assert.equal(store.state.payments[0].status, 'Pending');
 });
+
+/*
+ * Owner request (21 Nov 2026): "In pending payment if payment is lost its
+ * Amount will not add in the total balance, lost data should be separate."
+ */
+test('the export totals what is collectable; a written-off payment is totalled on its own line', async () => {
+  const store = createEnquiryFakeStore({
+    payments: [
+      { id: 'p1', companyId: 'co1', projectOrReference: 'Live job', amount: 100000, status: 'Pending', partPayments: [{ amount: 40000, date: new Date('2026-11-01') }] },
+      { id: 'p2', companyId: 'co1', projectOrReference: 'Given up on', amount: 75000, status: 'Pending', partPayments: [] },
+    ],
+  });
+  const auth = (o) => ({ userId: 'u1', companyId: 'co1', role: 'finance', name: 'Finance', ...o });
+  await service.markPaymentLost('p2', { reason: 'Client refused' }, auth(), store);
+
+  const csv = await service.exportPendingPaymentsCsv(auth(), {}, store);
+  const total = csv.split('\n').find((l) => l.startsWith('TOTAL'));
+  const lostLine = csv.split('\n').find((l) => l.startsWith('LOST'));
+
+  // 100000 billed, 40000 in, 60000 outstanding — the 75000 is not in it.
+  assert.ok(total.includes('100000') && total.includes('40000') && total.includes('60000'), total);
+  assert.ok(!total.includes('175000') && !total.includes('135000'), total);
+  // The written-off one is still in the file, on a line of its own.
+  assert.ok(lostLine && lostLine.includes('75000'), String(lostLine));
+  assert.ok(csv.includes('Given up on'), 'the written-off row is still listed');
+});

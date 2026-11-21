@@ -62,20 +62,35 @@ function payBal(payment) {
   return Math.max(0, (payment.amount || 0) - payRcvd(payment));
 }
 
-/** PWA FACT (paySum, index.html:2257-2265). */
+/**
+ * PWA FACT (paySum, index.html:2257-2265).
+ *
+ * Owner request (21 Nov 2026): "if payment is lost its Amount will not add
+ * in the total balance, lost data should be separate." A milestone whose
+ * payment has been written off is money nobody is going to collect, so it
+ * leaves `pen` — calling it pending would have the dashboard state a debt
+ * that has been given up on. It is reported as `lost` instead, and `tot`
+ * still carries it, because the order was still worth that much.
+ */
 function paySum(so, payments) {
   const milestones = so.paymentMilestones || [];
   const tot = milestones.reduce((a, m) => a + (Number(m.amount) || 0), 0);
   let rcv = 0;
+  let lost = 0;
   milestones.forEach((m, i) => {
     if (m.received) {
       rcv += Number(m.amount) || 0;
       return;
     }
     const pr = payments.find((p) => String(p.salesOrderId) === String(so.id) && p.milestoneIndex === i);
-    if (pr) rcv += payRcvd(pr);
+    if (!pr) return;
+    if (pr.status === 'Lost') {
+      lost += Number(m.amount) || 0;
+      return;
+    }
+    rcv += payRcvd(pr);
   });
-  return { tot, rcv, pen: tot - rcv, pct: tot ? Math.round((rcv * 100) / tot) : 0 };
+  return { tot, rcv, lost, pen: tot - rcv - lost, pct: tot ? Math.round((rcv * 100) / tot) : 0 };
 }
 
 function lastUpdate(project) {

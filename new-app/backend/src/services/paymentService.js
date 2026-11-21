@@ -647,12 +647,23 @@ async function exportPendingPaymentsCsv(actorAuth, { search = '' } = {}, deps) {
   let totalAmount = 0;
   let totalReceived = 0;
   let totalBalance = 0;
+  // Owner request (21 Nov 2026): "if payment is lost its Amount will not add
+  // in the total balance, lost data should be separate." A written-off
+  // payment is still listed — the file is the record — but it is totalled
+  // on a line of its own, so TOTAL states what is actually collectable.
+  let lostAmount = 0;
+  let lostBalance = 0;
   for (const x of rows) {
     const received = computeReceived(x);
     const balance = computeBalance(x);
-    totalAmount += x.amount || 0;
-    totalReceived += received;
-    totalBalance += balance;
+    if (x.status === 'Lost') {
+      lostAmount += x.amount || 0;
+      lostBalance += balance;
+    } else {
+      totalAmount += x.amount || 0;
+      totalReceived += received;
+      totalBalance += balance;
+    }
     const soNo = x.salesOrderId ? soOrderNumberById.get(String(x.salesOrderId)) || '' : '';
     const raised = x.raisedToFinance;
     const raisedBy = raised ? nameById.get(String(raised.raisedByUserId)) || raised.raisedByRole || '' : '';
@@ -667,6 +678,9 @@ async function exportPendingPaymentsCsv(actorAuth, { search = '' } = {}, deps) {
   }
   lines.push('');
   lines.push(['TOTAL', '', '', '', totalAmount, totalReceived, totalBalance].map(csvEscape).join(','));
+  if (lostAmount || lostBalance) {
+    lines.push(['LOST (written off)', '', '', '', lostAmount, '', lostBalance].map(csvEscape).join(','));
+  }
   return lines.join('\n');
 }
 
