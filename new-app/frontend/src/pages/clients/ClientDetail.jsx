@@ -61,6 +61,62 @@ function Section({ heading, rows, columns, onOpen, empty }) {
   );
 }
 
+/** The client's leads, each with the quotations raised from it beneath. */
+function EnquirySection({ rows, navigate }) {
+  if (rows === null) {
+    return (
+      <div className="panel" style={{ maxWidth: 1000 }}>
+        <h3>Enquiries</h3>
+        <p className="muted">Not yours to see — this login does not have enquiries.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="panel" style={{ maxWidth: 1000 }}>
+      <h3>Enquiries <span className="muted" style={{ fontWeight: 400 }}>({rows.length})</span></h3>
+      {rows.length === 0 ? (
+        <p className="muted">No enquiries on record for them.</p>
+      ) : rows.map((e) => (
+        <div key={e.id} className="panel" style={{ margin: '10px 0', background: 'transparent' }}>
+          <div
+            className="clickable-row"
+            style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', cursor: 'pointer' }}
+            onClick={() => navigate(`/enquiries/${e.id}`)}
+          >
+            <strong>{e.name || '—'}</strong>
+            <span className="status-badge">{e.status || '—'}</span>
+            <span className="muted" style={{ fontSize: 13 }}>
+              {[e.segment, e.siteType, e.estimatedValue == null ? null : money(e.estimatedValue)]
+                .filter(Boolean).join(' · ')}
+            </span>
+          </div>
+          {(e.quotations || []).length === 0 ? (
+            <p className="muted" style={{ fontSize: 13, margin: '6px 0 0' }}>No quotation raised from this enquiry.</p>
+          ) : (
+            <div className="table-wrap" style={{ marginTop: 6 }}>
+              <table className="data-table" style={{ fontSize: 13 }}>
+                <thead>
+                  <tr><th>Quotation</th><th>Date</th><th>Status</th><th>Value</th></tr>
+                </thead>
+                <tbody>
+                  {e.quotations.map((q) => (
+                    <tr key={q.id} className="clickable-row" onClick={() => navigate(`/quotations/${q.id}`)}>
+                      <td>{q.quotationNumber || '—'}</td>
+                      <td>{fmtDate(q.date) || '—'}</td>
+                      <td>{q.status || '—'}</td>
+                      <td>{q.grandTotal == null ? '—' : money(q.grandTotal)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function ClientDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -150,19 +206,11 @@ export default function ClientDetail() {
         ]}
       />
 
-      <Section
-        heading="Quotations"
-        rows={data.quotations}
-        empty="No quotations on record for them."
-        onOpen={(r) => navigate(`/quotations/${r.id}`)}
-        columns={[
-          { key: 'n', label: 'Number', cell: (r) => dash(r.quotationNumber) },
-          { key: 'div', label: 'Division', cell: (r) => dash(r.division) },
-          { key: 'date', label: 'Date', cell: (r) => fmtDate(r.date) },
-          { key: 'status', label: 'Status', cell: (r) => dash(r.status) },
-          { key: 'total', label: 'Value', cell: (r) => (r.grandTotal == null ? '—' : money(r.grandTotal)) },
-        ]}
-      />
+      {/* Owner request (21 Nov 2026): "in client segment if we click any
+          client then all enquiries of that client and enquiries wise quote
+          can check." Each lead carries its own quotations, so a quotation
+          is read under the lead it belongs to. */}
+      <EnquirySection rows={data.enquiries} navigate={navigate} />
 
       <Section
         heading="AMC / PM Contracts"

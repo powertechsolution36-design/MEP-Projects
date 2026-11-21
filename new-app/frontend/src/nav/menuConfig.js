@@ -22,6 +22,17 @@ export const ROLE_LABELS = {
 
 // [key, label, path] per PWA MENUS[role] entry (icon glyph kept from the
 // PWA's own labels for visual continuity).
+/*
+ * Owner request (21 Nov 2026): "This quotation option not required move
+ * this inside Won enquiries. All quotation need to belong to enquiries
+ * only." So admin, sales and the Solar Manager no longer carry a
+ * Quotations register in the menu: a quotation is reached from the lead it
+ * belongs to (the enquiry's own Quotations panel, the Won Enquiries column)
+ * or from the client. The /quotations pages themselves are untouched, and
+ * the roles with no Enquiries menu of their own — the HVAC and MEP
+ * Managers and finance — keep the register, since removing it would leave
+ * them no way in at all.
+ */
 export const MENUS = {
   super: [
     ['dash', '🏠 Dashboard', '/'],
@@ -94,7 +105,6 @@ export const MENUS = {
     ['dash', '🏠 Dashboard', '/'],
     ['clients', '🏢 Clients', '/clients'],
     ['enquiries', '📋 Enquiries', '/enquiries'],
-    ['quotations', '📄 Quotations', '/quotations'],
     ['sos', '🧾 Sales Orders', '/sales-orders'],
     // Owner request (20 Nov 2026): "Above Lost Enquiries add Won Enquiries."
     ['won', '🏆 Won Enquiries', '/enquiries/won'],
@@ -167,12 +177,10 @@ export const NEW_APP_MENU_ADDITIONS = {
   admin: [
     ['soclosing', '✅ Closing Sales Orders', '/sales-orders/closing'],
     ['dailyTasks', '✅ Daily Tasks', '/daily-tasks'],
-    ['quotations', '📄 Quotations', '/quotations'],
     // Owner decision (27 Oct 2026): approving a client's portal login.
     ['customerLogins', '👤 Customer Logins', '/customer-accounts'],
     ['companyprofile', '🏷️ Company Profile', '/company-profile'],
   ],
-  sales: [['quotations', '📄 Quotations', '/quotations']],
   finance: [['quotations', '📄 Quotations', '/quotations']],
   service_mgr: [
     ['dailyTasks', '✅ Daily Tasks', '/daily-tasks'],

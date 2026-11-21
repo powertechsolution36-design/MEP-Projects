@@ -211,7 +211,34 @@ async function getEnquiry(id, actorAuth, deps) {
     throw new ServiceError('Enquiry not found.', 'NOT_FOUND', 404);
   }
   const [withName] = await withSalesNames([enquiry], actorAuth, deps);
-  return withName;
+  // Owner request (21 Nov 2026): "All quotation need to belong to enquiries
+  // only" — and he opened a lead he had already quoted and found no sign of
+  // it. The lead now carries its own quotations, newest first, so the
+  // enquiry is where a quotation is found rather than a separate register.
+  return { ...withName, quotations: await quotationsForEnquiry(enquiry.id, actorAuth, deps) };
+}
+
+/**
+ * The quotations raised from one enquiry, newest number first, trimmed to
+ * what a list row shows. Every role that may read an enquiry (sales, admin,
+ * Solar Manager) may read a quotation, so there is no extra gate here; a
+ * deps set without the quotation repo simply has none to show.
+ */
+async function quotationsForEnquiry(enquiryId, actorAuth, deps) {
+  if (!deps.quotationRepo || !deps.quotationRepo.listByCompany) return [];
+  const all = await deps.quotationRepo.listByCompany(actorAuth.companyId);
+  return all
+    .filter((q) => q.enquiryId && String(q.enquiryId) === String(enquiryId))
+    // Numbers read "QTN-0012", so they are compared as the text they are.
+    .sort((a, b) => String(b.quotationNumber || '').localeCompare(String(a.quotationNumber || '')))
+    .map((q) => ({
+      id: String(q.id),
+      quotationNumber: q.quotationNumber,
+      division: q.division,
+      status: q.status,
+      date: q.date,
+      grandTotal: q.grandTotal,
+    }));
 }
 
 // PWA FACT: the Edit modal's editable fields (`e_n,e_st,e_c,e_s,e_p,e_r,e_rt,e_v,e_rm`).
@@ -489,7 +516,8 @@ async function withWonPaperwork(rows, actorAuth, deps) {
     const key = String(q.enquiryId);
     const kept = quotationByEnquiry.get(key);
     // Newest wins — the accepted one, when a revision was raised separately.
-    if (!kept || Number(q.quotationNumber || 0) > Number(kept.quotationNumber || 0)) {
+    // A quotation number reads "QTN-0012", so it is compared as text.
+    if (!kept || String(q.quotationNumber || '').localeCompare(String(kept.quotationNumber || '')) > 0) {
       quotationByEnquiry.set(key, q);
     }
   }
@@ -751,6 +779,7 @@ const validateSalesOrderDraft = cascade.validateSalesOrderDraft;
  */
 
 module.exports = {
+  quotationsForEnquiry,
   deleteEnquiry,
   assignEnquirySales,
   listSalesCandidates,

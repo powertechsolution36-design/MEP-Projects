@@ -110,6 +110,14 @@ export default function QuotationCreate() {
   // "Type my own" on the System picker — see the field below.
   const [systemTyped, setSystemTyped] = useState(false);
   const [appliedPreset, setAppliedPreset] = useState('');
+  /*
+   * Owner request (21 Nov 2026): "can select which AMC Client we are giving
+   * this quote to or new client." An AMC offer is nearly always for a site
+   * already under contract with us, so the AMC/PM list itself is the
+   * picker; leaving it on "new client" types the details as before.
+   */
+  const [amcClients, setAmcClients] = useState([]);
+  const [amcPick, setAmcPick] = useState('');
 
   useEffect(() => {
     api.get('/api/payment-term-templates?documentType=quotation')
@@ -177,10 +185,17 @@ export default function QuotationCreate() {
       setAccessoriesItems([]);
       setPaymentTerms([]);
       setExcludedWorks(['']);
+      setAmcPick('');
       return;
     }
     const p = presets.find((x) => x.code === code);
     if (!p) return;
+    // The AMC/PM list, fetched the first time an AMC offer is chosen.
+    if (code.startsWith('amc') && amcClients.length === 0) {
+      api.get('/api/contracts')
+        .then((data) => setAmcClients(data.contracts || []))
+        .catch(() => { /* optional: the details can still be typed */ });
+    }
     setForm(prev => ({
       ...prev,
       division: p.division || prev.division,
@@ -367,6 +382,46 @@ export default function QuotationCreate() {
               another quotation. Change or remove any line you do not need.
             </div>
           )}
+        </div>
+      )}
+
+      {/* Owner request (21 Nov 2026): which AMC client this quote is for —
+          or none of them, and the details are typed below as usual. */}
+      {appliedPreset.startsWith('amc') && (
+        <div className="panel" style={{ marginBottom: 12 }}>
+          <label className="filter-field" style={{ margin: 0 }}>
+            Which AMC client is this quote for?
+            <select
+              value={amcPick}
+              onChange={(e) => {
+                const id = e.target.value;
+                setAmcPick(id);
+                const c = amcClients.find((x) => String(x.id) === id);
+                if (!c) return;
+                setForm((f) => ({
+                  ...f,
+                  clientId: c.clientId || f.clientId,
+                  customerName: c.customer || f.customerName,
+                  customerPhone: c.phone || f.customerPhone,
+                  customerEmail: c.email || f.customerEmail,
+                  customerAddress: f.customerAddress || c.site || '',
+                  capacity: c.capacity || f.capacity,
+                }));
+              }}
+            >
+              <option value="">— New client, I will type the details —</option>
+              {amcClients.map((c) => (
+                <option key={c.id} value={String(c.id)}>
+                  {[c.customer, c.site, c.capacity].filter(Boolean).join(' · ')}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div style={{ color: '#5b6b7c', fontSize: 13, marginTop: 6 }}>
+            {amcClients.length === 0
+              ? 'No AMC or PM contracts on file yet — type the client details below.'
+              : 'Picking one fills in their name, number and site. Anything can be changed below.'}
+          </div>
         </div>
       )}
 

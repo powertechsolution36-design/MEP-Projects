@@ -284,6 +284,46 @@ export default function EnquiryDetail() {
         )}
       </div>
 
+      {/* Owner request (21 Nov 2026): "Quotation already created but here
+          not showing that quote" — and "All quotation need to belong to
+          enquiries only". The lead is now where its quotations are found:
+          every one raised from it, newest first, each opening the document
+          itself. A lead with none says so and offers to raise one. */}
+      <div className="panel">
+        <h3>Quotations <span className="muted" style={{ fontWeight: 400 }}>({(enq.quotations || []).length})</span></h3>
+        {(enq.quotations || []).length === 0 ? (
+          <p className="muted">
+            No quotation raised from this enquiry yet.
+            {canManage && enq.status === 'Open' ? ' Use “Quote this” above to raise one.' : ''}
+          </p>
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table stacks-on-phone" style={{ fontSize: 13 }}>
+              <thead>
+                <tr>
+                  <th>Number</th>
+                  <th>Date</th>
+                  <th>Division</th>
+                  <th>Status</th>
+                  <th>Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {enq.quotations.map((q) => (
+                  <tr key={q.id} className="clickable-row" onClick={() => navigate(`/quotations/${q.id}`)}>
+                    <td data-label="Number"><strong>{q.quotationNumber || '—'}</strong></td>
+                    <td data-label="Date">{fmtDate(q.date) || '—'}</td>
+                    <td data-label="Division">{q.division || '—'}</td>
+                    <td data-label="Status"><span className="status-badge">{q.status || '—'}</span></td>
+                    <td data-label="Value">{q.grandTotal == null ? '—' : money(q.grandTotal)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* Follow-up form — PWA addFollow */}
       {canManage && enq.status === 'Open' && (
         <div className="panel">

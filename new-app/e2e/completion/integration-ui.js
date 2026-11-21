@@ -970,12 +970,13 @@ async function group6j(browser) {
   const menu = (await s.page.locator('nav#main-nav a').allInnerTexts()).map((t) => t.trim());
   // Owner decision (16 Nov 2026): Clients joins the nine screens of 14 Nov,
   // so the Solar Manager can reach the client directory like everyone else.
-  // Owner request (18 Nov 2026): Quotations joins it too, so a Manager can
-  // reach the quotation they are allowed to edit.
   // Owner request (20 Nov 2026): "Add my Service Task and Daily task to
   // Project manager and Solar Manager Account."
   // Owner request (20 Nov 2026): Won Enquiries sits above Lost.
-  const want = ['Dashboard', 'Clients', 'Enquiries', 'Quotations', 'Sales Orders', 'Won Enquiries', 'Lost Enquiries',
+  // Owner request (21 Nov 2026): "All quotation need to belong to enquiries
+  // only" — the Quotations register left this menu again; a quotation is
+  // reached from its lead.
+  const want = ['Dashboard', 'Clients', 'Enquiries', 'Sales Orders', 'Won Enquiries', 'Lost Enquiries',
     'Projects', 'Service Calls', 'My Service Tasks', 'Daily Tasks', 'AMC / PM List', 'Issue Material', 'Checklists'];
   rec('Solar Manager: the menu is the screens asked for, Clients included',
     want.every((w) => menu.some((m) => m.includes(w))) && menu.length === want.length,
@@ -1139,8 +1140,11 @@ async function group6j(browser) {
   await open(a, `/clients/${client.id}`);
   await a.page.waitForTimeout(400);
   const page = await a.page.locator('body').innerText();
+  // Owner request (21 Nov 2026): "in client segment if we click any client
+  // then all enquiries of that client and enquiries wise quote can check" —
+  // the quotations are now read under the lead they belong to.
   rec('Clients: the page shows every section',
-    ['Service Calls', 'Projects', 'Quotations', 'AMC / PM Contracts', 'Sales Orders', 'Payments']
+    ['Service Calls', 'Projects', 'Enquiries', 'AMC / PM Contracts', 'Sales Orders', 'Payments']
       .every((h) => page.includes(h)), page.slice(0, 220));
   rec('Clients: their own details are on it', page.includes('Intervalve') && page.includes('KP87'));
   rec('Clients: no errors', a.errors.length === 0, a.errors.join('|') + noAlerts(a));

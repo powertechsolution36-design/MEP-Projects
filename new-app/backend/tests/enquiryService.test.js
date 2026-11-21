@@ -475,3 +475,31 @@ test('won leads carry the quotation and the sales order they turned into (owner 
   const open = await service.listEnquiries(admin, {}, deps);
   assert.ok(open.every((e) => e.quotation === undefined));
 });
+
+/*
+ * Owner report (21 Nov 2026): "Quotation already created but here not
+ * showing that quote", and the decision behind it — "All quotation need to
+ * belong to enquiries only". The lead itself now carries them.
+ */
+test('an enquiry carries the quotations raised from it, newest number first', async () => {
+  const { deps } = makeDeps({
+    enquiries: [
+      { id: 'e1', companyId: 'co1', name: 'Shikrapur Hospital', status: 'Open', segment: 'HVAC', followUpLog: [] },
+      { id: 'e2', companyId: 'co1', name: 'Other site', status: 'Open', segment: 'HVAC', followUpLog: [] },
+    ],
+    quotations: [
+      { id: 'q1', companyId: 'co1', enquiryId: 'e1', quotationNumber: 'QTN-0010', division: 'HVAC', status: 'Draft', grandTotal: 1000 },
+      { id: 'q2', companyId: 'co1', enquiryId: 'e1', quotationNumber: 'QTN-0012', division: 'HVAC', status: 'Sent', grandTotal: 2000 },
+      { id: 'q3', companyId: 'co1', enquiryId: 'e2', quotationNumber: 'QTN-0011', division: 'HVAC', status: 'Draft', grandTotal: 500 },
+      { id: 'q4', companyId: 'co1', enquiryId: null, quotationNumber: 'QTN-0013', division: 'HVAC', status: 'Draft', grandTotal: 700 },
+    ],
+  });
+  const admin = { userId: 'u_admin', companyId: 'co1', role: 'admin', name: 'Admin' };
+
+  const e1 = await service.getEnquiry('e1', admin, deps);
+  assert.deepEqual(e1.quotations.map((q) => q.quotationNumber), ['QTN-0012', 'QTN-0010']);
+  assert.equal(e1.quotations[0].grandTotal, 2000);
+
+  const e2 = await service.getEnquiry('e2', admin, deps);
+  assert.deepEqual(e2.quotations.map((q) => q.id), ['q3'], 'another lead’s quotation is not borrowed');
+});

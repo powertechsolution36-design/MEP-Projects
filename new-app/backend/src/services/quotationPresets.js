@@ -132,6 +132,56 @@ const GRILL_SUPPLY = 'Duct Grill Supply - Supply Air Linear Bar Grill: Supply an
 const GRILL_RETURN = 'Duct Grill Return - Return Air Linear Bar Grill: Supply and installation of extruded aluminum powder-coated Linear Bar Grille (minimum 1.2 mm section thickness) featuring fixed horizontal blades set at 0° / 15° deflection (adjust angle as required), complete without an opposed-blade aluminum Volume Control Damper (VCD) operable from the front face, concealed mounting arrangement / sub-frame, and gasket sealing at the collar to ensure airtight fixing with the return air plenum / GI ducting.';
 const JET_NOZZLE = 'Duct Jet Nozzle - Supply Air Jet Nozzle (Eyeball Type): Supply and installation of spun/extruded aluminum powder-coated Long-Throw Jet Nozzle (Eyeball type) finished in standard RAL 9010 / 9016 pure white powder coating, engineered for high-velocity, long-throw air distribution in large spaces with adjustable ±30° swivel/deflection core, low noise generation, and aerodynamic profile, complete with peripheral foam gasket, mounting flange/collar, and opposed-blade Volume Control Damper (VCD) (optional/as required) for airtight fixing onto GI ducting or plenum boxes.';
 
+/*
+ * The AMC cover wording, from the two workbooks. Everything before the
+ * numbered list is shared; the list itself is where comprehensive and
+ * non-comprehensive actually differ, so each carries its own.
+ */
+const AMC_PREAMBLE = (kind) => [
+  'Please note following -',
+  '',
+  `This has reference to the air conditioners installed at your unit. We are herewith submitting our proposal for the ${kind} type maintenance contract. Details as under for your ready reference.`,
+  '',
+  'We provide ON TIME SERVICE and we are very professional about our work. Our core value is to give you the best experience and to do your work in a very technical way, to keep your VRF system\u2019s life good and maintenance free. We work to reduce problems which are not visible today, and make sure we save your money from those upcoming problems.',
+].join('\n');
+
+/** The routine servicing list, identical in both workbooks. */
+const AMC_ROUTINE = [
+  'The routine servicing will cover the following:',
+  '1. We will give you the best experience during the service year and care for the system as well as possible.',
+  '2. We will give you any number of visits through the year for any problem related to the VRF system.',
+  '3. Deep cleaning of blower, condenser fan, air filter, evaporator, condenser coils and other equipment.',
+  '4. Checking motor bushings.',
+  '5. Checking connections at the main plug and controls within the unit.',
+  '6. Oiling the motor if required.',
+  '7. Checking the cooling efficiency.',
+  '8. One system inspection and work quality audit in the year.',
+].join('\n');
+
+const AMC_COMPREHENSIVE_SCOPE = [
+  AMC_PREAMBLE('labour and material'),
+  '',
+  '(SPMS) Scheduled Comprehensive Preventive Maintenance Service Contract will consist of the following services during the year:',
+  '1) Each unit will be provided four routine services (one deep chemical servicing and three deep dry servicings), which will be done at equal intervals during the year.',
+  '2) Replacement of spares will be inclusive in the AMC if they get defective (except body and plastic material, and physical damage).',
+  '3) Damage due to electrical fluctuation will not be covered in the AMC.',
+  '4) TAT time is 48 hrs for complaint attendance (if a complaint is registered before 12pm, we will try to attend it the same day).',
+  '5) ' + AMC_ROUTINE,
+].join('\n');
+
+const AMC_NON_COMPREHENSIVE_SCOPE = [
+  AMC_PREAMBLE('labour'),
+  '',
+  '(SPMS) Scheduled Non-comprehensive Preventive Maintenance Service Contract will consist of the following services during the year:',
+  '1) Each unit will be provided four routine services and one system inspection and work quality audit in a year, which will be done at equal intervals during the year.',
+  '2) Replacement of spares will be on an actual chargeable basis if they get defective.',
+  '3) TAT time is 48 hrs for complaint attendance (if a complaint is registered before 12pm, we will try to attend it the same day).',
+  '4) ' + AMC_ROUTINE,
+].join('\n');
+
+/** The AMC sheets' delivery line. */
+const AMC_DELIVERY = '1 Week from the date of commercial clear order and payment.';
+
 const PRESETS = [
   {
     code: 'split',
@@ -310,6 +360,72 @@ const PRESETS = [
       solarItem('Net Meter application', 'Nos', 18),
     ],
     accessoriesItems: [],
+  },
+
+  /*
+   * AMC offers (owner request, 21 Nov 2026: "add AMC Quotation
+   * Comprehensive and Non comprehensive"), taken from the company's own two
+   * workbooks — AMC - Comp.xlsx and AMC - Non Comp.xlsx.
+   *
+   * The two differ in exactly three places, and nowhere else: the subject
+   * line, whether spares are included, and the number of routine visits
+   * described. Everything after that — the cover letter, the commercial
+   * terms, the excluded works — is the same as the AC offers, which is how
+   * the workbooks have it too.
+   *
+   * The contract is one priced line on the installation side, as in both
+   * sheets (supply 0, the whole AMC value under Installation), and the rate
+   * is 0 like every other preset: a contract price is typed for the system
+   * in hand, never inherited from a sample.
+   */
+  {
+    code: 'amc_comp',
+    name: 'AMC — Comprehensive',
+    division: 'HVAC',
+    description: 'Comprehensive maintenance contract — labour and spares, one contract line.',
+    subject: 'Comprehensive Maintenance Contract for your Air Conditioning System.',
+    summaryText: OPENING_PARAGRAPH,
+    system: 'Comprehensive Maintenance Contract',
+    siteDescription: AMC_COMPREHENSIVE_SCOPE,
+    benefitsOfSystem: '',
+    gstPercent: 18,
+    offerValidity: '30 days',
+    delivery: AMC_DELIVERY,
+    notes: FINAL_BILLING,
+    excludedWorks: AC_EXCLUDED_WORKS,
+    paymentTerms: [
+      term(1, 100, 'Advance along with Work Order', ''),
+    ],
+    equipmentItems: [],
+    accessoriesItems: [
+      heading('Comprehensive Maintenance Contract'),
+      sub('Maintenance contract for the air-conditioning system at site (make, capacity and system type as listed above)', 'Lot'),
+    ],
+  },
+
+  {
+    code: 'amc_noncomp',
+    name: 'AMC — Non-Comprehensive',
+    division: 'HVAC',
+    description: 'Non-comprehensive maintenance contract — labour only, spares at actuals.',
+    subject: 'Non Comprehensive Maintenance Contract for your Air Conditioning System.',
+    summaryText: OPENING_PARAGRAPH,
+    system: 'Non Comprehensive Maintenance Contract',
+    siteDescription: AMC_NON_COMPREHENSIVE_SCOPE,
+    benefitsOfSystem: '',
+    gstPercent: 18,
+    offerValidity: '30 days',
+    delivery: AMC_DELIVERY,
+    notes: FINAL_BILLING,
+    excludedWorks: AC_EXCLUDED_WORKS,
+    paymentTerms: [
+      term(1, 100, 'Advance along with Work Order', ''),
+    ],
+    equipmentItems: [],
+    accessoriesItems: [
+      heading('Non Comprehensive Maintenance Contract'),
+      sub('Labour-type maintenance contract for the air-conditioning system at site (make, capacity and system type as listed above)', 'Lot'),
+    ],
   },
 ];
 

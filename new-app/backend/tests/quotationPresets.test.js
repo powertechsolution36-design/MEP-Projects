@@ -52,13 +52,35 @@ async function harness(divisions = ['HVAC', 'Solar', 'MEP']) {
 
 /* ---------------- the presets themselves ---------------- */
 
-test('presets: the four kinds of offer exist, each on its own division', () => {
-  assert.deepEqual(PRESET_CODES, ['split', 'ducted', 'vrf', 'solar']);
+test('presets: every kind of offer exists, each on its own division', () => {
+  // Owner request (21 Nov 2026): the two AMC offers joined the four.
+  assert.deepEqual(PRESET_CODES, ['split', 'ducted', 'vrf', 'solar', 'amc_comp', 'amc_noncomp']);
   const byCode = Object.fromEntries(listPresets(['HVAC', 'Solar']).map((p) => [p.code, p]));
   assert.equal(byCode.split.division, 'HVAC');
   assert.equal(byCode.ducted.division, 'HVAC');
   assert.equal(byCode.vrf.division, 'HVAC');
   assert.equal(byCode.solar.division, 'Solar');
+  assert.equal(byCode.amc_comp.division, 'HVAC');
+  assert.equal(byCode.amc_noncomp.division, 'HVAC');
+});
+
+test('presets: the two AMC offers differ only in the cover scope and the contract line', () => {
+  const comp = getPreset('amc_comp');
+  const non = getPreset('amc_noncomp');
+  assert.match(comp.subject, /^Comprehensive Maintenance Contract/);
+  assert.match(non.subject, /^Non Comprehensive Maintenance Contract/);
+  // Comprehensive covers spares; non-comprehensive charges them at actuals.
+  assert.match(comp.siteDescription, /spares will be inclusive in the AMC/);
+  assert.match(non.siteDescription, /actual chargeable basis/);
+  // One priced line each, and no rate carried over from the workbook sample.
+  for (const p of [comp, non]) {
+    assert.equal(p.equipmentItems.length, 0);
+    assert.equal(priced(p.accessoriesItems).length, 1);
+    assert.equal(priced(p.accessoriesItems)[0].supplyRate, 0);
+    assert.equal(priced(p.accessoriesItems)[0].installationRate, 0);
+    assert.equal(p.gstPercent, 18);
+    assert.deepEqual(p.paymentTerms.map((t) => t.percentage), ['100']);
+  }
 });
 
 test('presets: priced row counts follow each source workbook, not an assumed six', () => {
@@ -213,7 +235,7 @@ test('presets over HTTP: only the divisions the company has bought are offered',
     const res = await fetch(`${h.base}/api/quotation-templates/presets`, { headers: H });
     assert.equal(res.status, 200);
     const { presets } = await res.json();
-    assert.deepEqual(presets.map((p) => p.code), ['split', 'ducted', 'vrf']);
+    assert.deepEqual(presets.map((p) => p.code), ['split', 'ducted', 'vrf', 'amc_comp', 'amc_noncomp']);
     assert.ok(!presets.some((p) => p.division === 'Solar'), 'Solar must not be offered without the Solar division');
   } finally { h.server.close(); }
 });

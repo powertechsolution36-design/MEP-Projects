@@ -307,6 +307,47 @@ async function getClientRecords(id, auth, deps) {
     );
   });
 
+  /*
+   * Owner request (21 Nov 2026): "in client segment if we click any client
+   * then all enquiries of that client and enquiries wise quote can check."
+   *
+   * Every lead of theirs — open, won and lost alike — each carrying the
+   * quotations raised from it, so the quotations are read lead by lead
+   * rather than as one undifferentiated pile. An enquiry stores no client
+   * id, so they are matched on the site name and the numbers, like the
+   * other sections here.
+   */
+  const enquiryService = require('./enquiryService');
+  const enquiries = await section(async () => {
+    const scopes = ['open', 'won', 'lost'];
+    const rows = [];
+    for (const scope of scopes) {
+      rows.push(...await enquiryService.listEnquiries(auth, { scope }, deps));
+    }
+    return own(rows, keys, (r) => ({
+      clientId: null,
+      names: [r.name, ...(r.contacts || []).map((c) => c.name)],
+      phones: [r.phone, ...(r.contacts || []).map((c) => c.phone)],
+    }));
+  });
+
+  // The quotations, keyed by the lead they came from, read once.
+  const quotesByEnquiry = new Map();
+  if (enquiries && deps.quotationRepo && deps.quotationRepo.listByCompany) {
+    for (const q of await deps.quotationRepo.listByCompany(auth.companyId)) {
+      if (!q.enquiryId) continue;
+      const key = String(q.enquiryId);
+      if (!quotesByEnquiry.has(key)) quotesByEnquiry.set(key, []);
+      quotesByEnquiry.get(key).push({
+        id: String(q.id), quotationNumber: short(q.quotationNumber),
+        status: short(q.status), date: short(q.date), grandTotal: short(q.grandTotal),
+      });
+    }
+    for (const list of quotesByEnquiry.values()) {
+      list.sort((a, b) => String(b.quotationNumber || '').localeCompare(String(a.quotationNumber || '')));
+    }
+  }
+
   const contracts = await section(async () => own(
     await contractService.listContracts(auth, {}, deps), keys,
     (r) => ({ clientId: r.clientId, names: [r.customer], phones: [r.phone] })
@@ -340,6 +381,12 @@ async function getClientRecords(id, auth, deps) {
       id: String(r.id), name: short(r.name), division: short(r.division),
       stage: short(r.stage), status: short(r.status),
       startDate: short(r.startDate), endDate: short(r.endDate),
+    })),
+    enquiries: trim(enquiries, (r) => ({
+      id: String(r.id), name: short(r.name), segment: short(r.segment),
+      status: short(r.status), siteType: short(r.siteType),
+      estimatedValue: short(r.estimatedValue), lastReviewDate: short(r.lastReviewDate),
+      quotations: quotesByEnquiry.get(String(r.id)) || [],
     })),
     quotations: trim(quotations, (r) => ({
       id: String(r.id), quotationNumber: short(r.quotationNumber), division: short(r.division),

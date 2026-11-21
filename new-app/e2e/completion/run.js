@@ -72,7 +72,12 @@ async function visitMenu(s, label) {
       menus[role] = (await visitMenu(s, role)).map((x) => x[0]);
       await s.ctx.close();
     }
-    rec('menus: Quotations visible to admin/sales/finance only', ['admin', 'sales', 'finance'].every((r) => menus[r].some((m) => /Quotation/.test(m))) && ['vinod', 'engineer', 'inventory', 'service_eng'].every((r) => !(menus[r] || []).some((m) => /Quotation/.test(m))));
+    // Owner request (21 Nov 2026): "This quotation option not required ...
+    // All quotation need to belong to enquiries only." Admin and sales reach
+    // a quotation from its lead, so the register left their menus; the roles
+    // with no Enquiries menu of their own keep it, or they would have no way
+    // in at all.
+    rec('menus: the Quotations register is left to the roles with no Enquiries menu', ['finance', 'vinod'].every((r) => (menus[r] || []).some((m) => /Quotation/.test(m))) && ['admin', 'sales', 'engineer', 'inventory', 'service_eng'].every((r) => !(menus[r] || []).some((m) => /Quotation/.test(m))));
     rec('menus: Company Profile for admin only; Subscriptions for super only', menus.admin.some((m) => /Company Profile/.test(m)) && !menus.sales.some((m) => /Company Profile/.test(m)) && menus.super.some((m) => /Subscription/.test(m)) && !menus.admin.some((m) => /^Subscriptions$/.test(m)));
 
     // Admin: HVAC enquiry create through the UI; segment list = divisions + AMC.
