@@ -205,6 +205,9 @@ info "Step 5: Backup"
 BACKUP_BASE="/var/www/backups/mep-new-app"
 mkdir -p "$BACKUP_BASE"
 
+# Empty unless a backup is actually taken — the roll-back below checks it.
+BACKUP_PATH=""
+
 # Backup existing deployment if present
 if [ -d "$DEPLOY_DIR" ]; then
   BACKUP_PATH="${BACKUP_BASE}/app_${TIMESTAMP}"
@@ -255,8 +258,10 @@ log "Frontend files deployed"
 cp "$SCRIPT_DIR/ecosystem.config.js" "$DEPLOY_DIR/"
 log "ecosystem.config.js deployed"
 
-# Create logs directory
-mkdir -p "$DEPLOY_DIR/logs"
+# Create the logs directories. ecosystem.config.js sets cwd to ./backend and
+# writes ./logs/mep-err.log, so it is backend/logs that PM2 actually opens —
+# miss it and the process will not start at all (21 Nov 2026 outage).
+mkdir -p "$DEPLOY_DIR/logs" "$DEPLOY_DIR/backend/logs"
 
 # ══════════════════════════════════════════════════════════════
 # STEP 7: ENVIRONMENT CONFIGURATION
@@ -382,9 +387,35 @@ if [ "$HEALTH_RESP" = "200" ]; then
 else
   err "Backend health check failed: HTTP $HEALTH_RESP"
   echo ""
-  echo "  Check logs: pm2 logs $PM2_NAME --lines 30"
+  pm2 logs "$PM2_NAME" --lines 25 --nostream 2>/dev/null || true
   echo ""
-  pm2 logs "$PM2_NAME" --lines 15 --nostream 2>/dev/null || true
+
+  # ── Automatic roll-back (21 Nov 2026) ────────────────────────────────
+  # A deploy that leaves the API answering 502 leaves the company unable to
+  # log in, and whoever ran it may not be watching. So a failed health check
+  # puts the previous release back rather than stopping on the broken one.
+  # The backup is a cp -a of the whole directory, so it restores .env, logs/
+  # and node_modules exactly as they were.
+  if [ -n "$BACKUP_PATH" ] && [ -d "$BACKUP_PATH" ]; then
+    warn "Rolling back to $BACKUP_PATH"
+    rsync -a --delete "$BACKUP_PATH/" "$DEPLOY_DIR/"
+    mkdir -p "$DEPLOY_DIR/logs" "$DEPLOY_DIR/backend/logs"
+    cd "$DEPLOY_DIR"
+    pm2 restart ecosystem.config.js >/dev/null 2>&1 || pm2 start ecosystem.config.js >/dev/null 2>&1 || true
+    sleep 4
+    BACK_RESP=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${BACKEND_PORT}/api/health" 2>/dev/null || echo "000")
+    if [ "$BACK_RESP" = "200" ]; then
+      log "Rolled back — the previous release is live again (health 200)."
+      err "The new release was NOT deployed. Fix it and run this script again."
+    else
+      err "Roll-back also failed to answer (HTTP $BACK_RESP). The app is DOWN."
+      err "Backup is at: $BACKUP_PATH"
+    fi
+  else
+    err "No backup to roll back to — the app is DOWN."
+  fi
+  echo ""
+  echo "  Check logs: pm2 logs $PM2_NAME --lines 30"
   exit 1
 fi
 
