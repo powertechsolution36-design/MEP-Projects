@@ -33,6 +33,29 @@ export default function EnquiryCreate() {
   // number belongs to. Neither is saved: the enquiry keeps the number in
   // `phone` and everyone in `contacts`, exactly as it always has.
   const [pickedClient, setPickedClient] = useState(null);
+
+  /**
+   * A person picked from the client drops into the first empty contact row,
+   * or a new row when they are all taken. Somebody already on the list is
+   * not added twice, and nothing typed is overwritten.
+   */
+  function useClientContact(person) {
+    if (!person) return;
+    setForm((prev) => {
+      const rows = Array.isArray(prev.contacts) ? [...prev.contacts] : [];
+      const already = rows.some(
+        (r) => String(r.name || '').trim() === person.name && String(r.phone || '').trim() === person.phone
+      );
+      if (already) return prev;
+      const next = { name: person.name, designation: person.designation || '', phone: person.phone || '' };
+      const slot = rows.findIndex((r) => !String(r.name || '').trim() && !String(r.phone || '').trim());
+      if (slot === -1) rows.push(next);
+      else rows[slot] = { ...rows[slot], ...next };
+      // The lead's own number follows the main person when none was typed.
+      const phone = prev.phone || (person.main ? person.phone : '') || prev.phone;
+      return { ...prev, contacts: rows, phone };
+    });
+  }
   const [picked, setPicked] = useState(null);
 
   function setField(key, value) {
@@ -143,6 +166,17 @@ export default function EnquiryCreate() {
               <input type="number" value={form.estimatedValue} onChange={e => setField('estimatedValue', e.target.value)} />
             </div>
           </div>
+          {/* Owner request (21 Nov 2026): "need dropdown for contract from
+              saved client like project have a dropdown." Once a saved
+              client is picked above, their people are offered here the way
+              the sales order and quotation forms already offer them —
+              picked into the first empty row, and still editable. */}
+          <ContactPick
+            client={pickedClient}
+            picked={null}
+            onPick={useClientContact}
+            label="Add a person from this client"
+          />
           <ContactsField
             value={form.contacts}
             onChange={(contacts) => setField('contacts', contacts)}

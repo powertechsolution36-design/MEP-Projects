@@ -78,6 +78,12 @@ export default function PaymentLedger() {
   // Manual Add modal
   const [showManualAdd, setShowManualAdd] = useState(false);
   const [manualForm, setManualForm] = useState({ projectOrReference: '', amount: '', personName: '', phone: '', remark: '' });
+  /*
+   * What the Project / Reference box offers: this company's projects first,
+   * then its clients. Loaded once, when the manual form is opened, and only
+   * for the logins that can open it.
+   */
+  const [referenceOptions, setReferenceOptions] = useState([]);
 
   // Edit Milestone modal
   const [editMilTarget, setEditMilTarget] = useState(null);
@@ -353,6 +359,34 @@ export default function PaymentLedger() {
   }
 
   // Manual Add
+  async function openManualAdd() {
+    setShowManualAdd(true);
+    if (referenceOptions.length > 0) return;
+    try {
+      /* The jobs come from the SALES ORDERS, not the Projects list:
+         finance may read orders and may not read projects, and an order
+         carries the same project name. */
+      const [orders, clients] = await Promise.all([
+        api.get('/api/sales-orders').catch(() => ({ salesOrders: [] })),
+        api.get('/api/clients').catch(() => ({ clients: [] })),
+      ]);
+      const rows = [];
+      (orders.salesOrders || []).forEach((so) => rows.push({
+        key: `so-${so.id}`,
+        label: so.projectName,
+        person: (so.contacts && so.contacts[0] && so.contacts[0].name) || '',
+        phone: (so.contacts && so.contacts[0] && so.contacts[0].phone) || '',
+      }));
+      (clients.clients || []).forEach((c) => rows.push({
+        key: `c-${c.id}`,
+        label: c.companyName || c.clientName || '',
+        person: c.clientName || '',
+        phone: c.phone || '',
+      }));
+      setReferenceOptions(rows.filter((r) => r.label));
+    } catch (_) { /* the box still takes typing without the list */ }
+  }
+
   async function handleManualAdd() {
     if (!manualForm.projectOrReference || !manualForm.amount) {
       alert('Project/reference and amount are required.'); return;
@@ -445,7 +479,7 @@ export default function PaymentLedger() {
         <div className="pay-actions">
           <button className="btn sec sm" onClick={exportPending}>📥 Pending CSV</button>
           <button className="btn sec sm" onClick={exportReceipts}>📥 Receipts CSV</button>
-          <button className="btn pri sm" onClick={() => setShowManualAdd(true)}>+ New Manual Payment</button>
+          <button className="btn pri sm" onClick={openManualAdd}>+ New Manual Payment</button>
         </div>
       </div>
 
@@ -1011,7 +1045,32 @@ export default function PaymentLedger() {
           <div className="modal" onClick={e => e.stopPropagation()}>
             <h3>Add Manual Payment</h3>
             <p className="muted">SO-linked milestones are added automatically. Use this only for other receivables.</p>
-            <div className="filter-field"><label>Project / Reference *</label><input value={manualForm.projectOrReference} onChange={e => setManualForm(f => ({ ...f, projectOrReference: e.target.value }))} /></div>
+            {/* Owner request (21 Nov 2026): "Everywhere dropdown required
+                for select client or project which is saved with us or add
+                new client or project." The list holds this company's
+                projects and its clients; typing anything else still works,
+                because a receivable is not always either. */}
+            <div className="filter-field">
+              <label>Project / Reference *</label>
+              <input
+                list="pay-reference-options"
+                value={manualForm.projectOrReference}
+                placeholder="Pick a project or client, or type anything"
+                onChange={e => {
+                  const v = e.target.value;
+                  const hit = referenceOptions.find((o) => o.label === v);
+                  setManualForm(f => ({
+                    ...f,
+                    projectOrReference: v,
+                    personName: f.personName || (hit ? hit.person : ''),
+                    phone: f.phone || (hit ? hit.phone : ''),
+                  }));
+                }}
+              />
+              <datalist id="pay-reference-options">
+                {referenceOptions.map((o) => <option key={o.key} value={o.label} />)}
+              </datalist>
+            </div>
             <div className="filter-field"><label>Amount *</label><input type="number" value={manualForm.amount} onChange={e => setManualForm(f => ({ ...f, amount: e.target.value }))} /></div>
             <div className="filter-field"><label>Person Name</label><input value={manualForm.personName} onChange={e => setManualForm(f => ({ ...f, personName: e.target.value }))} /></div>
             <div className="filter-field"><label>Phone</label><input value={manualForm.phone} onChange={e => setManualForm(f => ({ ...f, phone: e.target.value }))} /></div>

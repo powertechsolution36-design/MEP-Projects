@@ -4,6 +4,8 @@ import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { today } from '../../utils/format';
 import ContactsField from '../../components/ContactsField';
+import ClientSelect from '../../components/ClientSelect';
+import ContactPick from '../../components/ContactPick';
 import useMyDivisions from '../../hooks/useMyDivisions';
 
 /**
@@ -57,6 +59,8 @@ export default function ContractCreate() {
     contacts: [],
   });
   const [busy, setBusy] = useState(false);
+  // Whose people the picker offers. Held only while the form is open.
+  const [pickedClient, setPickedClient] = useState(null);
   const [error, setError] = useState(null);
 
   const canManage = ['admin', 'service_mgr'].includes(user?.role);
@@ -128,10 +132,26 @@ export default function ContractCreate() {
         <div className="panel">
           <h3>Customer Information</h3>
           <div className="form-grid">
-            <div className="filter-field">
-              <label>Customer Name</label>
-              <input value={form.customer} onChange={e => setField('customer', e.target.value)} />
-            </div>
+            {/* Owner request (21 Nov 2026): "Everywhere dropdown required
+                for select client ... which is saved with us or add new
+                client." Typing a name that is not on file still works —
+                the client is remembered when the record saves. */}
+            <ClientSelect
+              label="Customer Name"
+              value={form.customer}
+              onType={(v) => { setField('customer', v); setPickedClient(null); }}
+              onPick={(c) => {
+                setPickedClient(c);
+                setForm((f) => ({
+                  ...f,
+                  customer: c.companyName || c.clientName || f.customer,
+                  phone: f.phone || c.phone || '',
+                  email: f.email || c.email || '',
+                  site: f.site || c.address || '',
+                  contacts: (f.contacts || []).some((r) => r.name) ? f.contacts : (c.contacts || []),
+                }));
+              }}
+            />
             <div className="filter-field">
               <label>Phone</label>
               <input value={form.phone} onChange={e => setField('phone', e.target.value)} />
@@ -164,6 +184,25 @@ export default function ContractCreate() {
             </div>
           </div>
 
+          {/* And which person at them. */}
+          <ContactPick
+            client={pickedClient}
+            picked={null}
+            onPick={(person) => {
+              if (!person) return;
+              setForm((prev) => {
+                const rows = Array.isArray(prev.contacts) ? [...prev.contacts] : [];
+                const already = rows.some((r) => String(r.name || '').trim() === person.name
+                  && String(r.phone || '').trim() === person.phone);
+                if (already) return prev;
+                const next = { name: person.name, designation: person.designation || '', phone: person.phone || '' };
+                const slot = rows.findIndex((r) => !String(r.name || '').trim() && !String(r.phone || '').trim());
+                if (slot === -1) rows.push(next); else rows[slot] = { ...rows[slot], ...next };
+                return { ...prev, contacts: rows, phone: prev.phone || (person.main ? person.phone : '') };
+              });
+            }}
+            label="Add a person from this client"
+          />
           <ContactsField
             value={form.contacts}
             onChange={(contacts) => setField('contacts', contacts)}
