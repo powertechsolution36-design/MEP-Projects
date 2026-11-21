@@ -117,6 +117,35 @@ export default function EnquiryDetail() {
   }
 
 
+  /*
+   * Owner request (20 Nov 2026): "Enquiries required to allocate sales
+   * engineer or admin." Admin allocates; a sales login sees whose it is
+   * but cannot move it.
+   */
+  const canAllocate = user?.role === 'admin';
+  const [salesOptions, setSalesOptions] = useState([]);
+  const [allocError, setAllocError] = useState('');
+  useEffect(() => {
+    if (!canAllocate) return;
+    api.get('/api/enquiries/sales-candidates')
+      .then((d) => setSalesOptions(d.candidates || []))
+      .catch((err) => setAllocError(err.message));
+  }, [canAllocate]);
+
+  async function allocateTo(userId) {
+    setAllocError('');
+    setBusy(true);
+    try {
+      const d = await api.patch(`/api/enquiries/${id}/sales`, { assignedSalesUserId: userId || null });
+      setEnq((prev) => ({ ...prev, ...d.enquiry }));
+      await load();
+    } catch (err) {
+      setAllocError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleDeleteEnquiry() {
     if (!window.confirm(`Delete enquiry "${enq.name}"? There is no undo.`)) return;
     try {
@@ -186,7 +215,25 @@ export default function EnquiryDetail() {
           {enq.lastActionDone && <div><strong>Last Action:</strong> {enq.lastActionDone}</div>}
           {enq.nextActionDescription && <div><strong>Next Action:</strong> {enq.nextActionDescription}</div>}
           {enq.nextActionDate && <div><strong>Next Date:</strong> {fmtDate(enq.nextActionDate)}</div>}
+          {/* Owner request (20 Nov 2026): whose lead this is. */}
+          <div><strong>Sales:</strong> {enq.assignedSalesName || 'Not allocated'}</div>
         </div>
+
+        {canAllocate && (
+          <p style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <label htmlFor="alloc-sales"><strong>Allocate to:</strong></label>
+            <select
+              id="alloc-sales"
+              value={enq.assignedSalesUserId ? String(enq.assignedSalesUserId) : ''}
+              disabled={busy}
+              onChange={(e) => allocateTo(e.target.value)}
+            >
+              <option value="">— nobody (every sales login sees it) —</option>
+              {salesOptions.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+            </select>
+            {allocError && <span className="err">{allocError}</span>}
+          </p>
+        )}
 
         {(enq.contacts || []).length > 0 && (
           <div style={{ marginTop: 12 }}>
@@ -219,6 +266,13 @@ export default function EnquiryDetail() {
                     quotation once the customer accepts it. */}
                 <button className="btn pri sm" onClick={() => navigate(`/quotations/new?enquiryId=${id}`)}>
                   Quote this
+                </button>
+                {/* Owner request (20 Nov 2026): "Their no option for sales
+                    order." An order can be raised straight from the lead,
+                    which marks the lead Won when it saves — the quotation
+                    route does the same thing and is still there. */}
+                <button className="btn pri sm" onClick={() => navigate(`/sales-orders/new?enquiryId=${id}`)}>
+                  Create Sales Order
                 </button>
                 <button className="btn danger sm" onClick={() => setShowLostModal(true)}>Mark Lost</button>
               </>

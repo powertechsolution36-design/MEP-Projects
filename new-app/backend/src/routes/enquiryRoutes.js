@@ -76,6 +76,16 @@ function createEnquiryRouter(deps) {
 
   // Owner request (20 Nov 2026): a won lead leaves the Enquiry List and
   // gets a screen of its own, beside the lost ones.
+  // Owner request (20 Nov 2026): allocate a lead to a sales person. Both
+  // declared before '/:id' so neither word is read as an id.
+  router.get(
+    '/sales-candidates',
+    handle(async (req, res) => {
+      const candidates = await service.listSalesCandidates(req.auth, deps);
+      return res.status(200).json({ candidates });
+    })
+  );
+
   router.get(
     '/won',
     handle(async (req, res) => {
@@ -149,6 +159,14 @@ function createEnquiryRouter(deps) {
     '/:id/mark-lost',
     handle(async (req, res) => {
       const enquiry = await service.markLost(req.params.id, req.body, req.auth, deps);
+      return res.status(200).json({ enquiry });
+    })
+  );
+
+  router.patch(
+    '/:id/sales',
+    handle(async (req, res) => {
+      const enquiry = await service.assignEnquirySales(req.params.id, req.body, req.auth, deps);
       return res.status(200).json({ enquiry });
     })
   );

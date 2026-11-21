@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
 import { today, targetExpenseFor } from '../../utils/format';
 import useMyDivisions from '../../hooks/useMyDivisions';
@@ -112,6 +112,38 @@ export default function SalesOrderCreate() {
     })();
   }, []);
 
+  /*
+   * Owner request (20 Nov 2026): "Their no option for sales order. Once
+   * sales order get created then Enquiries should move to won." An order
+   * raised from a lead opens here with the lead's own particulars, and
+   * carries its id so the server marks that lead Won when it saves.
+   */
+  const [params] = useSearchParams();
+  const fromEnquiryId = params.get('enquiryId') || '';
+  const [fromEnquiry, setFromEnquiry] = useState(null);
+  useEffect(() => {
+    if (!fromEnquiryId) return;
+    (async () => {
+      try {
+        const d = await api.get(`/api/enquiries/${fromEnquiryId}`);
+        const e = d.enquiry;
+        if (!e) return;
+        setFromEnquiry(e);
+        setForm((f) => ({
+          ...f,
+          division: e.segment && e.segment !== 'AMC' ? e.segment : f.division,
+          projectName: f.projectName || e.name || '',
+          siteAddress: f.siteAddress || e.siteAddress || '',
+          totalCost: f.totalCost || e.estimatedValue || 0,
+          contacts: [
+            { ...f.contacts[0], name: f.contacts[0].name || e.customerName || e.name || '', phone: f.contacts[0].phone || e.phone || '' },
+            f.contacts[1],
+          ],
+        }));
+      } catch (_) { /* the form still works without the lead's details */ }
+    })();
+  }, [fromEnquiryId]);
+
   function setField(key, value) {
     setForm(prev => ({ ...prev, [key]: value }));
   }
@@ -166,6 +198,8 @@ export default function SalesOrderCreate() {
             checklistPointIndex: m.checklistPointIndex ?? null,
           })),
       };
+      // The lead this order came from, so the server can mark it Won.
+      if (fromEnquiryId) payload.enquiryId = fromEnquiryId;
       const result = await api.post('/api/sales-orders', payload);
       // The order exists now, so the draft of it has done its job.
       await drafts.discard();
@@ -182,6 +216,11 @@ export default function SalesOrderCreate() {
       <button className="btn sec sm" onClick={() => navigate('/sales-orders')}>&larr; Back</button>
       <div className="panel">
         <h2>New Sales Order</h2>
+        {fromEnquiry && (
+          <p className="muted" style={{ marginTop: 4 }}>
+            From the lead <strong>{fromEnquiry.name}</strong> — saving this order marks that lead Won.
+          </p>
+        )}
         <form onSubmit={handleSubmit}>
           <div className="form-grid">
             <div className="filter-field">

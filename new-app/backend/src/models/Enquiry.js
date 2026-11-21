@@ -43,6 +43,18 @@ const enquirySchema = new Schema(
     lastActionDone: { type: String }, // PWA FACT
     nextActionDescription: { type: String }, // PWA FACT
     nextActionDate: { type: Date }, // PWA FACT
+    /*
+     * Owner request (20 Nov 2026): "Enquiries required to allocate sales
+     * engineer or admin. Sales engineer can see his Enquiries or allocated
+     * Enquiries but admin can see all Enquiries with sales engineer name."
+     *
+     * Whose lead this is. A lead raised by a sales login belongs to that
+     * login from the start; admin allocates or moves it afterwards. A lead
+     * with nobody on it is nobody's in particular and every sales login
+     * sees it — the leads already on file are all like that, and they must
+     * not vanish from under the people working them.
+     */
+    assignedSalesUserId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     status: { type: String, enum: ['Open', 'Won', 'Lost'], required: true, default: 'Open' }, // PWA FACT
     followUpLog: { type: [followUpEntrySchema], default: [] }, // PWA FACT — append-only
     // PWA FACT (verified against source): optional — do not make required.
@@ -54,5 +66,6 @@ const enquirySchema = new Schema(
 
 enquirySchema.index({ companyId: 1, status: 1 });
 enquirySchema.index({ companyId: 1, nextActionDate: 1 });
+enquirySchema.index({ companyId: 1, assignedSalesUserId: 1 });
 
 module.exports = model('Enquiry', enquirySchema);

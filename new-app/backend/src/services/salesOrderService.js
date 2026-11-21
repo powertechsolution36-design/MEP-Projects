@@ -242,8 +242,32 @@ async function createSalesOrder(input, actorAuth, deps) {
   }
 
   const overrides = { ...input, paymentMilestones: collectMilestoneInputs(input && input.paymentMilestones) };
+  /*
+   * Owner request (20 Nov 2026): "Their no option for sales order. Once
+   * sales order get created then Enquiries should move to won."
+   *
+   * An order raised straight from a lead now says which lead, and that
+   * lead is marked Won in the same transaction — the same two writes the
+   * quotation route has always made, so a lead reaches Won whichever way
+   * the order was raised. An order raised from nothing carries no lead and
+   * nothing is marked, exactly as before.
+   */
+  const enquiryId = input && input.enquiryId ? String(input.enquiryId) : null;
+  let enquiry = null;
+  if (enquiryId) {
+    enquiry = await deps.enquiryRepo.findById(companyId, enquiryId);
+    if (!enquiry) throw new ServiceError('Enquiry not found.', 'NOT_FOUND', 404);
+    if (enquiry.status !== 'Open') {
+      throw new ServiceError(
+        `This enquiry is ${enquiry.status}, so there is nothing left to convert.`,
+        'ENQUIRY_NOT_OPEN',
+        409
+      );
+    }
+  }
+
   // PWA FACT (`mSO()` with no args, PWA_COVERAGE_AUDIT_SALESORDER.md §4):
-  // no Enquiry is consulted at all for this path.
+  // no Enquiry is consulted for an order raised from nothing.
   const draft = cascade.buildSalesOrderDraft(null, overrides, actorName);
   cascade.validateSalesOrderDraft(draft);
   // PWA FACT (mSO division options = myDivs(), index.html:1990); enforced server-side.
@@ -257,8 +281,27 @@ async function createSalesOrder(input, actorAuth, deps) {
     // rather than matched on a typed project name. Left off otherwise, the
     // same as every order raised before this.
     const clientId = input && input.clientId ? String(input.clientId) : null;
+
+    if (enquiryId) {
+      // The same literal wording the quotation route writes, so a lead's
+      // history reads the same whichever way its order was raised.
+      const won = await txnDeps.enquiryRepo.markWonIfOpen(
+        companyId,
+        enquiryId,
+        {
+          remark: `Converted to SO-${orderNumber}`,
+          logEntry: { date: new Date(), text: `Confirmed. SO-${orderNumber} created.` },
+        },
+        session
+      );
+      if (!won) {
+        // Lost the race — somebody changed the lead's status first.
+        throw new ServiceError('Only an Open Enquiry can be converted to a SalesOrder.', 'ENQUIRY_NOT_OPEN', 409);
+      }
+    }
+
     return cascade.runCreationCascade({
-      draft, orderNumber, companyId, enquiryId: null, clientId, session, deps: txnDeps,
+      draft, orderNumber, companyId, enquiryId, clientId, session, deps: txnDeps,
     });
   });
 }

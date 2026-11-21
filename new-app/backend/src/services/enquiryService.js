@@ -141,6 +141,10 @@ async function createEnquiry(input, actorAuth, deps) {
     estimatedValue,
     remark,
     lastReviewDate: todayDate(), // PWA FACT: `review:today()` set at creation
+    // Owner request (20 Nov 2026): a lead a sales login raises is theirs
+    // from the start. Admin raising one leaves it unallocated until it is
+    // given to somebody.
+    assignedSalesUserId: actorAuth.role === 'sales' ? actorAuth.userId : (input && input.assignedSalesUserId) || null,
     status: 'Open',
     followUpLog: [],
   };
@@ -200,7 +204,14 @@ async function getEnquiry(id, actorAuth, deps) {
   if (mine && enquiry.segment !== mine) {
     throw new ServiceError('Enquiry not found.', 'NOT_FOUND', 404);
   }
-  return enquiry;
+  // Owner request (20 Nov 2026): a sales login opens its own leads, and an
+  // unallocated one, the same rule the list follows. 404, not 403 — whose
+  // lead it is is not the business of somebody who may not read it.
+  if (!visibleToSales(actorAuth, enquiry)) {
+    throw new ServiceError('Enquiry not found.', 'NOT_FOUND', 404);
+  }
+  const [withName] = await withSalesNames([enquiry], actorAuth, deps);
+  return withName;
 }
 
 // PWA FACT: the Edit modal's editable fields (`e_n,e_st,e_c,e_s,e_p,e_r,e_rt,e_v,e_rm`).
@@ -434,6 +445,70 @@ function applyEnquiryFilters(rows, filters) {
  * Enquiry List, which holds neither.
  */
 const CLOSED_ENQUIRY_STATUSES = Object.freeze(['Lost', 'Won']);
+
+/*
+ * Owner request (20 Nov 2026): a sales login works its OWN leads. A lead
+ * with nobody allocated is nobody's in particular and stays visible to
+ * every sales login — the 59 leads already on file carry no allocation,
+ * and they must not disappear from under the people working them. Admin
+ * sees them all, with the name beside each one.
+ */
+const SALES_OWN_LEADS_ROLES = Object.freeze(['sales']);
+
+function visibleToSales(actorAuth, enquiry) {
+  if (!SALES_OWN_LEADS_ROLES.includes(actorAuth.role)) return true;
+  const owner = enquiry.assignedSalesUserId;
+  return !owner || String(owner) === String(actorAuth.userId);
+}
+
+/** Who a lead can be allocated to, and who may allocate it. */
+const ALLOCATE_ROLES = Object.freeze(['admin']);
+const SALES_ASSIGNEE_ROLES = Object.freeze(['sales', 'admin']);
+
+/** The allocated sales person's name on each row, for the screens to show. */
+async function withSalesNames(rows, actorAuth, deps) {
+  const ids = [...new Set(rows.map((r) => r.assignedSalesUserId).filter(Boolean).map(String))];
+  if (ids.length === 0 || !deps.userRepoForEnquiry || !deps.userRepoForEnquiry.listByCompany) {
+    return rows.map((r) => ({ ...r, assignedSalesName: '' }));
+  }
+  const users = await deps.userRepoForEnquiry.listByCompany(actorAuth.companyId);
+  const nameById = new Map(users.map((u) => [String(u.id), u.name]));
+  return rows.map((r) => ({
+    ...r,
+    assignedSalesName: r.assignedSalesUserId ? nameById.get(String(r.assignedSalesUserId)) || '' : '',
+  }));
+}
+
+async function listSalesCandidates(actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  assertRole(actorAuth, ALLOCATE_ROLES, 'list the sales people a lead can go to');
+  const users = await deps.userRepoForEnquiry.listByCompany(actorAuth.companyId);
+  return users
+    .filter((u) => SALES_ASSIGNEE_ROLES.includes(u.role) && u.active !== false)
+    .map((u) => ({ id: String(u.id), name: u.name, role: u.role }))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+}
+
+/** Hand a lead to a sales person, or take it back (userId null). */
+async function assignEnquirySales(id, input, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  assertRole(actorAuth, ALLOCATE_ROLES, 'allocate an enquiry');
+  const enquiry = await deps.enquiryRepo.findById(actorAuth.companyId, id);
+  if (!enquiry) throw new ServiceError('Enquiry not found.', 'NOT_FOUND', 404);
+
+  const raw = input && input.assignedSalesUserId;
+  const userId = raw === null || raw === undefined || raw === '' ? null : String(raw);
+  if (userId) {
+    const user = await deps.userRepoForEnquiry.findById(userId);
+    if (!user || String(user.companyId) !== String(actorAuth.companyId)) {
+      throw new ServiceError('That user is not on this company.', 'NOT_FOUND', 404);
+    }
+    if (!SALES_ASSIGNEE_ROLES.includes(user.role)) {
+      throw new ServiceError('A lead is allocated to a sales person or an admin.', 'VALIDATION_ERROR', 400);
+    }
+  }
+  return deps.enquiryRepo.updateFields(actorAuth.companyId, id, { assignedSalesUserId: userId });
+}
 /**
  * The segment a login is confined to, or null for one that sees them all.
  * An enquiry's "segment" is its division (or AMC), so a division-confined
@@ -453,10 +528,14 @@ async function listEnquiries(actorAuth, { scope, includeLost = false, filters = 
   // `includeLost` is the old spelling of scope: 'lost', kept so an older
   // caller cannot silently start listing the wrong leads.
   const which = scope || (includeLost ? 'lost' : 'open');
-  const scoped = which === 'lost' ? owned.filter((x) => x.status === 'Lost')
+  const byScope = which === 'lost' ? owned.filter((x) => x.status === 'Lost')
     : which === 'won' ? owned.filter((x) => x.status === 'Won')
       : owned.filter((x) => !CLOSED_ENQUIRY_STATUSES.includes(x.status));
-  return applyEnquiryFilters(scoped, filters);
+  // Owner request (20 Nov 2026): a sales login sees its own leads; admin
+  // sees them all, with the sales person's name on the row.
+  const scoped = byScope.filter((x) => visibleToSales(actorAuth, x));
+  const rows = applyEnquiryFilters(scoped, filters);
+  return withSalesNames(rows, actorAuth, deps);
 }
 
 /**
@@ -622,6 +701,10 @@ const validateSalesOrderDraft = cascade.validateSalesOrderDraft;
 
 module.exports = {
   deleteEnquiry,
+  assignEnquirySales,
+  listSalesCandidates,
+  ALLOCATE_ROLES,
+  SALES_ASSIGNEE_ROLES,
   createEnquiry,
   getEnquiry,
   editEnquiry,

@@ -114,6 +114,14 @@ export default function EnquiryList() {
           rows={enquiries}
           todayKey={todayKey()}
           onOpen={(e) => navigate(`/enquiries/${e.id}`)}
+          /* Owner request (20 Nov 2026): "admin can see all Enquiries with
+             sales engineer name." A sales login sees only its own leads, so
+             the column would say the same name on every row. */
+          extraColumns={user?.role === 'admin' ? [{
+            key: 'assignedSalesName',
+            label: 'Sales',
+            render: (e) => e.assignedSalesName || <span className="muted">— not allocated —</span>,
+          }] : []}
         />
       )}
     </div>

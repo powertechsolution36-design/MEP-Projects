@@ -347,3 +347,42 @@ test('closing a sales order — finance only, once the project is Completed and 
   const reopened = await service.reopenSalesOrder(soId, auth(), store);
   assert.equal(reopened.closedAt, null);
 });
+
+test('an order raised from a lead marks that lead Won (owner request, 20 Nov 2026)', async () => {
+  const service = require('../src/services/salesOrderService');
+  const store = createEnquiryFakeStore({
+    companies: [{ id: 'co1', name: 'Co', divisions: ['HVAC'] }],
+    enquiries: [{ id: 'enq1', companyId: 'co1', name: 'Sunny — Kumar Picasso', segment: 'HVAC', status: 'Open', followUpLog: [] }],
+  });
+  const auth = (o) => ({ userId: 'u1', companyId: 'co1', role: 'sales', name: 'Sales', ...o });
+
+  const made = await service.createSalesOrder(
+    {
+      division: 'HVAC', projectName: 'Sunny — Kumar Picasso', enquiryId: 'enq1',
+      contacts: [{ name: 'Kumar', phone: '9082184844' }], totalCost: 500000, paymentMilestones: [],
+    },
+    auth(), store
+  );
+  assert.equal(String(made.salesOrder.enquiryId), 'enq1');
+
+  const lead = store.state.enquiries[0];
+  assert.equal(lead.status, 'Won');
+  assert.match(lead.remark, /Converted to SO-/);
+  assert.match(lead.followUpLog[lead.followUpLog.length - 1].text, /SO-\d+ created/);
+
+  // The same lead cannot be converted twice.
+  await assert.rejects(
+    () => service.createSalesOrder(
+      { division: 'HVAC', projectName: 'Again', enquiryId: 'enq1', contacts: [{ name: 'K', phone: '9' }], paymentMilestones: [] },
+      auth(), store
+    ),
+    (err) => err.code === 'ENQUIRY_NOT_OPEN'
+  );
+
+  // An order raised from nothing still carries no lead.
+  const walkIn = await service.createSalesOrder(
+    { division: 'HVAC', projectName: 'Walk-in', contacts: [{ name: 'X', phone: '9' }], paymentMilestones: [] },
+    auth(), store
+  );
+  assert.equal(walkIn.salesOrder.enquiryId, null);
+});

@@ -379,3 +379,61 @@ test('listEnquiries — a Won lead leaves the list and has its own scope (owner 
   const legacy = await service.listEnquiries(auth(), { includeLost: true }, deps);
   assert.deepEqual(legacy.map((e) => e.id), ['e_lost']);
 });
+
+/* ===== allocating a lead to a sales person (owner request, 20 Nov 2026) ===== */
+
+test('a sales login sees its own leads and the unallocated ones; admin sees all, with the name', async () => {
+  const { deps } = makeDeps({
+    enquiries: [
+      { id: 'mine', companyId: 'co1', name: 'Mine', status: 'Open', segment: 'HVAC', assignedSalesUserId: 'u_sales', followUpLog: [] },
+      { id: 'theirs', companyId: 'co1', name: 'Theirs', status: 'Open', segment: 'HVAC', assignedSalesUserId: 'u_other', followUpLog: [] },
+      { id: 'nobody', companyId: 'co1', name: 'Nobody', status: 'Open', segment: 'HVAC', assignedSalesUserId: null, followUpLog: [] },
+    ],
+    users: [
+      { id: 'u_sales', companyId: 'co1', name: 'Priya Sales', role: 'sales' },
+      { id: 'u_other', companyId: 'co1', name: 'Amol Sales', role: 'sales' },
+    ],
+  });
+  const sales = { userId: 'u_sales', companyId: 'co1', role: 'sales', name: 'Priya Sales' };
+  const admin = { userId: 'u_admin', companyId: 'co1', role: 'admin', name: 'Admin' };
+
+  const theirs = await service.listEnquiries(sales, {}, deps);
+  assert.deepEqual(theirs.map((e) => e.id).sort(), ['mine', 'nobody'], 'own leads and the unallocated ones');
+
+  const all = await service.listEnquiries(admin, {}, deps);
+  assert.equal(all.length, 3);
+  assert.equal(all.find((e) => e.id === 'theirs').assignedSalesName, 'Amol Sales');
+  assert.equal(all.find((e) => e.id === 'nobody').assignedSalesName, '');
+
+  // Opening somebody else's lead answers not found, as the list implies.
+  await assert.rejects(() => service.getEnquiry('theirs', sales, deps), (err) => err.code === 'NOT_FOUND');
+  assert.equal((await service.getEnquiry('mine', sales, deps)).assignedSalesName, 'Priya Sales');
+});
+
+test('allocating a lead — admin only, to a sales person or an admin, and it can be taken back', async () => {
+  const { deps } = makeDeps({
+    enquiries: [{ id: 'e1', companyId: 'co1', name: 'Sunny', status: 'Open', segment: 'Solar', followUpLog: [] }],
+    users: [
+      { id: 'u_sales', companyId: 'co1', name: 'Priya Sales', role: 'sales' },
+      { id: 'u_eng', companyId: 'co1', name: 'Kiran Engineer', role: 'engineer' },
+    ],
+  });
+  const admin = { userId: 'u_admin', companyId: 'co1', role: 'admin', name: 'Admin' };
+
+  await assert.rejects(
+    () => service.assignEnquirySales('e1', { assignedSalesUserId: 'u_sales' }, { userId: 'u_sales', companyId: 'co1', role: 'sales' }, deps),
+    (err) => err.code === 'FORBIDDEN'
+  );
+
+  const allocated = await service.assignEnquirySales('e1', { assignedSalesUserId: 'u_sales' }, admin, deps);
+  assert.equal(String(allocated.assignedSalesUserId), 'u_sales');
+
+  // An engineer is not somebody a lead is given to.
+  await assert.rejects(
+    () => service.assignEnquirySales('e1', { assignedSalesUserId: 'u_eng' }, admin, deps),
+    (err) => err.code === 'VALIDATION_ERROR'
+  );
+
+  const cleared = await service.assignEnquirySales('e1', { assignedSalesUserId: null }, admin, deps);
+  assert.equal(cleared.assignedSalesUserId, null);
+});
