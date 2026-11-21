@@ -155,9 +155,28 @@ async function getPayment(id, actorAuth, deps) {
  * falls back to the stored role, then to an empty string — never to an id,
  * which would leak an internal identifier onto the screen.
  */
-function enrichPaymentForDisplay(payment, { orderNumberById, nameById }) {
+function enrichPaymentForDisplay(payment, { orderNumberById, nameById, projectNameById }) {
   const out = { ...payment };
   out.orderNumber = payment.salesOrderId ? orderNumberById.get(String(payment.salesOrderId)) || null : null;
+  /*
+   * Owner report (21 Nov 2026): "the name is still AC Quotation, I have
+   * changed my project name to Mete Flat."
+   *
+   * A payment stores the job's name as text, copied from the order when the
+   * milestone was raised. A rename afterwards left that copy behind, and
+   * the rows went on showing a name nobody uses any more. A payment raised
+   * from a sales order is labelled BY that order, so the order's current
+   * name is what every screen, the search and the export now read — no
+   * stored copy to go stale, and rows renamed before this was written come
+   * out right without anybody touching the data.
+   *
+   * A payment typed in on the ledger has no order behind it and keeps its
+   * own reference exactly as typed.
+   */
+  if (payment.salesOrderId && projectNameById) {
+    const current = projectNameById.get(String(payment.salesOrderId));
+    if (current) out.projectOrReference = current;
+  }
   out.partPayments = (payment.partPayments || []).map((p) => ({
     ...p,
     recordedByName: p.recordedByUserId ? nameById.get(String(p.recordedByUserId)) || '' : '',
@@ -181,6 +200,7 @@ async function buildPaymentLookups(companyId, deps) {
   ]);
   return {
     orderNumberById: new Map(salesOrders.map((s) => [String(s.id), s.orderNumber])),
+    projectNameById: new Map(salesOrders.map((s) => [String(s.id), s.projectName])),
     nameById: new Map(users.map((u) => [String(u.id), u.name])),
   };
 }

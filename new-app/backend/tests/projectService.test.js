@@ -1164,7 +1164,8 @@ test('renaming a project renames its payment rows too, but not one typed over by
     payments: [
       { id: 'pay1', companyId: 'co1', salesOrderId: 'so1', milestoneIndex: 0, projectOrReference: 'AC Quotation', amount: 330909, status: 'Pending', partPayments: [] },
       { id: 'pay2', companyId: 'co1', salesOrderId: 'so1', milestoneIndex: 1, projectOrReference: 'AC Quotation', amount: 50741, status: 'Pending', partPayments: [] },
-      // Somebody wrote their own note in this one — it is theirs.
+      // Even one worded differently: it is this order's money, so it
+      // carries this order's name.
       { id: 'pay3', companyId: 'co1', salesOrderId: 'so1', milestoneIndex: 2, projectOrReference: 'AC Quotation — retention', amount: 21746, status: 'Pending', partPayments: [] },
       // A different job entirely.
       { id: 'pay4', companyId: 'co1', salesOrderId: 'so9', milestoneIndex: 0, projectOrReference: 'Other job', amount: 1000, status: 'Pending', partPayments: [] },
@@ -1176,6 +1177,6 @@ test('renaming a project renames its payment rows too, but not one typed over by
   const byId = Object.fromEntries(store.state.payments.map((p) => [p.id, p.projectOrReference]));
   assert.equal(byId.pay1, 'Mete Flat');
   assert.equal(byId.pay2, 'Mete Flat');
-  assert.equal(byId.pay3, 'AC Quotation — retention', 'a hand-typed reference is left alone');
+  assert.equal(byId.pay3, 'Mete Flat');
   assert.equal(byId.pay4, 'Other job', 'another order is untouched');
 });

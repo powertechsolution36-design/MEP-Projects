@@ -426,16 +426,22 @@ async function runCreationCascade({ draft, orderNumber, companyId, enquiryId, qu
  * the project left the Payments screen still showing the old name, which is
  * the screen finance works from.
  *
- * Only a row that still reads the OLD name is changed. One somebody has
- * typed over on the ledger is theirs, and is left exactly as it is.
+ * Every row of that order is brought into line: a payment raised from a
+ * sales order milestone is labelled BY that order, so the order's name is
+ * the right answer for all of them. A payment typed in on the ledger has no
+ * order behind it and is never touched here.
+ *
+ * The screens do not depend on this — paymentService labels an SO-linked
+ * row from the order as it reads it, so a row renamed before this existed
+ * also comes out right. This keeps what is STORED in step with it.
  */
 async function renamePaymentsForSalesOrder(companyId, salesOrderId, previousName, nextName, deps) {
   if (!deps.paymentRepo || !deps.paymentRepo.listBySalesOrder || !deps.paymentRepo.update) return 0;
-  if (!nextName || previousName === nextName) return 0;
+  if (!nextName) return 0;
   const rows = await deps.paymentRepo.listBySalesOrder(companyId, salesOrderId);
   let changed = 0;
   for (const row of rows) {
-    if (previousName && row.projectOrReference !== previousName) continue;
+    if (row.projectOrReference === nextName) continue;
     await deps.paymentRepo.update(companyId, row.id, { projectOrReference: nextName });
     changed += 1;
   }

@@ -389,3 +389,34 @@ test('the export totals what is collectable; a written-off payment is totalled o
   assert.ok(lostLine && lostLine.includes('75000'), String(lostLine));
   assert.ok(csv.includes('Given up on'), 'the written-off row is still listed');
 });
+
+/*
+ * Owner report (21 Nov 2026): "the name is still AC Quotation, I have
+ * changed my project name to Mete Flat." The rows had been renamed long
+ * before the cascade existed, so nothing was going to repair them — unless
+ * the screen stops trusting the stored copy.
+ */
+test('a sales-order payment is labelled by its order, so a rename shows even on old rows', async () => {
+  const store = createEnquiryFakeStore({
+    salesOrders: [{ id: 'so1', companyId: 'co1', orderNumber: 2, projectName: 'Mete Flat', division: 'HVAC' }],
+    payments: [
+      // Written when the job was still called something else.
+      { id: 'pay1', companyId: 'co1', salesOrderId: 'so1', milestoneIndex: 0, projectOrReference: 'AC Quotation', amount: 330909, status: 'Pending', partPayments: [] },
+      // Typed in on the ledger — no order behind it, so it keeps its own words.
+      { id: 'pay2', companyId: 'co1', projectOrReference: 'Site visit charges', amount: 5000, status: 'Pending', partPayments: [] },
+    ],
+  });
+  const auth = { userId: 'u1', companyId: 'co1', role: 'admin', name: 'Admin' };
+
+  const rows = await service.listPayments(auth, {}, store);
+  const byId = Object.fromEntries(rows.map((r) => [String(r.id), r.projectOrReference]));
+  assert.equal(byId.pay1, 'Mete Flat', 'the order it belongs to decides the name');
+  assert.equal(byId.pay2, 'Site visit charges', 'a payment typed in here is left alone');
+
+  // The export searches and prints the name on screen, not the one left
+  // behind in the record.
+  const csv = await service.exportPendingPaymentsCsv(auth, { search: 'Mete' }, store);
+  assert.ok(csv.includes('Mete Flat'), csv);
+  assert.ok(!csv.includes('AC Quotation'), csv);
+  assert.ok(!csv.includes('Site visit charges'), 'the search still narrows the file');
+});
