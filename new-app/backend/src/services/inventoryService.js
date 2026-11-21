@@ -830,11 +830,48 @@ async function markUsed(issueId, input, actorAuth, deps) {
   });
 }
 
+/**
+ * The stock point this end of a transfer means.
+ *
+ * Owner request (21 Nov 2026): "or Customer name or site Name will Show in
+ * Stock transfer in from location and To location." Stock does sit at a
+ * job — the model has always called a location "a godown, site store or
+ * service van" — but a site only became one if somebody remembered to add
+ * it under Categories & Locations first.
+ *
+ * So a transfer may name its end instead of choosing an id, and a name we
+ * do not hold yet becomes a stock point as the transfer is made. Matching
+ * ignores case and spacing, so "KP87" does not become a second "kp87".
+ */
+async function resolveTransferLocation(value, actorAuth, deps) {
+  const id = value && value.id ? String(value.id) : '';
+  if (id) {
+    await assertOwnLocation(actorAuth.companyId, id, deps);
+    return id;
+  }
+  const name = String((value && value.name) || '').trim();
+  if (!name) return '';
+  const key = name.toLowerCase().replace(/\s+/g, ' ');
+  const existing = (await deps.inventoryLocationRepo.listByCompany(actorAuth.companyId))
+    .find((l) => String(l.name || '').trim().toLowerCase().replace(/\s+/g, ' ') === key);
+  if (existing) return String(existing.id);
+  const made = await deps.inventoryLocationRepo.create({ companyId: actorAuth.companyId, name });
+  return String(made.id);
+}
+
 async function transferStock(input, actorAuth, deps) {
   assertCompanyContext(actorAuth);
   assertCanManageInventory(actorAuth, 'transfer Inventory stock');
   const src = input || {};
   if (!src.itemId) throw new ServiceError('Item required.', 'VALIDATION_ERROR', 400);
+  // Either end may arrive as a name — a customer or a site — rather than as
+  // a stock point already on file.
+  src.fromLocationId = await resolveTransferLocation(
+    { id: src.fromLocationId, name: src.fromLocationName }, actorAuth, deps
+  );
+  src.toLocationId = await resolveTransferLocation(
+    { id: src.toLocationId, name: src.toLocationName }, actorAuth, deps
+  );
   if (!src.fromLocationId || !src.toLocationId) {
     throw new ServiceError('From and To locations are both required.', 'VALIDATION_ERROR', 400);
   }
@@ -843,8 +880,6 @@ async function transferStock(input, actorAuth, deps) {
   }
   const q = Number(src.quantity);
   if (!(q > 0)) throw new ServiceError('Quantity must be greater than zero.', 'VALIDATION_ERROR', 400);
-  await assertOwnLocation(actorAuth.companyId, src.fromLocationId, deps);
-  await assertOwnLocation(actorAuth.companyId, src.toLocationId, deps);
 
   return deps.withTransaction(deps, async (txnDeps) => {
     const { session } = txnDeps;
@@ -964,25 +999,53 @@ async function listIssues(actorAuth, filters, deps) {
 }
 
 /**
- * PWA FACT (siteList(), index.html:3016-3021): sites an issue can go to --
- * the company's projects that are not yet "In Service", its open (not
- * Completed) service calls, then "Office / Godown". Only projects carry a
- * projectId link.
+ * Where material can be issued to.
+ *
+ * PWA FACT (siteList(), index.html:3016-3021): the projects that are not
+ * yet "In Service", the open service calls, then "Office / Godown". Only a
+ * project carries a projectId link, which is what ties issued material to
+ * the job it was issued for.
+ *
+ * Owner request (21 Nov 2026): "In inventory use location from Won
+ * Enquiries, Sales Order, AMC PM/List, Client, Project." Material goes out
+ * to jobs that have no project record yet — a lead just won, an order
+ * raised this morning, an AMC site — and storekeepers were typing those by
+ * hand or picking the nearest wrong thing. Every place the company already
+ * keeps a site name now feeds this list.
+ *
+ * Each entry says which list it came from, so the picker can group them.
+ * A name already on the list is not repeated: the first source wins, and
+ * projects come first precisely so that a name they share keeps the
+ * project link rather than losing it to a plain label.
  */
 async function listSiteOptions(actorAuth, deps) {
   assertCompanyContext(actorAuth);
   assertCanManageInventory(actorAuth, 'list issue sites');
-  const [projects, calls] = await Promise.all([
-    deps.projectRepo ? deps.projectRepo.listByCompany(actorAuth.companyId) : [],
-    deps.serviceCallRepo ? deps.serviceCallRepo.listByCompany(actorAuth.companyId) : [],
+  const list = (repo) => (repo && repo.listByCompany ? repo.listByCompany(actorAuth.companyId) : []);
+  const [projects, calls, salesOrders, enquiries, contracts, clients] = await Promise.all([
+    list(deps.projectRepo), list(deps.serviceCallRepo), list(deps.salesOrderRepo),
+    list(deps.enquiryRepo), list(deps.contractRepo), list(deps.clientRepo),
   ]);
-  const sites = projects
-    .filter((p) => p.status !== 'In Service')
-    .map((p) => ({ label: p.name, projectId: p.id }));
+
+  const sites = [];
+  const seen = new Set();
+  const add = (label, group, projectId = null) => {
+    const text = String(label === undefined || label === null ? '' : label).trim();
+    const key = text.toLowerCase();
+    if (!text || seen.has(key)) return;
+    seen.add(key);
+    sites.push({ label: text, group, projectId });
+  };
+
+  for (const p of projects.filter((x) => x.status !== 'In Service')) add(p.name, 'Projects', p.id);
+  for (const s of salesOrders) add(s.projectName, 'Sales Orders');
+  for (const e of enquiries.filter((x) => x.status === 'Won')) add(e.name, 'Won Enquiries');
+  for (const c of contracts) add(c.site, 'AMC / PM');
+  for (const c of clients) add(c.companyName || c.clientName, 'Clients');
   for (const c of calls.filter((x) => x.status !== 'Completed')) {
-    sites.push({ label: `Service - ${c.site} (PSC-${c.complaintNumber})`, projectId: null });
+    add(`Service - ${c.site} (PSC-${c.complaintNumber})`, 'Service Calls');
   }
-  sites.push({ label: 'Office / Godown', projectId: null });
+  add('Office / Godown', 'Other');
   return sites;
 }
 

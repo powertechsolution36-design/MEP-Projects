@@ -227,9 +227,26 @@ export default function InventoryIssue() {
                     {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                   </select>
                 </div>
+                {/* Owner request (21 Nov 2026): "In inventory use location
+                    from Won Enquiries, Sales Order, AMC PM/List, Client,
+                    Project." They arrive grouped by where they came from,
+                    so a storekeeper can see whether they are picking a
+                    project, an order, a lead, an AMC site or a client. */}
                 <div className="filter-field"><label>Site / Project *</label>
                   <select value={issueForm.siteIndex} onChange={e => setIssueForm(p => ({ ...p, siteIndex: e.target.value }))}>
-                    {sites.map((s, i) => <option key={i} value={i}>{s.label}</option>)}
+                    {[...new Set(sites.map((s) => s.group || ''))].map((group) => {
+                      const inGroup = sites
+                        .map((s, i) => ({ s, i }))
+                        .filter(({ s }) => (s.group || '') === group);
+                      if (!group) {
+                        return inGroup.map(({ s, i }) => <option key={i} value={i}>{s.label}</option>);
+                      }
+                      return (
+                        <optgroup key={group} label={group}>
+                          {inGroup.map(({ s, i }) => <option key={i} value={i}>{s.label}</option>)}
+                        </optgroup>
+                      );
+                    })}
                   </select>
                 </div>
                 <div className="filter-field full-width"><label>Remark</label>

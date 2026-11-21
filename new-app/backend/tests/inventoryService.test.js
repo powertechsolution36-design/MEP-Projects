@@ -689,3 +689,99 @@ test('listMyMaterial — returns balance/status computed fresh, matched by durab
   assert.equal(mine[0].balance, 10);
   assert.equal(mine[0].status, 'Issued');
 });
+
+/*
+ * Owner request (21 Nov 2026): "In inventory use location from Won
+ * Enquiries, Sales Order, AMC PM/List, Client, Project." Material goes out
+ * to jobs with no project record yet, and those sites were being typed by
+ * hand.
+ */
+test('listSiteOptions — every list the company keeps a site name in, each named once', async () => {
+  const store = baseStore({
+    projects: [
+      { id: 'pr1', companyId: 'co1', name: 'Mete Flat', status: 'Execution', division: 'HVAC' },
+      { id: 'pr2', companyId: 'co1', name: 'Finished job', status: 'In Service', division: 'HVAC' },
+    ],
+    salesOrders: [
+      { id: 'so1', companyId: 'co1', orderNumber: 1, projectName: 'VJ Sports - Wagholi', division: 'HVAC' },
+      // The same name as the project above: it must not be listed twice.
+      { id: 'so2', companyId: 'co1', orderNumber: 2, projectName: 'Mete Flat', division: 'HVAC' },
+    ],
+    enquiries: [
+      { id: 'e1', companyId: 'co1', name: 'Shikrapur Hospital', status: 'Won', segment: 'HVAC', followUpLog: [] },
+      { id: 'e2', companyId: 'co1', name: 'Still chasing', status: 'Open', segment: 'HVAC', followUpLog: [] },
+    ],
+    contracts: [{ id: 'ct1', companyId: 'co1', customer: 'Abba Walhekar', site: 'Kavyam Restaurant' }],
+    clients: [{ id: 'cl1', companyId: 'co1', companyName: 'Intervalve Poonawalla', active: true }],
+    serviceCalls: [{ id: 'sc1', companyId: 'co1', complaintNumber: 34, site: 'KP87', status: 'Registered' }],
+  });
+
+  const sites = await service.listSiteOptions(auth(), store);
+  const labels = sites.map((s) => s.label);
+  const groupOf = (label) => (sites.find((s) => s.label === label) || {}).group;
+
+  assert.ok(labels.includes('Mete Flat') && groupOf('Mete Flat') === 'Projects');
+  assert.equal(labels.filter((l) => l === 'Mete Flat').length, 1, 'a name is offered once');
+  // The project keeps the link; the order of the same name did not take it.
+  assert.equal(sites.find((s) => s.label === 'Mete Flat').projectId, 'pr1');
+
+  assert.equal(groupOf('VJ Sports - Wagholi'), 'Sales Orders');
+  assert.equal(groupOf('Shikrapur Hospital'), 'Won Enquiries');
+  assert.equal(groupOf('Kavyam Restaurant'), 'AMC / PM');
+  assert.equal(groupOf('Intervalve Poonawalla'), 'Clients');
+  assert.equal(groupOf('Service - KP87 (PSC-34)'), 'Service Calls');
+  assert.equal(labels[labels.length - 1], 'Office / Godown');
+
+  // A lead still being chased, and a job already handed over, are not sites.
+  assert.ok(!labels.includes('Still chasing'));
+  assert.ok(!labels.includes('Finished job'));
+});
+
+/*
+ * Owner request (21 Nov 2026): "Customer name or site Name will show in
+ * Stock transfer in From location and To location." A site becomes a stock
+ * point as the transfer is made, rather than having to be added under
+ * Categories & Locations first.
+ */
+test('transferStock — an end named rather than chosen becomes a stock point, and is reused after', async () => {
+  const store = baseStore();
+  const a = auth();
+  const { item, location } = await seedItemWithStock(store, a, { openingQty: 100 });
+
+  const locationsBefore = (await service.listLocations(a, store)).length;
+  await service.transferStock(
+    { itemId: item.id, fromLocationId: location.id, toLocationName: 'Kavyam Restaurant', quantity: 10 },
+    a,
+    store
+  );
+  const locations = await service.listLocations(a, store);
+  assert.equal(locations.length, locationsBefore + 1, 'the site joined the stock points');
+  const made = locations.find((l) => l.name === 'Kavyam Restaurant');
+  assert.ok(made);
+
+  const after = await service.getItem(item.id, a, store);
+  const at = (loc) => Number((after.stockByLocation || {})[String(loc)] || 0);
+  assert.equal(at(location.id), 90);
+  assert.equal(at(made.id), 10);
+
+  // The same name again is the same place — not a second one, whatever the
+  // spacing or the case.
+  await service.transferStock(
+    { itemId: item.id, fromLocationId: location.id, toLocationName: '  kavyam   restaurant ', quantity: 5 },
+    a,
+    store
+  );
+  assert.equal((await service.listLocations(a, store)).length, locationsBefore + 1);
+  const after2 = await service.getItem(item.id, a, store);
+  assert.equal(Number((after2.stockByLocation || {})[String(made.id)] || 0), 15);
+
+  // Sending stock back from that site works the same way.
+  await service.transferStock(
+    { itemId: item.id, fromLocationName: 'Kavyam Restaurant', toLocationId: location.id, quantity: 15 },
+    a,
+    store
+  );
+  const after3 = await service.getItem(item.id, a, store);
+  assert.equal(Number((after3.stockByLocation || {})[String(made.id)] || 0), 0);
+  assert.equal(Number((after3.stockByLocation || {})[String(location.id)] || 0), 100);
+});

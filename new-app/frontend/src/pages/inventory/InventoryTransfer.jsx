@@ -18,6 +18,7 @@ export default function InventoryTransfer() {
   const { user } = useAuth();
   const [items, setItems] = useState([]);
   const [locations, setLocations] = useState([]);
+  const [sites, setSites] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -32,12 +33,18 @@ export default function InventoryTransfer() {
     setLoading(true);
     setError(null);
     try {
-      const [itemsData, locData] = await Promise.all([
+      const [itemsData, locData, siteData] = await Promise.all([
         api.get('/api/inventory/items'),
         api.get('/api/inventory/locations'),
+        /* Owner request (21 Nov 2026): "Customer name or site Name will
+           show in Stock transfer in From location and To location." The
+           same list the Issue screen offers — projects, orders, won leads,
+           AMC sites and clients. */
+        api.get('/api/inventory/site-options').catch(() => ({ sites: [] })),
       ]);
       setItems(itemsData.items || []);
       setLocations(locData.locations || []);
+      setSites(siteData.sites || []);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -62,15 +69,32 @@ export default function InventoryTransfer() {
     })).filter(e => e.qty > 0);
   }
 
+  /* The sites, grouped by where they came from, minus any that is already
+     a stock point — it is offered above under its own name. */
+  const known = new Set(locations.map((l) => String(l.name || '').trim().toLowerCase()));
+  const siteGroups = [];
+  for (const s of sites) {
+    const name = String(s.label || '').trim();
+    if (!name || known.has(name.toLowerCase())) continue;
+    const group = s.group || 'Sites';
+    const row = siteGroups.find((g) => g[0] === group);
+    if (row) { if (!row[1].includes(name)) row[1].push(name); } else siteGroups.push([group, [name]]);
+  }
+
   async function handleTransfer(e) {
     e.preventDefault();
     setSaving(true);
     setError(null);
     try {
+      /* A value of "name:<site>" is a place that is not a stock point yet.
+         The server matches it to one by name, or makes it as it saves. */
+      const end = (value, idKey, nameKey) => (String(value).startsWith('name:')
+        ? { [nameKey]: String(value).slice(5) }
+        : { [idKey]: value });
       await api.post('/api/inventory/transfers', {
         itemId: form.itemId,
-        fromLocationId: form.fromLocationId,
-        toLocationId: form.toLocationId,
+        ...end(form.fromLocationId, 'fromLocationId', 'fromLocationName'),
+        ...end(form.toLocationId, 'toLocationId', 'toLocationName'),
         quantity: Number(form.quantity) || 0,
         remark: form.remark || undefined,
       });
@@ -118,13 +142,31 @@ export default function InventoryTransfer() {
               <div className="filter-field"><label>From Location *</label>
                 <select value={form.fromLocationId} onChange={e => setForm(p => ({ ...p, fromLocationId: e.target.value }))} required>
                   <option value="">— Select —</option>
-                  {locations.map(l => <option key={l.id || l._id} value={l.id || l._id}>{l.name}</option>)}
+                  <optgroup label="Stock points">
+                    {locations.map(l => <option key={l.id || l._id} value={l.id || l._id}>{l.name}</option>)}
+                  </optgroup>
+                  {siteGroups.map(([group, rows]) => (
+                    <optgroup key={group} label={group}>
+                      {rows.map((siteName) => (
+                        <option key={siteName} value={`name:${siteName}`}>{siteName}</option>
+                      ))}
+                    </optgroup>
+                  ))}
                 </select>
               </div>
               <div className="filter-field"><label>To Location *</label>
                 <select value={form.toLocationId} onChange={e => setForm(p => ({ ...p, toLocationId: e.target.value }))} required>
                   <option value="">— Select —</option>
-                  {locations.map(l => <option key={l.id || l._id} value={l.id || l._id}>{l.name}</option>)}
+                  <optgroup label="Stock points">
+                    {locations.map(l => <option key={l.id || l._id} value={l.id || l._id}>{l.name}</option>)}
+                  </optgroup>
+                  {siteGroups.map(([group, rows]) => (
+                    <optgroup key={group} label={group}>
+                      {rows.map((siteName) => (
+                        <option key={siteName} value={`name:${siteName}`}>{siteName}</option>
+                      ))}
+                    </optgroup>
+                  ))}
                 </select>
               </div>
               <div className="filter-field"><label>Quantity *</label>
