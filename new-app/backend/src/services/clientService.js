@@ -420,13 +420,53 @@ async function getClientRecords(id, auth, deps) {
  * as it is -- the enquiry does not get to overwrite details somebody
  * maintained on the client's own screen.
  */
+/**
+ * The client this name and number already belong to, if we hold them.
+ *
+ * Owner report (21 Nov 2026): an AMC record for "Aba walekar" put a SECOND
+ * client on the list, beside the one already there under the restaurant's
+ * name with the very same phone number — so the same customer sat in the
+ * directory twice and an edit to one left the other saying the old thing.
+ *
+ * Matching the typed name alone could never have caught that: the two names
+ * are different, which is exactly why somebody typed the second one. The
+ * number is what says they are the same people, and it is the same rule the
+ * client's own page uses to gather their records. Former names and former
+ * numbers count too, so renaming a client does not start the duplicates
+ * again.
+ *
+ * A number is only trusted when it is a whole one — ten digits. A short or
+ * blank number matches nobody, because "" would match everybody.
+ */
+async function findExistingClient(companyId, { name, phone }, deps) {
+  const normalizedName = normalizeName(name);
+  if (normalizedName) {
+    const byName = await deps.clientRepo.findByNormalizedName(companyId, normalizedName);
+    if (byName) return byName;
+  }
+  const digits = normalizePhone(phone);
+  const all = deps.clientRepo.listByCompany ? await deps.clientRepo.listByCompany(companyId) : [];
+  if (digits.length === 10) {
+    const byPhone = all.find((c) => normalizePhone(c.phone) === digits
+      || (c.formerPhones || []).some((p) => normalizePhone(p) === digits));
+    if (byPhone) return byPhone;
+  }
+  if (normalizedName) {
+    const byFormerName = all.find((c) => (c.formerNames || []).some((n) => normalizeName(n) === normalizedName));
+    if (byFormerName) return byFormerName;
+  }
+  return null;
+}
+
 async function rememberClient(input, auth, deps) {
   try {
     if (!deps || !deps.clientRepo || !auth || !auth.companyId) return null;
     const name = trim(input && (input.companyName || input.clientName));
     if (!name) return null;
     const normalizedName = normalizeName(input.companyName || input.clientName);
-    const known = await deps.clientRepo.findByNormalizedName(auth.companyId, normalizedName);
+    // The same customer under a different spelling is still the same
+    // customer — the number settles it. See findExistingClient.
+    const known = await findExistingClient(auth.companyId, { name, phone: input.phone }, deps);
     if (known) return known;
     return await deps.clientRepo.create({
       companyId: auth.companyId,
@@ -468,7 +508,7 @@ async function importFromContracts(auth, deps) {
     if (!name) continue;
     /* eslint-disable no-await-in-loop */
     const normalizedName = normalizeName(name);
-    const known = await deps.clientRepo.findByNormalizedName(auth.companyId, normalizedName);
+    const known = await findExistingClient(auth.companyId, { name, phone: c.phone }, deps);
     if (known) { alreadyKnown += 1; continue; }
     await deps.clientRepo.create({
       companyId: auth.companyId,
@@ -492,6 +532,7 @@ async function importFromContracts(auth, deps) {
 }
 
 module.exports = {
+  findExistingClient,
   listClients,
   getClient,
   getClientRecords,

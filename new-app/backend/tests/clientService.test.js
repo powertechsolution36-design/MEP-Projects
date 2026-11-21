@@ -361,3 +361,39 @@ test('the rows carry what the page shows and nothing more', async () => {
     ['date', 'division', 'grandTotal', 'id', 'matchedOn', 'quotationNumber', 'status']);
   assert.ok(!JSON.stringify(out.quotations).includes('secret costing'));
 });
+
+/*
+ * Owner report (21 Nov 2026): "the client name was Aba walekar and I
+ * changed its name to Kavyam Restaurant and it saved as a new record."
+ * What had happened is that an AMC record typed under the owner's own name
+ * put a SECOND client on the list beside the restaurant already there on
+ * the same phone number, so the directory held the customer twice.
+ */
+test('a record under a different spelling of the name joins the client we already have on that number', async () => {
+  const store = createEnquiryFakeStore({
+    clients: [{
+      id: 'c1', companyId: 'co1', companyName: 'Kavyam Restaurant', clientName: 'Abba walhekar',
+      normalizedName: 'kavyam restaurant', phone: '9881738484', formerNames: [], formerPhones: [], active: true,
+    }],
+  });
+  const auth = { userId: 'u1', companyId: 'co1', role: 'admin', name: 'Admin' };
+
+  // The AMC record was registered under the owner's name, not the firm's.
+  const remembered = await service.rememberClient(
+    { companyName: 'Aba walekar', phone: '98817 38484', address: 'Rajyog Restaurant' },
+    auth,
+    store
+  );
+  assert.equal(String(remembered.id), 'c1', 'the number says it is the same customer');
+  assert.equal(store.state.clients.length, 1, 'no second record for the same people');
+
+  // A different customer, with a number of their own, still joins the list.
+  const other = await service.rememberClient({ companyName: 'Sai Residency', phone: '9000000001' }, auth, store);
+  assert.notEqual(String(other.id), 'c1');
+  assert.equal(store.state.clients.length, 2);
+
+  // Somebody with no number at all is not merged into the first client
+  // that happens to have none either.
+  await service.rememberClient({ companyName: 'Walk-in enquiry' }, auth, store);
+  assert.equal(store.state.clients.length, 3);
+});
