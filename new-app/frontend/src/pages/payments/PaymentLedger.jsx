@@ -71,6 +71,17 @@ export default function PaymentLedger() {
     return next;
   });
 
+  /* Owner request (21 Nov 2026): "here the payment showing each step of
+     project, i want it show client wise … Client name, then inside the
+     client show all their payment from SO stages." So the Sales Order tab
+     is one line per job, opened to see that job's milestones. */
+  const [openGroups, setOpenGroups] = useState(() => new Set());
+  const toggleGroup = (key) => setOpenGroups((prev) => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+
   // Follow-up modal
   const [followTarget, setFollowTarget] = useState(null);
   const [followForm, setFollowForm] = useState({ lastCallDate: '', nextCallDate: '', discussionNotes: '', remark: '' });
@@ -162,6 +173,35 @@ export default function PaymentLedger() {
   const pendBilled = shownPending.reduce((a, p) => a + (p.amount || 0), 0);
   const pendReceived = shownPending.reduce((a, p) => a + received(p), 0);
   const pendBalance = shownPending.reduce((a, p) => a + balance(p), 0);
+
+  /* One line per sales order on the Sales Order tab, with that order's
+     milestones underneath when it is opened. A job with its three stages
+     was three rows of the same name; it is one row now. */
+  const orderGroups = [];
+  const byOrder = new Map();
+  for (const p of shownPending) {
+    const key = String(p.salesOrderId || p.id);
+    if (!byOrder.has(key)) {
+      byOrder.set(key, {
+        key, name: p.projectOrReference, orderNumber: p.orderNumber,
+        person: p.personName, phone: p.phone, rows: [],
+      });
+    }
+    byOrder.get(key).rows.push(p);
+  }
+  for (const g of byOrder.values()) {
+    g.amount = g.rows.reduce((a, p) => a + (p.amount || 0), 0);
+    g.received = g.rows.reduce((a, p) => a + received(p), 0);
+    g.balance = g.rows.reduce((a, p) => a + balance(p), 0);
+    g.raised = g.rows.some((p) => p.raisedToFinance);
+    orderGroups.push(g);
+  }
+  const displayRows = pendingTab === 'orders'
+    ? orderGroups.flatMap((g) => [
+      { type: 'group', g },
+      ...(openGroups.has(g.key) ? g.rows.map((p) => ({ type: 'row', p })) : []),
+    ])
+    : shownPending.map((p) => ({ type: 'row', p }));
 
   /* PWA FACT (`receipts`, index.html:3871-3872): every part-payment across
      every milestone, newest payment date first. */
@@ -594,7 +634,51 @@ export default function PaymentLedger() {
                   </tr>
                 </thead>
                 <tbody>
-                  {shownPending.map(p => {
+                  {displayRows.map(entry => {
+                    if (entry.type === 'group') {
+                      const g = entry.g;
+                      const isGroupOpen = openGroups.has(g.key);
+                      return (
+                        <tr
+                          key={`g-${g.key}`}
+                          className={`pay-group${isGroupOpen ? ' is-open' : ''}`}
+                          onClick={(e) => {
+                            if (e.target.closest('button, a, input, select, textarea')) return;
+                            toggleGroup(g.key);
+                          }}
+                        >
+                          <td className="pay-toggle-col" data-label="Open">
+                            <button
+                              type="button"
+                              className="pay-toggle"
+                              aria-expanded={isGroupOpen}
+                              aria-label={`${isGroupOpen ? 'Close' : 'Open'} the stages of ${g.name}`}
+                              onClick={() => toggleGroup(g.key)}
+                            >
+                              <span aria-hidden="true">{isGroupOpen ? '▾' : '▸'}</span>
+                            </button>
+                          </td>
+                          <td data-label="Project">
+                            <strong>{g.name}</strong>
+                            {g.orderNumber && <div className="cell-sub">SO-{g.orderNumber}</div>}
+                          </td>
+                          <td data-label="Person">{g.person || '-'}</td>
+                          <td data-label="Amount"><strong>{money(g.amount)}</strong></td>
+                          <td data-label="Received" className={g.received ? 'fg-ok' : undefined}>
+                            {g.received ? <strong>{money(g.received)}</strong> : '—'}
+                          </td>
+                          <td data-label="Balance" className="due">{money(g.balance)}</td>
+                          <td data-label="Next call">-</td>
+                          <td data-label="Stages" className="pay-note-col">
+                            {g.rows.length} stage{g.rows.length === 1 ? '' : 's'} pending
+                            {g.raised ? ' · raised to finance' : ''}
+                          </td>
+                          <td className="nowrap pay-cell-idle"><span className="muted">—</span></td>
+                          <td className="nowrap"><span className="muted">—</span></td>
+                        </tr>
+                      );
+                    }
+                    const p = entry.p;
                     const rec = received(p);
                     const r = p.raisedToFinance;
                     const nextCall = fmtDate(p.nextCallDate);

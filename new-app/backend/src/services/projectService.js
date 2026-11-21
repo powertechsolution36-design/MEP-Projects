@@ -1647,6 +1647,14 @@ async function renameProject(projectId, input, actorAuth, deps) {
   const updated = await deps.projectRepo.update(actorAuth.companyId, projectId, { name });
   if (project.salesOrderId && deps.salesOrderRepo && deps.salesOrderRepo.update) {
     await deps.salesOrderRepo.update(actorAuth.companyId, project.salesOrderId, { projectName: name });
+    // Owner report (21 Nov 2026): "I have changed the project from AC
+    // quotation to [a new name] but it did not change here" — the Payments
+    // screen. Each payment holds its own copy of the job's name, so the
+    // rename has to reach them too.
+    const cascade = require('./salesOrderCascade');
+    await cascade.renamePaymentsForSalesOrder(
+      actorAuth.companyId, project.salesOrderId, project.name, name, deps
+    );
   }
   return updated;
 }

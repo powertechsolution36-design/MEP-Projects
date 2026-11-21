@@ -416,7 +416,34 @@ async function runCreationCascade({ draft, orderNumber, companyId, enquiryId, qu
   return { salesOrder, project, payments, notifications };
 }
 
+/**
+ * Carry a renamed job down onto its payment rows (owner report, 21 Nov
+ * 2026: "I have changed the project from AC quotation to [a new name] but
+ * it did not change here").
+ *
+ * A payment stores the job's name as text — `projectOrReference` was copied
+ * from the order when the milestone was raised — so renaming the order and
+ * the project left the Payments screen still showing the old name, which is
+ * the screen finance works from.
+ *
+ * Only a row that still reads the OLD name is changed. One somebody has
+ * typed over on the ledger is theirs, and is left exactly as it is.
+ */
+async function renamePaymentsForSalesOrder(companyId, salesOrderId, previousName, nextName, deps) {
+  if (!deps.paymentRepo || !deps.paymentRepo.listBySalesOrder || !deps.paymentRepo.update) return 0;
+  if (!nextName || previousName === nextName) return 0;
+  const rows = await deps.paymentRepo.listBySalesOrder(companyId, salesOrderId);
+  let changed = 0;
+  for (const row of rows) {
+    if (previousName && row.projectOrReference !== previousName) continue;
+    await deps.paymentRepo.update(companyId, row.id, { projectOrReference: nextName });
+    changed += 1;
+  }
+  return changed;
+}
+
 module.exports = {
+  renamePaymentsForSalesOrder,
   targetExpenseFor,
   TARGET_EXPENSE_SHARE,
   DEFAULT_TERMS_AND_CONDITIONS,

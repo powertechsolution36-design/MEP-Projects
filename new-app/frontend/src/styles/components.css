@@ -246,6 +246,20 @@
 .data-table tr.row-warn:hover > td { background: var(--warn-100); }
 .data-table tr.row-ok:hover > td   { background: var(--ok-100); }
 
+/*
+ * One job, with its sales-order stages folded underneath (owner request,
+ * 21 Nov 2026: payments read client-wise rather than stage by stage).
+ * The group line is the job; the rows that open under it are its stages,
+ * stepped in so the two read as different things.
+ */
+.data-table tr.pay-group > td {
+  background: var(--surface-2, #f4f6f8);
+  font-weight: var(--fw-bold);
+  cursor: pointer;
+}
+.data-table tr.pay-group:hover > td { background: var(--border-weak, #e7ebef); }
+.data-table tr.pay-group.is-open > td { border-bottom: 0; }
+
 /* A spanning group header inside a table (delivery challan groups). */
 .data-table tr.group-row td {
   background: var(--n-100);

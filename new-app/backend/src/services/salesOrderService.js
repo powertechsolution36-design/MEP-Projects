@@ -599,6 +599,13 @@ async function editSalesOrder(id, patchInput, actorAuth, deps) {
     const linked = await deps.projectRepo.findBySalesOrderId(actorAuth.companyId, id);
     if (linked) await deps.projectRepo.update(actorAuth.companyId, linked.id, projectPatch);
   }
+  // Owner report (21 Nov 2026): the Payments screen kept showing the old
+  // name, because each payment holds its own copy of it.
+  if (projectPatch.name) {
+    await cascade.renamePaymentsForSalesOrder(
+      actorAuth.companyId, id, existing.projectName, projectPatch.name, deps
+    );
+  }
   if (patch.paymentMilestones) {
     await applyMilestoneLinksToProject(actorAuth.companyId, id, patch.paymentMilestones, deps);
   }

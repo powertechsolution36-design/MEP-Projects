@@ -1151,3 +1151,31 @@ test('renameProject — admin, sales and the assigned Manager; the sales order\'
   );
   assert.equal(store.state.projects[0].name, 'Khandekar Residence');
 });
+
+/*
+ * Owner report (21 Nov 2026): "I have changed the project from AC quotation
+ * to [a new name] but it did not change here" — the Payments screen, which
+ * is the screen finance actually works from.
+ */
+test('renaming a project renames its payment rows too, but not one typed over by hand', async () => {
+  const store = createEnquiryFakeStore({
+    projects: [baseProject({ name: 'AC Quotation' })],
+    salesOrders: [baseSalesOrder({ projectName: 'AC Quotation' })],
+    payments: [
+      { id: 'pay1', companyId: 'co1', salesOrderId: 'so1', milestoneIndex: 0, projectOrReference: 'AC Quotation', amount: 330909, status: 'Pending', partPayments: [] },
+      { id: 'pay2', companyId: 'co1', salesOrderId: 'so1', milestoneIndex: 1, projectOrReference: 'AC Quotation', amount: 50741, status: 'Pending', partPayments: [] },
+      // Somebody wrote their own note in this one — it is theirs.
+      { id: 'pay3', companyId: 'co1', salesOrderId: 'so1', milestoneIndex: 2, projectOrReference: 'AC Quotation — retention', amount: 21746, status: 'Pending', partPayments: [] },
+      // A different job entirely.
+      { id: 'pay4', companyId: 'co1', salesOrderId: 'so9', milestoneIndex: 0, projectOrReference: 'Other job', amount: 1000, status: 'Pending', partPayments: [] },
+    ],
+  });
+
+  await service.renameProject('proj1', { name: 'Mete Flat' }, auth({ role: 'admin' }), store);
+
+  const byId = Object.fromEntries(store.state.payments.map((p) => [p.id, p.projectOrReference]));
+  assert.equal(byId.pay1, 'Mete Flat');
+  assert.equal(byId.pay2, 'Mete Flat');
+  assert.equal(byId.pay3, 'AC Quotation — retention', 'a hand-typed reference is left alone');
+  assert.equal(byId.pay4, 'Other job', 'another order is untouched');
+});

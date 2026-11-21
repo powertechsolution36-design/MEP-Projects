@@ -261,6 +261,41 @@ test('editSalesOrder — correcting the project name renames the project it crea
   assert.equal(project.name, 'Sangeeta Bungalow');
 });
 
+/*
+ * Owner report (21 Nov 2026): the Payments screen went on showing the old
+ * name after the job was renamed, because each payment keeps its own copy.
+ */
+test('editSalesOrder — correcting the project name renames its payment rows as well', async () => {
+  const service = require('../src/services/salesOrderService');
+  const store = createEnquiryFakeStore({
+    companies: [{ id: 'co1', name: 'Co', divisions: ['HVAC'] }],
+  });
+  const auth = (o) => ({ userId: 'u1', companyId: 'co1', role: 'admin', name: 'Admin', ...o });
+
+  const made = await service.createSalesOrder(
+    {
+      division: 'HVAC',
+      projectName: 'AC Quotation',
+      contacts: [{ name: 'Sayli', phone: '900' }],
+      totalCost: 403396,
+      paymentMilestones: [
+        { description: '100% advance', amount: 330909 },
+        { description: '70% advance', amount: 50741 },
+      ],
+    },
+    auth({ role: 'sales' }),
+    store
+  );
+  const before = store.state.payments.filter((p) => String(p.salesOrderId) === String(made.salesOrder.id));
+  assert.ok(before.length >= 1, 'the order raised its own payment rows');
+  assert.ok(before.every((p) => p.projectOrReference === 'AC Quotation'));
+
+  await service.editSalesOrder(made.salesOrder.id, { projectName: 'Mete Flat' }, auth(), store);
+
+  const after = store.state.payments.filter((p) => String(p.salesOrderId) === String(made.salesOrder.id));
+  assert.ok(after.every((p) => p.projectOrReference === 'Mete Flat'), after.map((p) => p.projectOrReference).join(' | '));
+});
+
 /* ===== the accessories target, and finance closing an order (20 Nov 2026) ===== */
 
 test('a new sales order gets its accessories target automatically: the cost less 35%', async () => {
