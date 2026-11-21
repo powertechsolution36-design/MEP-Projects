@@ -87,6 +87,11 @@ export default function WonEnquiries() {
       <div className="enq-header">
         <h2>🏆 Won Enquiries</h2>
         <div className="enq-actions">
+          {/* Owner request (21 Nov 2026): "This quotation option not required
+              move this inside Won enquiries." The register left the menu, so
+              it lives here — and it is the only way to reach a quotation
+              that was raised without a lead behind it. */}
+          <button className="btn sec sm" onClick={() => navigate('/quotations')}>📄 All Quotations</button>
           <button className="btn sec sm" onClick={() => setShowFilters(!showFilters)}>
             🔎 {showFilters ? 'Hide Filters' : 'Filters'}
           </button>
