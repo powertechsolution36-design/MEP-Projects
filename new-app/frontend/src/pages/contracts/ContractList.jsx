@@ -118,13 +118,12 @@ export default function ContractList() {
     const picked = filter === 'All' ? rows
       : filter === 'PM due' ? rows.filter((r) => r.pmDue > 0)
         : rows.filter((r) => r.status === filter);
-    /* Owner (23 Nov 2026): "sort it according to the bold text, according
-       to customer name." The bold line on a row is the Customer Name, so
-       that is what A–Z follows; the site and address under it only break a
-       tie, which keeps two records of the same customer together and in a
-       sensible order between themselves. */
+    /* Owner (23 Nov 2026): "sort according to site name" — the bold line
+       on a row. The address breaks a tie, so two records of one firm stay
+       together and in order between themselves, and the customer's name
+       after that. */
     return sortRows(picked, sort, {
-      name: (r) => `${r.c.customer || r.c.site || ''} ${r.c.site || ''} ${r.c.address || ''}`,
+      name: (r) => `${r.c.site || r.c.customer || ''} ${r.c.address || ''} ${r.c.customer || ''}`,
       date: (r) => r.c.createdAt,
     });
   }, [rows, filter, sort]);
@@ -223,8 +222,10 @@ export default function ContractList() {
           <table className="data-table">
             <thead>
               <tr>
-                {/* Owner's wording (23 Nov 2026): the person is the
-                    Customer Name; the firm is the Site. */}
+                {/* Owner's wording (23 Nov 2026): the firm is the Site,
+                    the person is the Customer Name — and the Site leads
+                    the row, with the customer in a column beside it. */}
+                <th>Site</th>
                 <th>Customer Name</th>
                 <th>Division</th>
                 <th>Cover</th>
@@ -236,7 +237,7 @@ export default function ContractList() {
             <tbody>
               {shown.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="muted">
+                  <td colSpan={7} className="muted">
                     {contracts.length === 0
                       ? 'No AMC or Warranty clients yet.'
                       : `No clients under “${filter}”.`}
@@ -249,20 +250,23 @@ export default function ContractList() {
                   className="clickable-row"
                   onClick={() => navigate(`/contracts/${c.id || c._id}`)}
                 >
+                  {/* Owner (23 Nov 2026): "show Site Name in bold text
+                      instead of customer name, and add customer column next
+                      to Site." The firm leads the row, the address sits
+                      under it — that is what tells two records of one firm
+                      apart — and the person we deal with is beside it. */}
                   <td>
-                    <b>{c.customer || c.site || '—'}</b>
-                    {c.site && c.customer && (
+                    <b>{c.site || c.customer || '—'}</b>
+                    {(c.address || (c.extraSites || []).length > 0) && (
                       <div className="cell-sub">
-                        {/* The firm, then where it is (owner, 23 Nov 2026) —
-                            which is what tells two records of the same firm
-                            apart. */}
-                        {c.site}{c.address ? ` \u00b7 ${c.address}` : ''}
+                        {c.address || ''}
                         {/* One AMC may cover several addresses (23 Nov 2026). */}
                         {(c.extraSites || []).length > 0
-                          && ` + ${c.extraSites.length} more site${c.extraSites.length === 1 ? '' : 's'}`}
+                          && `${c.address ? ' ' : ''}+ ${c.extraSites.length} more address${c.extraSites.length === 1 ? '' : 'es'}`}
                       </div>
                     )}
                   </td>
+                  <td>{c.customer || '—'}</td>
                   <td>{c.division || '—'}</td>
                   <td>
                     {c.category}
