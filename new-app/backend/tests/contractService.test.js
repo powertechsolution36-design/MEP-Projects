@@ -434,15 +434,21 @@ test('Contract module never creates a Payment or a ServiceCall record, anywhere 
   assert.equal(store.state.svcCalls, undefined); // this fake store has no ServiceCall concept at all
 });
 
-test('Contract can be edited but never deleted (Decisions 2-3, narrowed 29 Oct 2026)', () => {
-  // Owner decision (29 Oct 2026): editing a client's AMC details is now
-  // supported, so editContract is exported deliberately. The rest of the
-  // decision stands — there is still no way to delete a Contract, because
-  // that would take its service history with it.
+test('Contract is edited and, since 23 Nov 2026, deleted by an admin alone (Decisions 2-3, twice narrowed)', () => {
+  // Owner decision (29 Oct 2026): editing a client's AMC details is
+  // supported, so editContract is exported deliberately.
   assert.equal(typeof service.editContract, 'function');
   assert.equal(service.updateContract, undefined);
-  assert.equal(service.deleteContract, undefined);
   assert.equal(service.removeContract, undefined);
+  /*
+   * Owner request (23 Nov 2026): "add delete to AMC/PM list." The reason
+   * the decision had stood — that deleting a contract would take its
+   * service history with it — is answered rather than ignored: he was asked
+   * and chose to KEEP the calls, so they are unhooked, not removed (see the
+   * delete test above). The role gate is admin alone, like every other
+   * delete in the app.
+   */
+  assert.equal(typeof service.deleteContract, 'function');
 });
 
 /* ================= Tenant isolation ================= */
@@ -921,4 +927,54 @@ test('an AMC record keeps the address the site is at, and it can be corrected', 
   const fixed = await service.editContract(baner.id, { address: 'Baner, Pune 411045' }, a, store);
   assert.equal(fixed.address, 'Baner, Pune 411045');
   assert.equal(fixed.site, 'Kapil Agencies Moto Central', 'the firm is untouched');
+});
+
+/*
+ * Owner request (23 Nov 2026): "add delete to AMC/PM list", and his
+ * decision on what goes with it: keep the service calls, drop the AMC link.
+ */
+test('deleteContract — admin only, and the service calls raised under it are kept', async () => {
+  const store = createEnquiryFakeStore({
+    companies: [{ id: 'co1', name: 'Co' }],
+    contracts: [baseContract({ id: 'ct1', customer: 'Rohit Gupta', site: 'Kapil Agencies', address: 'Baner' })],
+    serviceCalls: [
+      { id: 'sc1', companyId: 'co1', complaintNumber: 1, contractId: 'ct1', customer: 'Rohit Gupta', site: 'Baner', status: 'Completed' },
+      { id: 'sc2', companyId: 'co1', complaintNumber: 2, contractId: 'ct1', customer: 'Rohit Gupta', site: 'Baner', status: 'Registered' },
+      { id: 'sc3', companyId: 'co1', complaintNumber: 3, contractId: null, customer: 'Somebody else', site: 'Elsewhere', status: 'Registered' },
+    ],
+  });
+
+  for (const role of ['sales', 'service_mgr', 'hvac_pm', 'finance', 'engineer']) {
+    await assert.rejects(
+      () => service.deleteContract('ct1', auth({ role }), store),
+      (err) => err.code === 'FORBIDDEN' && err.status === 403,
+      `${role} must not delete an AMC record`
+    );
+  }
+
+  const result = await service.deleteContract('ct1', auth({ role: 'admin' }), store);
+  assert.equal(result.deletedContractId, 'ct1');
+  assert.equal(result.site, 'Kapil Agencies');
+  assert.equal(result.address, 'Baner');
+  assert.equal(result.serviceCallsKept, 2);
+
+  // The record is gone.
+  assert.equal(store.state.contracts.length, 0);
+  await assert.rejects(
+    () => service.getContract('ct1', auth({ role: 'admin' }), store),
+    (err) => err.code === 'NOT_FOUND'
+  );
+
+  // Every call is still there, and the two that were AMC calls are now
+  // ordinary ones rather than pointing at a record that has gone.
+  assert.equal(store.state.serviceCalls.length, 3);
+  const byId = Object.fromEntries(store.state.serviceCalls.map((c) => [c.id, c.contractId]));
+  assert.equal(byId.sc1, null);
+  assert.equal(byId.sc2, null);
+  assert.equal(byId.sc3, null);
+
+  await assert.rejects(
+    () => service.deleteContract('ct1', auth({ role: 'admin' }), store),
+    (err) => err.code === 'NOT_FOUND'
+  );
 });

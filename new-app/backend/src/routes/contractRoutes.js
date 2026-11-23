@@ -117,6 +117,19 @@ function createContractRouter(deps) {
     })
   );
 
+  /**
+   * Owner request (23 Nov 2026): "add delete to AMC/PM list." Admin only,
+   * enforced in the service; the service calls raised under the cover are
+   * kept and simply stop pointing at it.
+   */
+  router.delete(
+    '/:id',
+    handle(async (req, res) => {
+      const result = await service.deleteContract(req.params.id, req.auth, deps);
+      res.json(result);
+    })
+  );
+
   /** Owner request (29 Oct 2026): correct one PM visit's completed date. */
   router.patch(
     '/:id/visits/:visitIndex',

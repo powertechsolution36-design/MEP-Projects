@@ -133,6 +133,34 @@ export default function ContractList() {
   /* A login tied to one division has nothing to filter. */
   const showDivisionFilter = !['hvac_pm', 'solar_pm', 'mep_pm'].includes(user?.role);
 
+  /*
+   * Owner request (23 Nov 2026): "add delete to AMC/PM list." Admin alone —
+   * the server enforces it too — and it cannot be undone, so the client and
+   * the address are named in the question and the service calls are
+   * promised back in the answer, because that is what he chose: the calls
+   * stay, they simply stop being AMC calls.
+   */
+  const canDelete = user?.role === 'admin';
+  async function handleDelete(c) {
+    const naming = [c.site || c.customer || 'this AMC record', c.address].filter(Boolean).join(' \u00b7 ');
+    if (!window.confirm(
+      `Delete the AMC record for ${naming}?\n\n`
+      + 'Its cover, visit schedule and AMC letter go with it, and this cannot be undone.\n'
+      + 'Any service calls raised under it are KEPT — they stop being AMC calls.'
+    )) return;
+    try {
+      const res = await api.del(`/api/contracts/${c.id || c._id}`);
+      const kept = res && res.serviceCallsKept
+        ? ` ${res.serviceCallsKept} service call${res.serviceCallsKept === 1 ? '' : 's'} kept.`
+        : '';
+      await load();
+      setError('');
+      window.alert(`Deleted.${kept}`);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   async function handleExport() {
     try {
       const params = new URLSearchParams();
@@ -231,13 +259,14 @@ export default function ContractList() {
                 <th>Cover</th>
                 <th>Covered until</th>
                 <th>Status</th>
+                {canDelete && <th aria-label="Delete" />}
                 <th aria-label="Open" />
               </tr>
             </thead>
             <tbody>
               {shown.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="muted">
+                  <td colSpan={canDelete ? 8 : 7} className="muted">
                     {contracts.length === 0
                       ? 'No AMC or Warranty clients yet.'
                       : `No clients under “${filter}”.`}
@@ -279,6 +308,17 @@ export default function ContractList() {
                     )}
                   </td>
                   <td><span className={`status-badge ${statusClass(status)}`}>{status}</span></td>
+                  {canDelete && (
+                    <td className="nowrap">
+                      <button
+                        type="button"
+                        className="btn danger sm"
+                        onClick={(e) => { e.stopPropagation(); handleDelete(c); }}
+                      >
+                        🗑 Delete
+                      </button>
+                    </td>
+                  )}
                   <td className="amc-chevron" aria-hidden="true">›</td>
                 </tr>
               ))}

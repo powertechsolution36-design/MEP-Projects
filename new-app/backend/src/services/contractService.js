@@ -1155,7 +1155,74 @@ async function setVisitCompletedDate(contractId, visitIndex, completedDate, acto
   return deps.contractRepo.setVisitCompleted(actorAuth.companyId, contractId, i, value, undefined, si);
 }
 
+/**
+ * Throw one AMC record away (owner request, 23 Nov 2026: "add delete to
+ * AMC/PM list").
+ *
+ * Admin alone, like every other delete in the app, and it cannot be undone.
+ *
+ * His decision on what goes with it, asked and answered: the service calls
+ * raised under this cover STAY. They are what was actually done for the
+ * client, reports and all, and a wrong or duplicated AMC entry is no reason
+ * to lose them — so each one simply stops pointing at an AMC and reads as
+ * an ordinary call from then on. The client's portal links and login are
+ * unhooked for the same reason: they must not point at a record that is no
+ * longer there.
+ *
+ * What DOES go is the cover itself: this period's visit schedule, every
+ * renewal kept with it, and the AMC letter link, all of which live on the
+ * contract.
+ */
+async function deleteContract(contractId, actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  if (actorAuth.role !== 'admin') {
+    throw new ServiceError('Only an admin can delete an AMC record.', 'FORBIDDEN', 403);
+  }
+  const contract = await deps.contractRepo.findById(actorAuth.companyId, contractId);
+  if (!contract) throw new ServiceError('Contract not found.', 'NOT_FOUND', 404);
+
+  // The calls stay; they stop being AMC calls.
+  let callsKept = 0;
+  if (deps.serviceCallRepo && deps.serviceCallRepo.listByContract && deps.serviceCallRepo.update) {
+    const calls = await deps.serviceCallRepo.listByContract(actorAuth.companyId, contractId);
+    for (const call of calls) {
+      /* eslint-disable no-await-in-loop */
+      await deps.serviceCallRepo.update(actorAuth.companyId, call.id, { contractId: null });
+      /* eslint-enable no-await-in-loop */
+      callsKept += 1;
+    }
+  }
+
+  // Nothing is left pointing at a record that has gone.
+  if (deps.portalInviteRepo && deps.portalInviteRepo.listForContract && deps.portalInviteRepo.updateFields) {
+    const invites = await deps.portalInviteRepo.listForContract(actorAuth.companyId, contractId);
+    for (const invite of invites) {
+      /* eslint-disable no-await-in-loop */
+      await deps.portalInviteRepo.updateFields(invite.id, { contractId: null });
+      /* eslint-enable no-await-in-loop */
+    }
+  }
+  if (deps.customerAccountRepo && deps.customerAccountRepo.listByCompany && deps.customerAccountRepo.updateFields) {
+    const accounts = await deps.customerAccountRepo.listByCompany(actorAuth.companyId);
+    for (const account of accounts.filter((x) => String(x.contractId || '') === String(contractId))) {
+      /* eslint-disable no-await-in-loop */
+      await deps.customerAccountRepo.updateFields(account.id, { contractId: null });
+      /* eslint-enable no-await-in-loop */
+    }
+  }
+
+  await deps.contractRepo.deleteById(actorAuth.companyId, contractId);
+  return {
+    deletedContractId: String(contractId),
+    site: contract.site || '',
+    address: contract.address || '',
+    customer: contract.customer || '',
+    serviceCallsKept: callsKept,
+  };
+}
+
 module.exports = {
+  deleteContract,
   sitesOf,
   siteIndexFor,
   computePmDueBySite,

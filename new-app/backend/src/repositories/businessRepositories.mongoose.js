@@ -428,6 +428,11 @@ const contractRepo = {
   async deleteManyByCompany(companyId, session) {
     await Contract.deleteMany({ companyId }, { session });
   },
+  // Owner request (23 Nov 2026): an admin can throw one AMC record away.
+  async deleteById(companyId, id, session) {
+    const res = await Contract.deleteOne({ _id: id, companyId }, { session });
+    return res.deletedCount > 0;
+  },
   async create(data, session) {
     const [doc] = await Contract.create([data], { session });
     return toPlain(doc);

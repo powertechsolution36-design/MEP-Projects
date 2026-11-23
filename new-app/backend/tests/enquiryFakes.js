@@ -409,6 +409,13 @@ function createEnquiryFakeStore(seed = {}) {
     async listByCompany(companyId) {
       return state.contracts.filter((c) => String(c.companyId) === String(companyId)).map((c) => cloneDeep(c));
     },
+    async deleteById(companyId, id) {
+      const before = state.contracts.length;
+      state.contracts = state.contracts.filter(
+        (c) => !(matchesId(c, id) && String(c.companyId) === String(companyId))
+      );
+      return state.contracts.length < before;
+    },
     async setVisitCompleted(companyId, id, visitIndex, completedDate, session, siteIndex = 0) {
       const doc = state.contracts.find((c) => matchesId(c, id) && String(c.companyId) === String(companyId));
       if (!doc) return null;
