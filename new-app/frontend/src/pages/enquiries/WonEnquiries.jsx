@@ -5,7 +5,7 @@ import { API_BASE_URL } from '../../config';
 import { money, fmtDate } from '../../utils/format';
 import { todayKey } from '../../utils/platform';
 import { EnquiryFilterPanel, EnquiryTable, filterParams } from './EnquiryFilterPanel';
-import SortSelect, { sortRows } from '../../components/SortSelect';
+import SortSelect, { sortRows, useSort } from '../../components/SortSelect';
 
 /**
  * Won Enquiries — owner request (20 Nov 2026): "Won enquiries should moved
@@ -31,7 +31,7 @@ export default function WonEnquiries() {
   const [filters, setFilters] = useState({});
   const [showFilters, setShowFilters] = useState(false);
   // Owner request (23 Nov 2026): A–Z, Z–A, newest, oldest.
-  const [sort, setSort] = useState('');
+  const [sort, setSort] = useSort('enquiries-won');
 
   const load = useCallback(async () => {
     setLoading(true);

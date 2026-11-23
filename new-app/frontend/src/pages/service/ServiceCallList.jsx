@@ -4,7 +4,7 @@ import { api, getStoredToken, assertDownloadOk } from '../../api/client';
 import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../auth/AuthContext';
 import { money, fmtDate } from '../../utils/format';
-import SortSelect, { sortRows } from '../../components/SortSelect';
+import SortSelect, { sortRows, useSort } from '../../components/SortSelect';
 
 /**
  * Service Call List — PWA `viewServiceCalls()` exact reproduction.
@@ -66,7 +66,7 @@ export default function ServiceCallList() {
   // '' is every status, banded. A chip narrows it to one band.
   const [statusFilter, setStatusFilter] = useState('');
   // Owner request (23 Nov 2026): A–Z, Z–A, newest, oldest.
-  const [sort, setSort] = useState('');
+  const [sort, setSort] = useSort('service-calls');
   /*
    * Owner request (20 Nov 2026): "add quick time and date filter also for
    * Scheduled Service/PM." One tap for today, tomorrow or the next seven

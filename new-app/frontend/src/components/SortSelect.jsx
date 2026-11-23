@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 /**
  * One sort control, the same on every register.
  *
@@ -18,6 +20,39 @@ export const SORT_MODES = [
   ['new', 'Newest first'],
   ['old', 'Oldest first'],
 ];
+
+/**
+ * The chosen order, remembered.
+ *
+ * Owner request (23 Nov 2026): "if I use sort, keep the sort permanent
+ * till I change it to other sort." So the choice outlives the page: it is
+ * kept per register, in this browser, and read back when the screen opens
+ * again — until he picks something else, Default order included.
+ *
+ * It is a convenience, not a record: a browser with storage blocked, or a
+ * private window, simply opens on the default order, which is why every
+ * read and write here is wrapped. Nothing else depends on it.
+ */
+export function useSort(key) {
+  const storageKey = `mep_sort_${key}`;
+  const [value, setValue] = useState(() => {
+    try {
+      const saved = window.localStorage.getItem(storageKey);
+      return SORT_MODES.some(([mode]) => mode === saved) ? saved : '';
+    } catch {
+      return '';
+    }
+  });
+  const choose = (next) => {
+    setValue(next);
+    try {
+      window.localStorage.setItem(storageKey, next || '');
+    } catch {
+      /* the screen still sorts; it just will not remember next time */
+    }
+  };
+  return [value, choose];
+}
 
 export default function SortSelect({ value, onChange, label = 'Sort' }) {
   return (

@@ -4,7 +4,7 @@ import { api, getStoredToken, assertDownloadOk } from '../../api/client';
 import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../auth/AuthContext';
 import { money } from '../../utils/format';
-import SortSelect, { sortRows } from '../../components/SortSelect';
+import SortSelect, { sortRows, useSort } from '../../components/SortSelect';
 
 /**
  * Sales Order List — PWA `vSOs()` exact reproduction.
@@ -21,7 +21,7 @@ export default function SalesOrderList() {
   const navigate = useNavigate();
   const [orders, setOrders] = useState([]);
   // Owner request (23 Nov 2026): A–Z, Z–A, newest, oldest.
-  const [sort, setSort] = useState('');
+  const [sort, setSort] = useSort('sales-orders');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');

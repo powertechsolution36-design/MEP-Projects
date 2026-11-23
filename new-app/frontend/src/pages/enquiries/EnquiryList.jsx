@@ -5,7 +5,7 @@ import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../auth/AuthContext';
 import { todayKey } from '../../utils/platform';
 import { EnquiryFilterPanel, EnquiryTable, filterParams } from './EnquiryFilterPanel';
-import SortSelect, { sortRows } from '../../components/SortSelect';
+import SortSelect, { sortRows, useSort } from '../../components/SortSelect';
 
 /**
  * Enquiry List — PWA `vEnqs()` / `enqTable()` exact reproduction.
@@ -32,7 +32,7 @@ export default function EnquiryList() {
   const [filters, setFilters] = useState(() => (searchParams.get('segment') ? { segment: searchParams.get('segment') } : {}));
   const [showFilters, setShowFilters] = useState(() => Boolean(searchParams.get('segment')));
   // Owner request (23 Nov 2026): A–Z, Z–A, newest, oldest.
-  const [sort, setSort] = useState('');
+  const [sort, setSort] = useSort('enquiries');
 
   const load = useCallback(async () => {
     setLoading(true);

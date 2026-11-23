@@ -13,7 +13,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import ContactsField from '../../components/ContactsField';
-import SortSelect, { sortRows } from '../../components/SortSelect';
+import SortSelect, { sortRows, useSort } from '../../components/SortSelect';
 
 const BLANK = {
   companyName: '', clientName: '', designation: '', phone: '', otherAddresses: [],
@@ -64,7 +64,7 @@ export default function ClientList() {
   const [form, setForm] = useState(null); // null = closed; {} = adding; {id} = editing
   const [importNote, setImportNote] = useState('');
   // Owner request (23 Nov 2026): A–Z, Z–A, newest, oldest.
-  const [sort, setSort] = useState('');
+  const [sort, setSort] = useSort('clients');
 
   const canDelete = user?.role === 'admin';
   /* The rows in the chosen order — the firm's name is what A–Z means here,

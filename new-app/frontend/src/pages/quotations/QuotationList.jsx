@@ -4,7 +4,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { api } from '../../api/client';
 import { money, fmtDate } from '../../utils/format';
 import DivisionSelector from '../../components/DivisionSelector';
-import SortSelect, { sortRows } from '../../components/SortSelect';
+import SortSelect, { sortRows, useSort } from '../../components/SortSelect';
 
 /**
  * Quotation list — admin, sales, finance, and the three division Managers
@@ -27,7 +27,7 @@ export default function QuotationList() {
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
   // Owner request (23 Nov 2026): A–Z, Z–A, newest, oldest.
-  const [sort, setSort] = useState('');
+  const [sort, setSort] = useSort('quotations');
   const [divFilter, setDivFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 

@@ -4,7 +4,7 @@ import { api, getStoredToken, assertDownloadOk } from '../../api/client';
 import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../auth/AuthContext';
 import { fmtDate } from '../../utils/format';
-import SortSelect, { sortRows } from '../../components/SortSelect';
+import SortSelect, { sortRows, useSort } from '../../components/SortSelect';
 
 /**
  * AMC / Warranty clients.
@@ -112,7 +112,7 @@ export default function ContractList() {
   }), [rows]);
 
   // Owner request (23 Nov 2026): A–Z, Z–A, newest, oldest — on the right.
-  const [sort, setSort] = useState('');
+  const [sort, setSort] = useSort('amc');
 
   const shown = useMemo(() => {
     const picked = filter === 'All' ? rows

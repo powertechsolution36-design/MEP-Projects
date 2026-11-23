@@ -6,7 +6,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { money, fmtDate } from '../../utils/format';
 import { todayKey } from '../../utils/platform';
 import { divisionClass } from '../../utils/divisions';
-import SortSelect, { sortRows } from '../../components/SortSelect';
+import SortSelect, { sortRows, useSort } from '../../components/SortSelect';
 
 /**
  * Project List — PWA `vProjects()` (MEP_PROJECTS_PWA/index.html:2089-2109).
@@ -40,7 +40,7 @@ export default function ProjectList() {
   const navigate = useNavigate();
   const [projects, setProjects] = useState([]);
   // Owner request (23 Nov 2026): A–Z, Z–A, newest, oldest.
-  const [sort, setSort] = useState('');
+  const [sort, setSort] = useSort('projects');
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
