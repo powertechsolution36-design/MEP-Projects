@@ -207,7 +207,9 @@ export default function ContractList() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Client</th>
+                {/* Owner's wording (23 Nov 2026): the person is the
+                    Customer Name; the firm is the Site. */}
+                <th>Customer Name</th>
                 <th>Division</th>
                 <th>Cover</th>
                 <th>Covered until</th>

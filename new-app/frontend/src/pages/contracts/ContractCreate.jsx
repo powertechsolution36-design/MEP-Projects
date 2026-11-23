@@ -161,8 +161,15 @@ export default function ContractCreate() {
               <input value={form.email} onChange={e => setField('email', e.target.value)} />
             </div>
             <div className="filter-field">
+              {/* Owner's wording (23 Nov 2026): the firm is the Site, the
+                  person is the Customer Name. */}
               <label>Site *</label>
-              <input value={form.site} onChange={e => setField('site', e.target.value)} required />
+              <input
+                value={form.site}
+                placeholder="The firm, e.g. Kapil Agencies Moto Central"
+                onChange={e => setField('site', e.target.value)}
+                required
+              />
             </div>
             <div className="filter-field">
               <label>Capacity</label>

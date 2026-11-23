@@ -397,3 +397,41 @@ test('a record under a different spelling of the name joins the client we alread
   await service.rememberClient({ companyName: 'Walk-in enquiry' }, auth, store);
   assert.equal(store.state.clients.length, 3);
 });
+
+/*
+ * Owner request (23 Nov 2026), pointing at the AMC record's own list:
+ * "put this option in Client." A firm is often in more than one place.
+ */
+test('a client can list its other sites, and an edit that leaves them out keeps them', async () => {
+  const store = createEnquiryFakeStore({ companies: [{ id: 'co1', name: 'Co' }] });
+  const auth = { userId: 'u1', companyId: 'co1', role: 'admin', name: 'Admin' };
+
+  const made = await service.createClient(
+    {
+      companyName: 'Kapil Agencies Moto Central',
+      clientName: 'Rohit Gupta',
+      phone: '9960026900',
+      sites: [
+        { name: 'Baner', address: 'Baner Road' },
+        { name: 'Nana Peth' },
+        { name: '  ' },
+        { name: 'baner' },
+      ],
+    },
+    auth,
+    store
+  );
+  assert.deepEqual(made.sites.map((x) => x.name), ['Baner', 'Nana Peth'],
+    'a blank row is dropped and the same place is kept once');
+  assert.equal(made.sites[0].address, 'Baner Road');
+
+  // Correcting something else leaves the list alone.
+  const edited = await service.updateClient(made.id, { phone: '9960026901' }, auth, store);
+  assert.deepEqual(edited.sites.map((x) => x.name), ['Baner', 'Nana Peth']);
+
+  // Sending the list replaces it.
+  const replaced = await service.updateClient(
+    made.id, { sites: [{ name: 'Nana Peth' }, { name: 'Hadapsar' }] }, auth, store
+  );
+  assert.deepEqual(replaced.sites.map((x) => x.name), ['Nana Peth', 'Hadapsar']);
+});

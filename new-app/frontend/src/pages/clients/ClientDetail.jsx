@@ -152,8 +152,10 @@ export default function ClientDetail() {
       <div className="panel" style={{ maxWidth: 1000 }}>
         <div className="detail-head"><h2>{title(c)}</h2></div>
         <div className="detail-grid">
-          <div><strong>Company:</strong> {dash(c.companyName)}</div>
-          <div><strong>Client:</strong> {dash(c.clientName)}{c.designation ? ` (${c.designation})` : ''}</div>
+          {/* Owner's wording (23 Nov 2026): the firm is the Site, the
+              person is the Customer Name. */}
+          <div><strong>Site:</strong> {dash(c.companyName)}</div>
+          <div><strong>Customer Name:</strong> {dash(c.clientName)}{c.designation ? ` (${c.designation})` : ''}</div>
           <div><strong>Phone:</strong> {dash(c.phone)}</div>
           <div><strong>GST:</strong> {dash(c.gst)}</div>
           <div><strong>Email:</strong> {dash(c.email)}</div>
@@ -165,6 +167,18 @@ export default function ClientDetail() {
             {c.contacts.map((p, k) => (
               <div key={k} style={{ fontSize: 13 }}>
                 {p.name}{p.designation ? ` (${p.designation})` : ''}{p.phone ? ` · ${p.phone}` : ''}
+              </div>
+            ))}
+          </div>
+        )}
+        {/* Owner request (23 Nov 2026): the firm's other places, listed on
+            the client itself. */}
+        {(c.sites || []).length > 0 && (
+          <div style={{ marginTop: 10 }}>
+            <strong>Other sites</strong>
+            {c.sites.map((x, k) => (
+              <div key={k} style={{ fontSize: 13 }}>
+                {x.name}{x.address ? ` \u00b7 ${x.address}` : ''}
               </div>
             ))}
           </div>

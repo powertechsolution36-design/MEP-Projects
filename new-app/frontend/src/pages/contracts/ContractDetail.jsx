@@ -422,11 +422,20 @@ export default function ContractDetail() {
             Correct a visit date in the two visit lists below.
           </p>
           <div className="filter-grid">
-            <label className="filter-field">Customer
-              <input value={editForm.customer} onChange={(e) => setEditForm((f) => ({ ...f, customer: e.target.value }))} />
+            <label className="filter-field">Customer Name
+              <input
+                value={editForm.customer}
+                placeholder="The person, e.g. Rohit Gupta"
+                onChange={(e) => setEditForm((f) => ({ ...f, customer: e.target.value }))}
+              />
             </label>
             <label className="filter-field">Site *
-              <input value={editForm.site} required onChange={(e) => setEditForm((f) => ({ ...f, site: e.target.value }))} />
+              <input
+                value={editForm.site}
+                required
+                placeholder="The firm, e.g. Kapil Agencies Moto Central"
+                onChange={(e) => setEditForm((f) => ({ ...f, site: e.target.value }))}
+              />
             </label>
             <label className="filter-field">Phone
               <input inputMode="tel" value={editForm.phone} onChange={(e) => setEditForm((f) => ({ ...f, phone: e.target.value }))} />
@@ -481,15 +490,15 @@ export default function ContractDetail() {
               for the contract; each site keeps its own machine details and
               its own PM visits. */}
           <fieldset className="contacts-field" style={{ marginTop: 12 }}>
-            <legend>Other sites under this AMC</legend>
+            <legend>Locations under this AMC</legend>
             <p className="muted" style={{ marginTop: 0 }}>
-              The site above is the first one. Add a branch here and it gets a PM schedule of
-              its own, on this same contract and this same amount. Removing a site removes its
-              visit history with it.
+              The site above is the first location. Add a branch here — Baner, Nana Peth — and
+              it gets a PM visit schedule of its own, on this same contract and this same
+              amount. Removing a location removes its visit history with it.
             </p>
             {(editForm.extraSites || []).map((row, k) => (
               <div className="filter-grid" key={k} style={{ marginBottom: 8 }}>
-                <label className="filter-field">Site name *
+                <label className="filter-field">Location *
                   <input
                     value={row.name}
                     placeholder="e.g. Nana Peth"
@@ -550,7 +559,7 @@ export default function ContractDetail() {
                       ...f, extraSites: f.extraSites.filter((_, j) => j !== k),
                     }))}
                   >
-                    Remove this site
+                    Remove this location
                   </button>
                 </div>
               </div>
@@ -563,7 +572,7 @@ export default function ContractDetail() {
                 extraSites: [...(f.extraSites || []), { name: '', capacity: '', make: '', equipmentModel: '', equipmentType: '' }],
               }))}
             >
-              + Add another site
+              + Add another location
             </button>
           </fieldset>
 
@@ -626,11 +635,13 @@ export default function ContractDetail() {
         )}
       </div>
 
-      {/* ---- Client & cover ---- */}
+      {/* ---- Customer & cover ---- */}
       <div className="panel">
-        <h3>Client</h3>
+        <h3>Customer &amp; cover</h3>
         <div className="detail-grid">
-          <div><strong>Customer</strong><br />{c.customer || '—'}</div>
+          {/* Owner's wording (23 Nov 2026): Customer Name is the person,
+              Site is the firm. */}
+          <div><strong>Customer Name</strong><br />{c.customer || '—'}</div>
           <div><strong>Phone</strong><br />{c.phone || '—'}</div>
           <div><strong>Email</strong><br />{c.email || '—'}</div>
           <div><strong>Site</strong><br />{c.site || '—'}</div>
@@ -741,7 +752,7 @@ export default function ContractDetail() {
         ) : (
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th>#</th>{manySites && <th>Site</th>}<th>Scheduled month</th><th>Status</th><th>Record completion</th></tr></thead>
+              <thead><tr><th>#</th>{manySites && <th>Location</th>}<th>Scheduled month</th><th>Status</th><th>Record completion</th></tr></thead>
               <tbody>
                 {pendingVisits.map((v) => {
                   const due = v.month <= tm;

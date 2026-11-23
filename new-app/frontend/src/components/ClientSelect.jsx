@@ -16,7 +16,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 
-export default function ClientSelect({ value, onType, onPick, label = 'Client', placeholder = 'Search or type a new name', required = false }) {
+export default function ClientSelect({ value, onType, onPick, label = 'Customer Name', placeholder = 'Search or type a new name', required = false }) {
   const [matches, setMatches] = useState([]);
   const [open, setOpen] = useState(false);
   const [picked, setPicked] = useState(null);

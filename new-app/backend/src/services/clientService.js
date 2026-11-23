@@ -83,6 +83,31 @@ function buildFields(input, existing = {}) {
   const contacts = buildContacts(input && input.contacts);
   if (contacts !== undefined) out.contacts = contacts;
 
+  /*
+   * The client's other sites (owner request, 23 Nov 2026). Left out of the
+   * request, the list is left as it is. Sent, it replaces the list: a row
+   * with no name is dropped, the same name twice is kept once, and nothing
+   * else about the client is touched. The AMC records stay one per site —
+   * this is the directory saying where the firm is, not a contract.
+   */
+  if (input && Object.prototype.hasOwnProperty.call(input, 'sites')) {
+    const rows = Array.isArray(input.sites) ? input.sites : [];
+    const seen = new Set();
+    const sites = [];
+    for (const row of rows) {
+      const name = trim(typeof row === 'string' ? row : (row && row.name));
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      sites.push({ name, address: trim(row && row.address) });
+    }
+    if (sites.length > 25) {
+      throw new ServiceError('A client has at most 25 sites.', 'VALIDATION_ERROR', 400);
+    }
+    out.sites = sites;
+  }
+
   const companyName = out.companyName !== undefined ? out.companyName : existing.companyName;
   const clientName = out.clientName !== undefined ? out.clientName : existing.clientName;
   out.normalizedName = normalizeName(companyName || clientName);

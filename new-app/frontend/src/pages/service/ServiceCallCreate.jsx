@@ -223,7 +223,7 @@ export default function ServiceCallCreate() {
             {chargeable && (
               <div style={{ marginTop: 10 }}>
                 <ClientSelect
-                  label="Client (from the client list)"
+                  label="Customer Name (from the client list)"
                   placeholder="Search the client list, or leave blank and type below"
                   value={directoryClient ? (directoryClient.companyName || directoryClient.clientName || '') : form.customer}
                   onType={(v) => { setDirectoryClient(null); onChange('customer', v); onChange('clientId', null); }}

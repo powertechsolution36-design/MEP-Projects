@@ -1434,7 +1434,9 @@ async function group6m(browser) {
   await open(a, '/service-calls/new');
   await a.page.locator('button:has-text("Not an AMC / Warranty client")').click();
   await a.page.waitForTimeout(200);
-  await qField(a.page, 'Client (from the client list)').fill(name);
+  // Renamed 23 Nov 2026 with the owner's own vocabulary: the person we
+  // deal with is the Customer Name.
+  await qField(a.page, 'Customer Name (from the client list)').fill(name);
   await a.page.waitForTimeout(600);
   await a.page.locator(`.client-suggestions button:has-text("${name}")`).first().click();
   await settle(a);
@@ -1501,7 +1503,9 @@ async function group6n(browser) {
   await a.page.waitForTimeout(400);
   await a.page.locator(`tr:has-text("${was}") button:has-text("Edit")`).first().click();
   await a.page.waitForTimeout(300);
-  const company = a.page.locator('.modal .filter-field:has(> label:text-is("Company Name")) input').first();
+  // The owner's own words (23 Nov 2026): the firm is the "Site", the
+  // person is the "Customer Name". The field is the same one.
+  const company = a.page.locator('.modal .filter-field:has(> label:text-is("Site")) input').first();
   await company.fill(now);
   await a.page.locator('.modal button:has-text("Save")').click();
   await settle(a);

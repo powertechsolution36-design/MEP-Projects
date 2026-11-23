@@ -54,6 +54,32 @@ const clientSchema = new Schema(
     },
 
     /*
+     * The client's other sites (owner request, 23 Nov 2026 — he pointed at
+     * the AMC record's own list and said "put this option in Client").
+     *
+     * A firm is often in more than one place: Kapil Agencies Moto Central
+     * is at Baner and at Nana Peth. This is the directory's own list of
+     * those places, so the office can see them all on the client without
+     * opening every AMC record. It is a list of addresses, nothing more —
+     * what is under cover at each, and the PM visits, belong to the AMC
+     * records, which stay one per site.
+     */
+    sites: {
+      type: [new Schema(
+        {
+          name: { type: String, required: true, trim: true },
+          address: { type: String, default: '', trim: true },
+        },
+        { _id: false }
+      )],
+      default: [],
+      validate: {
+        validator: (list) => !list || list.length <= 25,
+        message: 'A client has at most 25 sites.',
+      },
+    },
+
+    /*
      * What this client USED to be called, and the numbers they used to be
      * on (owner request, 18 Nov 2026).
      *

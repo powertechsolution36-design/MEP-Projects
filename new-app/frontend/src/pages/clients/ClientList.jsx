@@ -15,7 +15,7 @@ import { useAuth } from '../../auth/AuthContext';
 import ContactsField from '../../components/ContactsField';
 
 const BLANK = {
-  companyName: '', clientName: '', designation: '', phone: '',
+  companyName: '', clientName: '', designation: '', phone: '', sites: [],
   gst: '', address: '', email: '', notes: '', contacts: [],
 };
 
@@ -178,8 +178,13 @@ export default function ClientList() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Company</th>
-                  <th>Client</th>
+                  {/* The owner's own words (23 Nov 2026): "company name =
+                      Site and Client = Customer Name, do this for every
+                      record." The firm is the site we go to; the customer
+                      is the person we deal with. The fields behind them are
+                      unchanged — this is what they are called. */}
+                  <th>Site</th>
+                  <th>Customer Name</th>
                   <th>Phone</th>
                   <th>GST</th>
                   <th>Contacts</th>
@@ -246,12 +251,20 @@ export default function ClientList() {
             <form onSubmit={save}>
               <div className="filter-grid">
                 <div className="filter-field">
-                  <label>Company Name</label>
-                  <input value={form.companyName} onChange={(e) => setField('companyName', e.target.value)} />
+                  <label>Site</label>
+                  <input
+                    value={form.companyName}
+                    placeholder="The firm, e.g. Kapil Agencies Moto Central"
+                    onChange={(e) => setField('companyName', e.target.value)}
+                  />
                 </div>
                 <div className="filter-field">
-                  <label>Client Name</label>
-                  <input value={form.clientName} onChange={(e) => setField('clientName', e.target.value)} />
+                  <label>Customer Name</label>
+                  <input
+                    value={form.clientName}
+                    placeholder="The person, e.g. Rohit Gupta"
+                    onChange={(e) => setField('clientName', e.target.value)}
+                  />
                 </div>
                 <div className="filter-field">
                   <label>Designation</label>
@@ -274,6 +287,65 @@ export default function ClientList() {
                 <label>Address</label>
                 <textarea rows={2} value={form.address} onChange={(e) => setField('address', e.target.value)} />
               </div>
+
+              {/* Owner request (23 Nov 2026), pointing at the AMC record's
+                  own list: "put this option in Client". A firm is often in
+                  more than one place — Kapil Agencies Moto Central at Baner
+                  and at Nana Peth — and this is the directory saying so.
+                  The AMC records stay one per site; this changes none of
+                  them. */}
+              <fieldset className="contacts-field">
+                <legend>Other sites under this client</legend>
+                <p className="muted" style={{ marginTop: 0 }}>
+                  Where else this firm is. Their AMC records stay one per site — this is
+                  only the list of places, so the office can see them on the client.
+                </p>
+                {(form.sites || []).map((row, k) => (
+                  <div className="filter-grid" key={k} style={{ marginBottom: 8 }}>
+                    <div className="filter-field">
+                      <label>Site</label>
+                      <input
+                        value={row.name}
+                        placeholder="e.g. Nana Peth"
+                        onChange={(e) => setForm((f) => {
+                          const list = [...(f.sites || [])];
+                          list[k] = { ...list[k], name: e.target.value };
+                          return { ...f, sites: list };
+                        })}
+                      />
+                    </div>
+                    <div className="filter-field">
+                      <label>Address</label>
+                      <input
+                        value={row.address || ''}
+                        onChange={(e) => setForm((f) => {
+                          const list = [...(f.sites || [])];
+                          list[k] = { ...list[k], address: e.target.value };
+                          return { ...f, sites: list };
+                        })}
+                      />
+                    </div>
+                    <div className="filter-field" style={{ alignSelf: 'end' }}>
+                      <button
+                        type="button"
+                        className="btn danger sm"
+                        onClick={() => setForm((f) => ({
+                          ...f, sites: (f.sites || []).filter((_, j) => j !== k),
+                        }))}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="btn sec sm"
+                  onClick={() => setForm((f) => ({ ...f, sites: [...(f.sites || []), { name: '', address: '' }] }))}
+                >
+                  + Add another site
+                </button>
+              </fieldset>
 
               <ContactsField
                 value={form.contacts || []}
