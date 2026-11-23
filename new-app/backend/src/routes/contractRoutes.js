@@ -121,8 +121,11 @@ function createContractRouter(deps) {
   router.patch(
     '/:id/visits/:visitIndex',
     handle(async (req, res) => {
+      // siteIndex (23 Nov 2026): which site's calendar this visit is on.
+      // Absent, it is the contract's own site, as it always was.
       const contract = await service.setVisitCompletedDate(
-        req.params.id, req.params.visitIndex, (req.body || {}).completedDate, req.auth, deps
+        req.params.id, req.params.visitIndex, (req.body || {}).completedDate, req.auth, deps,
+        { siteIndex: (req.body || {}).siteIndex || 0 }
       );
       res.json({ contract });
     })

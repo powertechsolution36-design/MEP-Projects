@@ -250,6 +250,105 @@ function computePmDueIndexes(contract, refDate) {
   return out;
 }
 
+/**
+ * Every site under this contract, the contract's own first.
+ *
+ * Owner decision (23 Nov 2026): one AMC may cover more than one address —
+ * "Kapil Agency has a site in Baner and Nana Peth" — on one amount, with
+ * the visits and the machine details held per site so the PM calendar
+ * still says which site to attend.
+ *
+ * Site 0 IS the contract's own `site`/`capacity`/`make`/`scheduledVisits`.
+ * A contract written before this existed is simply a contract with one
+ * site, so nothing had to be migrated and nothing that reads
+ * `contract.site` had to change.
+ */
+function sitesOf(contract) {
+  const first = {
+    index: 0,
+    name: contract.site || '',
+    capacity: contract.capacity || '',
+    make: contract.make || '',
+    equipmentModel: contract.equipmentModel || '',
+    equipmentType: contract.equipmentType || '',
+    scheduledVisits: contract.scheduledVisits || [],
+  };
+  const rest = (contract.extraSites || []).map((x, i) => ({
+    index: i + 1,
+    name: x.name || '',
+    capacity: x.capacity || '',
+    make: x.make || '',
+    equipmentModel: x.equipmentModel || '',
+    equipmentType: x.equipmentType || '',
+    scheduledVisits: x.scheduledVisits || [],
+  }));
+  return [first, ...rest];
+}
+
+/** The site of this contract whose name matches, or the first one. */
+function siteIndexFor(contract, siteName) {
+  const key = String(siteName || '').trim().toLowerCase();
+  if (!key) return 0;
+  const found = sitesOf(contract).find((s) => String(s.name || '').trim().toLowerCase() === key);
+  return found ? found.index : 0;
+}
+
+/**
+ * Due visits across every site: the same rule as computePmDueIndexes, asked
+ * once per site, so a two-site contract can have Baner overdue while Nana
+ * Peth is up to date.
+ */
+function computePmDueBySite(contract, refDate) {
+  const tm = monthKeyUTC(refDate || todayDate());
+  const out = [];
+  for (const site of sitesOf(contract)) {
+    site.scheduledVisits.forEach((visit, i) => {
+      if (!visit.completedDate && visit.month <= tm) {
+        out.push({ siteIndex: site.index, siteName: site.name, visitIndex: i, month: visit.month });
+      }
+    });
+  }
+  return out;
+}
+
+/**
+ * The sites given on a create or an edit, cleaned up.
+ *
+ * A site keeps the visits it already had — matched by name, because that is
+ * what the person on the screen is editing — and a site added today is
+ * given its own schedule from the same start date and frequency as the
+ * rest of the contract. Renaming a site keeps its position, and so keeps
+ * its visits.
+ */
+function buildExtraSites(input, { startDate, amcType, existing = [] }) {
+  if (!Array.isArray(input)) return null;
+  const byName = new Map(
+    (existing || []).map((x) => [String(x.name || '').trim().toLowerCase(), x])
+  );
+  const out = [];
+  const seen = new Set();
+  input.forEach((row, i) => {
+    const name = String((row && row.name) || '').trim();
+    if (!name) return;
+    const key = name.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    // Same position as before, or the same name as before: keep its visits.
+    const was = byName.get(key) || existing[i] || null;
+    out.push({
+      name,
+      capacity: String((row && row.capacity) || '').trim(),
+      make: String((row && row.make) || '').trim(),
+      equipmentModel: String((row && row.equipmentModel) || '').trim(),
+      equipmentType: String((row && row.equipmentType) || '').trim(),
+      scheduledVisits: was && was.scheduledVisits && was.scheduledVisits.length
+        ? was.scheduledVisits
+        : generateScheduledVisits(startDate, amcType),
+    });
+  });
+  return out;
+}
+
 /* ================= CREATION ================= */
 
 /**
@@ -313,6 +412,9 @@ async function createManualContract(input, actorAuth, deps) {
     category,
     amount,
     scheduledVisits: generateScheduledVisits(startDate, amcType),
+    // The other addresses this one AMC covers (23 Nov 2026). Each gets its
+    // own schedule from the same start date and frequency.
+    extraSites: buildExtraSites((input && input.extraSites) || [], { startDate, amcType }) || [],
     originatingProjectId: null,
   });
   return contract;
@@ -413,7 +515,9 @@ async function getContract(contractId, actorAuth, deps) {
   if (scope && contract.division && contract.division !== scope) {
     throw new ServiceError('Contract not found.', 'NOT_FOUND', 404);
   }
-  return contract;
+  // Every site this AMC covers, the contract's own first (23 Nov 2026), so
+  // the screen can list them without knowing how they are stored.
+  return { ...contract, sites: sitesOf(contract) };
 }
 
 // PWA FACT (`vPM`'s `hit(c,[...])`, §14, re-verified literally): ten-field
@@ -517,7 +621,8 @@ async function getClientHistory(contractId, actorAuth, deps) {
   // Scheduled visits of every period: the current one and each renewal's.
   const periods = [
     ...(contract.renewals || []).map((r) => r.visits || []),
-    contract.scheduledVisits || [],
+    ...(contract.renewals || []).flatMap((r) => r.siteVisits || []),
+    ...sitesOf(contract).map((x) => x.scheduledVisits || []),
   ];
   const visitsScheduled = periods.reduce((n, v) => n + v.length, 0);
   const visitsDone = periods.reduce((n, v) => n + v.filter((x) => x.completedDate).length, 0);
@@ -670,6 +775,9 @@ async function renewContract(contractId, input, actorAuth, deps) {
     amcType: contract.amcType,
     amount: Number(contract.amount) || 0,
     visits: contract.scheduledVisits || [],
+    // The other sites' visits for the period just ended (23 Nov 2026), in
+    // the order the contract lists them.
+    siteVisits: (contract.extraSites || []).map((x) => x.scheduledVisits || []),
     payment: paymentOf(contract),
     renewedAt: new Date(),
     renewedByUserId: actorAuth.userId || null,
@@ -680,6 +788,11 @@ async function renewContract(contractId, input, actorAuth, deps) {
     amcType,
     amount,
     scheduledVisits: generateScheduledVisits(startDate, amcType),
+    // Every site is renewed with the contract — one AMC, one term.
+    extraSites: (contract.extraSites || []).map((x) => ({
+      ...x,
+      scheduledVisits: generateScheduledVisits(startDate, amcType),
+    })),
     payment: { status: 'Pending', amountPaid: 0, paidOn: null, mode: '', reference: '', recordedByUserId: null, recordedAt: null },
     // Last period's AMC letter link stops working; a new one is made once
     // this period is paid.
@@ -729,17 +842,21 @@ async function getPmDuePanel(actorAuth, deps) {
   assertCompanyContext(actorAuth);
   const all = onlyMyDivision(await deps.contractRepo.listByCompany(actorAuth.companyId), actorAuth);
   const rows = [];
+  const thisMonth = monthKeyUTC(todayDate());
   all.forEach((c) => {
-    computePmDueIndexes(c).forEach((i) => {
+    // One row per site, not per contract (23 Nov 2026): an engineer sent to
+    // Baner must not be told the address is Nana Peth.
+    computePmDueBySite(c).forEach((due) => {
       rows.push({
         contractId: c.id,
-        site: c.site,
+        site: due.siteName,
+        siteIndex: due.siteIndex,
         customer: c.customer,
         phone: c.phone,
         category: c.category,
-        visitIndex: i,
-        month: c.scheduledVisits[i].month,
-        overdue: c.scheduledVisits[i].month < monthKeyUTC(todayDate()), // PWA FACT: display-layer-only "overdue" split.
+        visitIndex: due.visitIndex,
+        month: due.month,
+        overdue: due.month < thisMonth, // PWA FACT: display-layer-only "overdue" split.
       });
     });
   });
@@ -788,6 +905,9 @@ async function exportContractsCsv(actorAuth, { filters = {} } = {}, deps) {
     [
       'Customer', 'Phone', 'Email', 'Site', 'Capacity', 'Category', 'AMC Type', 'Amount', 'Start', 'End', 'Status',
       'PM Due Now', '1st Due', '1st Done', '2nd Due', '2nd Done', '3rd Due', '3rd Done', '4th Due', '4th Done',
+      // One AMC may cover several addresses (23 Nov 2026). The visit
+      // columns are the first site's; this says what else it covers.
+      'Other Sites',
     ].map(csvEscape).join(',')
   );
 
@@ -795,7 +915,9 @@ async function exportContractsCsv(actorAuth, { filters = {} } = {}, deps) {
   let dueTotal = 0;
   for (const c of rows) {
     const status = computeContractStatus(c);
-    const due = computePmDueIndexes(c);
+    // Due across every site, so a two-site contract is not reported as
+    // up to date because its first site happens to be.
+    const due = computePmDueBySite(c);
     amountTotal += Number(c.amount) || 0;
     dueTotal += due.length;
     const row = [
@@ -807,6 +929,7 @@ async function exportContractsCsv(actorAuth, { filters = {} } = {}, deps) {
       const v = (c.scheduledVisits || [])[i] || {};
       row.push(v.month || '', v.completedDate ? dayKeyUTC(v.completedDate) : '');
     }
+    row.push((c.extraSites || []).map((x) => x.name).filter(Boolean).join(' | '));
     lines.push(row.map(csvEscape).join(','));
   }
   lines.push('');
@@ -847,16 +970,27 @@ async function exportContractsCsv(actorAuth, { filters = {} } = {}, deps) {
  * 5th `session` parameter is simply `undefined`, exactly as before this
  * change -- no existing behavior changes.
  */
-async function completePmVisitForContract(contractId, actorAuth, deps, { assignedEngineerUserId } = {}) {
+async function completePmVisitForContract(contractId, actorAuth, deps, { assignedEngineerUserId, siteName } = {}) {
   assertCompanyContext(actorAuth);
   assertCanCompletePmVisit(actorAuth, assignedEngineerUserId);
   const contract = await deps.contractRepo.findById(actorAuth.companyId, contractId);
   if (!contract) throw new ServiceError('Contract not found.', 'NOT_FOUND', 404);
 
-  const due = computePmDueIndexes(contract);
+  /*
+   * The site the engineer actually went to (23 Nov 2026). A contract may
+   * cover several, and stamping Baner's calendar for a visit to Nana Peth
+   * would quietly tell the office a visit had happened that had not. The
+   * caller passes the service call's own site; without one, or with a site
+   * this contract does not list, it is the contract's own site, exactly as
+   * before.
+   */
+  const si = siteIndexFor(contract, siteName);
+  const due = computePmDueBySite(contract).filter((d) => d.siteIndex === si);
   if (!due.length) return contract; // PWA FACT: `if(due.length) c.svcs[due[0]].done=today()` -- a no-op when nothing is due.
 
-  return deps.contractRepo.setVisitCompleted(actorAuth.companyId, contractId, due[0], todayDate(), deps.session);
+  return deps.contractRepo.setVisitCompleted(
+    actorAuth.companyId, contractId, due[0].visitIndex, todayDate(), deps.session, si
+  );
 }
 
 /**
@@ -955,6 +1089,23 @@ async function editContract(contractId, input, actorAuth, deps) {
     );
   }
 
+  /*
+   * The other sites this AMC covers (23 Nov 2026). Left out of the request,
+   * the list is left exactly as it is. Sent, it replaces the list — and a
+   * site that keeps its name keeps its visits, so correcting a capacity or
+   * a make never throws a year of service history away. A site added here
+   * starts with a schedule of its own, from the contract's start date and
+   * frequency.
+   */
+  if (src.extraSites !== undefined) {
+    const built = buildExtraSites(src.extraSites, {
+      startDate: patch.startDate || contract.startDate,
+      amcType: patch.amcType || contract.amcType,
+      existing: contract.extraSites || [],
+    });
+    if (built) patch.extraSites = built;
+  }
+
   if (Object.keys(patch).length === 0) {
     throw new ServiceError('Nothing to change.', 'VALIDATION_ERROR', 400);
   }
@@ -969,17 +1120,26 @@ async function editContract(contractId, input, actorAuth, deps) {
  * Writes only scheduledVisits[i].completedDate, through the same repository
  * call the engineer-completion path uses. It creates no ServiceCall.
  */
-async function setVisitCompletedDate(contractId, visitIndex, completedDate, actorAuth, deps) {
+async function setVisitCompletedDate(contractId, visitIndex, completedDate, actorAuth, deps, { siteIndex = 0 } = {}) {
   assertCompanyContext(actorAuth);
   assertCanManageContracts(actorAuth, 'change a PM visit date');
 
   const contract = await deps.contractRepo.findById(actorAuth.companyId, contractId);
   if (!contract) throw new ServiceError('Contract not found.', 'NOT_FOUND', 404);
 
+  // Which site's calendar this visit belongs to (23 Nov 2026). Left out,
+  // it is the contract's own site, exactly as before.
+  const sites = sitesOf(contract);
+  const si = Number(siteIndex) || 0;
+  const site = sites[si];
+  if (!site) {
+    throw new ServiceError('There is no such site on this contract.', 'NOT_FOUND', 404);
+  }
+
   const i = Number(visitIndex);
-  const visits = contract.scheduledVisits || [];
+  const visits = site.scheduledVisits || [];
   if (!Number.isInteger(i) || i < 0 || i >= visits.length) {
-    throw new ServiceError(`There is no visit ${Number(visitIndex) + 1} on this contract.`, 'NOT_FOUND', 404);
+    throw new ServiceError(`There is no visit ${Number(visitIndex) + 1} at ${site.name || 'this site'}.`, 'NOT_FOUND', 404);
   }
 
   let value = null;
@@ -988,10 +1148,13 @@ async function setVisitCompletedDate(contractId, visitIndex, completedDate, acto
     if (Number.isNaN(d.getTime())) throw new ServiceError('Completed date is not a date.', 'VALIDATION_ERROR', 400);
     value = d;
   }
-  return deps.contractRepo.setVisitCompleted(actorAuth.companyId, contractId, i, value);
+  return deps.contractRepo.setVisitCompleted(actorAuth.companyId, contractId, i, value, undefined, si);
 }
 
 module.exports = {
+  sitesOf,
+  siteIndexFor,
+  computePmDueBySite,
   createManualContract,
   editContract,
   setVisitCompletedDate,

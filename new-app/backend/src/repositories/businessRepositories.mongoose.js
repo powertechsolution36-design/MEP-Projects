@@ -447,10 +447,17 @@ const contractRepo = {
    * (contractService.completePmVisitForContract) has already recomputed
    * the due-visit list fresh and chosen the first-due index itself.
    */
-  async setVisitCompleted(companyId, id, visitIndex, completedDate, session) {
+  async setVisitCompleted(companyId, id, visitIndex, completedDate, session, siteIndex = 0) {
+    // siteIndex 0 is the contract's own site and writes exactly where it
+    // always did; 1 and up are the extra sites added 23 Nov 2026, each
+    // carrying its own calendar.
+    const si = Number(siteIndex) || 0;
+    const path = si === 0
+      ? `scheduledVisits.${visitIndex}.completedDate`
+      : `extraSites.${si - 1}.scheduledVisits.${visitIndex}.completedDate`;
     const doc = await Contract.findOneAndUpdate(
       { _id: id, companyId },
-      { $set: { [`scheduledVisits.${visitIndex}.completedDate`]: completedDate } },
+      { $set: { [path]: completedDate } },
       { new: true, session }
     ).lean();
     return toPlainLean(doc);

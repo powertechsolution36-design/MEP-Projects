@@ -333,7 +333,10 @@ test('getRenewalOpportunities — every contract whose status is not Active, pur
 
 /* ================= Reports / CSV export ================= */
 
-test('exportContractsCsv — exact 20-column header, 4-visit-slot truncation for Monthly (Decision 5), exact totals row', async () => {
+/* The header gained one column on 23 Nov 2026 — "Other Sites" — when one
+   AMC became able to cover more than one address. The visit columns remain
+   the first site's, and the 4-slot truncation is unchanged. */
+test('exportContractsCsv — exact header, 4-visit-slot truncation for Monthly (Decision 5), exact totals row', async () => {
   const store = createEnquiryFakeStore({
     contracts: [
       baseContract({
@@ -354,7 +357,7 @@ test('exportContractsCsv — exact 20-column header, 4-visit-slot truncation for
   assert.equal(lines[0], 'AMC / Warranty & PM Report');
   assert.equal(
     lines[1],
-    'Customer,Phone,Email,Site,Capacity,Category,AMC Type,Amount,Start,End,Status,PM Due Now,1st Due,1st Done,2nd Due,2nd Done,3rd Due,3rd Done,4th Due,4th Done'
+    'Customer,Phone,Email,Site,Capacity,Category,AMC Type,Amount,Start,End,Status,PM Due Now,1st Due,1st Done,2nd Due,2nd Done,3rd Due,3rd Done,4th Due,4th Done,Other Sites'
   );
   assert.ok(!csv.includes('2026-05'), 'the 5th scheduled visit must never appear in the CSV export');
   assert.ok(!csv.includes('2026-06'), 'the 6th scheduled visit must never appear in the CSV export');
@@ -721,4 +724,163 @@ test('editContract — a wrongly tagged client can be corrected', async () => {
   });
   const fixed = await service.editContract('c1', { division: 'Solar' }, auth(), store);
   assert.equal(fixed.division, 'Solar');
+});
+
+/* ===== one AMC over more than one site (owner decision, 23 Nov 2026) =====
+   "What if the client has AMC site with 2 different location under 1 AMC —
+   example Kapil Agency has a site in Baner and Nana Peth": one contract and
+   one amount, with the visits and the machine details held per site. */
+
+test('a contract can cover several sites — one amount, a schedule each', async () => {
+  const store = createEnquiryFakeStore({ companies: [{ id: 'co1', name: 'Co' }] });
+  const a = auth({ role: 'admin' });
+
+  const made = await service.createManualContract(
+    {
+      customer: 'Kapil Agency', site: 'Baner', capacity: '12 HP', amount: 60000,
+      amcType: 'Quarterly', category: 'AMC', start: '2026-01-01', end: '2026-12-31',
+      extraSites: [{ name: 'Nana Peth', capacity: '8 HP', make: 'Daikin' }],
+    },
+    a,
+    store
+  );
+  assert.equal(made.amount, 60000, 'one AMC, one amount');
+  assert.equal(made.site, 'Baner');
+  assert.equal(made.extraSites.length, 1);
+  assert.equal(made.extraSites[0].name, 'Nana Peth');
+  assert.equal(made.extraSites[0].capacity, '8 HP');
+  // Each site has a calendar of its own, same term and frequency.
+  assert.equal(made.scheduledVisits.length, 4);
+  assert.equal(made.extraSites[0].scheduledVisits.length, 4);
+  assert.deepEqual(
+    made.extraSites[0].scheduledVisits.map((v) => v.month),
+    made.scheduledVisits.map((v) => v.month)
+  );
+
+  const sites = service.sitesOf(made);
+  assert.deepEqual(sites.map((s) => s.name), ['Baner', 'Nana Peth']);
+  assert.deepEqual(sites.map((s) => s.index), [0, 1]);
+});
+
+test('the PM due list names the site, and a visit is ticked off on that site alone', async () => {
+  const store = createEnquiryFakeStore({ companies: [{ id: 'co1', name: 'Co' }] });
+  const a = auth({ role: 'admin' });
+  const made = await service.createManualContract(
+    {
+      customer: 'Kapil Agency', site: 'Baner', amcType: 'Quarterly', category: 'AMC',
+      start: '2020-01-01', end: '2020-12-31',
+      extraSites: [{ name: 'Nana Peth' }],
+    },
+    a,
+    store
+  );
+
+  const due = await service.getPmDuePanel(a, store);
+  const mine = due.filter((r) => String(r.contractId) === String(made.id));
+  assert.equal(mine.length, 8, 'four visits overdue at each of the two sites');
+  assert.deepEqual([...new Set(mine.map((r) => r.site))].sort(), ['Baner', 'Nana Peth']);
+
+  // Tick off the first visit at Nana Peth.
+  await service.setVisitCompletedDate(made.id, 0, '2026-11-23', a, store, { siteIndex: 1 });
+  const after = await service.getContract(made.id, a, store);
+  assert.ok(after.extraSites[0].scheduledVisits[0].completedDate, 'Nana Peth is done');
+  assert.equal(after.scheduledVisits[0].completedDate, null, 'Baner is untouched');
+
+  const dueAfter = (await service.getPmDuePanel(a, store))
+    .filter((r) => String(r.contractId) === String(made.id));
+  assert.equal(dueAfter.length, 7);
+  assert.equal(dueAfter.filter((r) => r.site === 'Nana Peth').length, 3);
+});
+
+test('completing a PM call ticks off the site the engineer went to', async () => {
+  const store = createEnquiryFakeStore({ companies: [{ id: 'co1', name: 'Co' }] });
+  const a = auth({ role: 'admin' });
+  const made = await service.createManualContract(
+    {
+      customer: 'Kapil Agency', site: 'Baner', amcType: 'Quarterly', category: 'AMC',
+      start: '2020-01-01', end: '2020-12-31',
+      extraSites: [{ name: 'Nana Peth' }],
+    },
+    a,
+    store
+  );
+
+  await service.completePmVisitForContract(made.id, a, store, { siteName: 'Nana Peth' });
+  const after = await service.getContract(made.id, a, store);
+  assert.ok(after.extraSites[0].scheduledVisits[0].completedDate, 'the visit was at Nana Peth');
+  assert.equal(after.scheduledVisits[0].completedDate, null, 'so Baner is still due');
+
+  // A call with no site named, or at a site this contract does not list,
+  // falls to the contract's own site exactly as it always did.
+  await service.completePmVisitForContract(made.id, a, store, {});
+  const after2 = await service.getContract(made.id, a, store);
+  assert.ok(after2.scheduledVisits[0].completedDate);
+});
+
+test('editing the sites keeps the visits already recorded against them', async () => {
+  const store = createEnquiryFakeStore({ companies: [{ id: 'co1', name: 'Co' }] });
+  const a = auth({ role: 'admin' });
+  const made = await service.createManualContract(
+    {
+      customer: 'Kapil Agency', site: 'Baner', amcType: 'Quarterly', category: 'AMC',
+      start: '2020-01-01', end: '2020-12-31',
+      extraSites: [{ name: 'Nana Peth', capacity: '8 HP' }],
+    },
+    a,
+    store
+  );
+  await service.setVisitCompletedDate(made.id, 0, '2026-11-23', a, store, { siteIndex: 1 });
+
+  // Correcting the capacity must not throw the service history away.
+  const edited = await service.editContract(
+    made.id,
+    { extraSites: [{ name: 'Nana Peth', capacity: '10 HP', make: 'Toshiba' }] },
+    a,
+    store
+  );
+  assert.equal(edited.extraSites[0].capacity, '10 HP');
+  assert.equal(edited.extraSites[0].make, 'Toshiba');
+  assert.ok(edited.extraSites[0].scheduledVisits[0].completedDate, 'the completed visit survived');
+
+  // Leaving the sites out of an edit leaves them alone.
+  const again = await service.editContract(made.id, { capacity: '14 HP' }, a, store);
+  assert.equal(again.extraSites.length, 1);
+  assert.ok(again.extraSites[0].scheduledVisits[0].completedDate);
+
+  // A third site added later starts with a schedule of its own.
+  const three = await service.editContract(
+    made.id,
+    { extraSites: [{ name: 'Nana Peth', capacity: '10 HP' }, { name: 'Hadapsar' }] },
+    a,
+    store
+  );
+  assert.deepEqual(three.extraSites.map((x) => x.name), ['Nana Peth', 'Hadapsar']);
+  assert.equal(three.extraSites[1].scheduledVisits.length, 4);
+  assert.ok(three.extraSites[0].scheduledVisits[0].completedDate);
+});
+
+test('renewing an AMC renews every site, and keeps the period just ended', async () => {
+  const store = createEnquiryFakeStore({ companies: [{ id: 'co1', name: 'Co' }] });
+  const a = auth({ role: 'admin' });
+  const made = await service.createManualContract(
+    {
+      customer: 'Kapil Agency', site: 'Baner', amcType: 'Quarterly', category: 'AMC',
+      start: '2020-01-01', end: '2020-12-31',
+      extraSites: [{ name: 'Nana Peth' }],
+    },
+    a,
+    store
+  );
+  await service.setVisitCompletedDate(made.id, 0, '2020-02-01', a, store, { siteIndex: 1 });
+
+  const renewed = await service.renewContract(
+    made.id, { startDate: '2021-01-01', endDate: '2021-12-31' }, a, store
+  );
+  assert.equal(renewed.extraSites.length, 1);
+  assert.equal(renewed.extraSites[0].scheduledVisits.length, 4);
+  assert.equal(renewed.extraSites[0].scheduledVisits[0].completedDate, null, 'a fresh year');
+  // The year just ended is kept, both sites of it.
+  const archived = renewed.renewals[renewed.renewals.length - 1];
+  assert.equal(archived.siteVisits.length, 1);
+  assert.ok(archived.siteVisits[0][0].completedDate, 'Nana Peth’s completed visit is in the history');
 });

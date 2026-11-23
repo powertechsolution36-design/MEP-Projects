@@ -217,18 +217,36 @@ export default function ContractDetail() {
   /* The schedule and the history are two different things, so they are two
      different lists. A visit counts as completed only because a completion
      date is stored against it — never because its month has passed. */
-  const pendingVisits = (c.scheduledVisits || [])
-    .map((v, i) => ({ ...v, i }))
-    .filter((v) => !v.completedDate);
+  /* Owner decision (23 Nov 2026): one AMC may cover more than one address —
+     "Kapil Agency has a site in Baner and Nana Peth" — on one amount, with
+     the visits and the machine details held per site. The server sends the
+     sites ready-made, the contract's own first; an older contract that has
+     only ever had one site arrives as a list of one, so everything below
+     reads the same for both. */
+  const sites = c.sites && c.sites.length
+    ? c.sites
+    : [{
+      index: 0, name: c.site || '', capacity: c.capacity || '', make: c.make || '',
+      equipmentModel: c.equipmentModel || '', equipmentType: c.equipmentType || '',
+      scheduledVisits: c.scheduledVisits || [],
+    }];
+  const manySites = sites.length > 1;
+  const visitKey = (siteIndex, i) => `${siteIndex}:${i}`;
 
+  const pendingVisits = sites.flatMap((site) => (site.scheduledVisits || [])
+    .map((v, i) => ({ ...v, i, siteIndex: site.index, siteName: site.name }))
+    .filter((v) => !v.completedDate));
+
+  const periodLabel = (r) => `${r.startDate ? fmtDate(r.startDate) : '?'} \u2013 ${r.endDate ? fmtDate(r.endDate) : '?'}`;
   const completedVisits = [
-    ...(c.renewals || []).flatMap((r) => (r.visits || [])
-      .map((v, i) => ({ ...v, i, current: false,
-        period: `${r.startDate ? fmtDate(r.startDate) : '?'} \u2013 ${r.endDate ? fmtDate(r.endDate) : '?'}` }))
+    ...(c.renewals || []).flatMap((r) => [
+      ...(r.visits || []).map((v, i) => ({ ...v, i, siteIndex: 0, siteName: sites[0].name, current: false, period: periodLabel(r) })),
+      ...(r.siteVisits || []).flatMap((list, k) => (list || [])
+        .map((v, i) => ({ ...v, i, siteIndex: k + 1, siteName: (sites[k + 1] || {}).name || '', current: false, period: periodLabel(r) }))),
+    ].filter((v) => v.completedDate)),
+    ...sites.flatMap((site) => (site.scheduledVisits || [])
+      .map((v, i) => ({ ...v, i, siteIndex: site.index, siteName: site.name, current: true, period: 'This period' }))
       .filter((v) => v.completedDate)),
-    ...(c.scheduledVisits || [])
-      .map((v, i) => ({ ...v, i, current: true, period: 'This period' }))
-      .filter((v) => v.completedDate),
   ].sort((a, b) => new Date(a.completedDate) - new Date(b.completedDate));
 
   /* Owner request (29 Oct 2026): one history. A completed AMC visit belongs
@@ -237,7 +255,7 @@ export default function ContractDetail() {
      shows only what is still outstanding. Newest first. */
   const historyRows = [
     ...calls.map((r) => ({ kind: 'call', key: `c-${r.id}`, date: r.appointmentDate || r.registeredDate, r })),
-    ...completedVisits.map((v) => ({ kind: 'visit', key: `v-${v.period}-${v.i}`, date: v.completedDate, v })),
+    ...completedVisits.map((v) => ({ kind: 'visit', key: `v-${v.period}-${v.siteIndex}-${v.i}`, date: v.completedDate, v })),
   ].sort((x, y) => new Date(y.date) - new Date(x.date));
 
   /* Owner request (29 Oct 2026): correct the client's AMC details in place.
@@ -255,6 +273,14 @@ export default function ContractDetail() {
       amount: c.amount === undefined || c.amount === null ? '' : String(c.amount),
       // Owner request (5 Nov 2026): the other people at the site.
       contacts: (c.contacts || []).map((x) => ({ ...x })),
+      /* Owner decision (23 Nov 2026): the other addresses this one AMC
+         covers. A site keeps its own machine details and its own visits —
+         editing them here never touches the schedule, because the server
+         matches a site by name and keeps what it had. */
+      extraSites: (c.extraSites || []).map((x) => ({
+        name: x.name || '', capacity: x.capacity || '', make: x.make || '',
+        equipmentModel: x.equipmentModel || '', equipmentType: x.equipmentType || '',
+      })),
     });
     setShowPay(false); setShowRenew(false); setShowEdit(true);
   }
@@ -280,15 +306,20 @@ export default function ContractDetail() {
 
   /* One visit's completed date — for a service done before this app existed,
      or one recorded against the wrong month. Blank clears it. */
-  async function saveVisit(i, override) {
+  async function saveVisit(siteIndex, i, override) {
+    const key = visitKey(siteIndex, i);
     const value = override !== undefined
       ? override
-      : (visitDraft[i] !== undefined ? visitDraft[i] : '');
-    setBusyVisit(i); setError(null); setNotice('');
+      : (visitDraft[key] !== undefined ? visitDraft[key] : '');
+    setBusyVisit(key); setError(null); setNotice('');
+    const where = manySites ? ` at ${(sites[siteIndex] || {}).name || ''}` : '';
     try {
-      await api.patch(`/api/contracts/${id}/visits/${i}`, { completedDate: value === '' ? null : value });
-      setVisitDraft((p) => { const n = { ...p }; delete n[i]; return n; });
-      setNotice(value === '' ? `Visit ${i + 1} marked not done.` : `Visit ${i + 1} completed date saved.`);
+      await api.patch(`/api/contracts/${id}/visits/${i}`, {
+        completedDate: value === '' ? null : value,
+        siteIndex,
+      });
+      setVisitDraft((p) => { const n = { ...p }; delete n[key]; return n; });
+      setNotice(value === '' ? `Visit ${i + 1}${where} marked not done.` : `Visit ${i + 1}${where} completed date saved.`);
       await load();
     } catch (err) {
       setError(err.message);
@@ -445,6 +476,97 @@ export default function ContractDetail() {
             </label>
           </div>
 
+          {/* Owner decision (23 Nov 2026): one AMC, more than one address —
+              "Kapil Agency has a site in Baner and Nana Peth". One amount
+              for the contract; each site keeps its own machine details and
+              its own PM visits. */}
+          <fieldset className="contacts-field" style={{ marginTop: 12 }}>
+            <legend>Other sites under this AMC</legend>
+            <p className="muted" style={{ marginTop: 0 }}>
+              The site above is the first one. Add a branch here and it gets a PM schedule of
+              its own, on this same contract and this same amount. Removing a site removes its
+              visit history with it.
+            </p>
+            {(editForm.extraSites || []).map((row, k) => (
+              <div className="filter-grid" key={k} style={{ marginBottom: 8 }}>
+                <label className="filter-field">Site name *
+                  <input
+                    value={row.name}
+                    placeholder="e.g. Nana Peth"
+                    onChange={(e) => setEditForm((f) => {
+                      const list = [...f.extraSites];
+                      list[k] = { ...list[k], name: e.target.value };
+                      return { ...f, extraSites: list };
+                    })}
+                  />
+                </label>
+                <label className="filter-field">Capacity
+                  <input
+                    value={row.capacity}
+                    onChange={(e) => setEditForm((f) => {
+                      const list = [...f.extraSites];
+                      list[k] = { ...list[k], capacity: e.target.value };
+                      return { ...f, extraSites: list };
+                    })}
+                  />
+                </label>
+                <label className="filter-field">Make
+                  <input
+                    value={row.make}
+                    placeholder="e.g. Daikin"
+                    onChange={(e) => setEditForm((f) => {
+                      const list = [...f.extraSites];
+                      list[k] = { ...list[k], make: e.target.value };
+                      return { ...f, extraSites: list };
+                    })}
+                  />
+                </label>
+                <label className="filter-field">Model
+                  <input
+                    value={row.equipmentModel}
+                    onChange={(e) => setEditForm((f) => {
+                      const list = [...f.extraSites];
+                      list[k] = { ...list[k], equipmentModel: e.target.value };
+                      return { ...f, extraSites: list };
+                    })}
+                  />
+                </label>
+                <label className="filter-field">Type
+                  <input
+                    value={row.equipmentType}
+                    placeholder="e.g. Cassette, VRF"
+                    onChange={(e) => setEditForm((f) => {
+                      const list = [...f.extraSites];
+                      list[k] = { ...list[k], equipmentType: e.target.value };
+                      return { ...f, extraSites: list };
+                    })}
+                  />
+                </label>
+                <div className="filter-field" style={{ alignSelf: 'end' }}>
+                  <button
+                    type="button"
+                    className="btn danger sm"
+                    onClick={() => setEditForm((f) => ({
+                      ...f, extraSites: f.extraSites.filter((_, j) => j !== k),
+                    }))}
+                  >
+                    Remove this site
+                  </button>
+                </div>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="btn sec sm"
+              onClick={() => setEditForm((f) => ({
+                ...f,
+                extraSites: [...(f.extraSites || []), { name: '', capacity: '', make: '', equipmentModel: '', equipmentType: '' }],
+              }))}
+            >
+              + Add another site
+            </button>
+          </fieldset>
+
           <ContactsField
             value={editForm.contacts}
             onChange={(contacts) => setEditForm((f) => ({ ...f, contacts }))}
@@ -566,27 +688,31 @@ export default function ContractDetail() {
                   <tr key={row.key}>
                     <td className="muted">PM {row.v.i + 1}</td>
                     <td><strong>{fmtDate(row.v.completedDate)}</strong></td>
-                    <td>AMC PM visit</td>
+                    {/* Which site it was, when the AMC covers several. */}
+                    <td>AMC PM visit{manySites && row.v.siteName ? ` \u2014 ${row.v.siteName}` : ''}</td>
                     <td><span className={`status-badge ${coverageClass(c.category)}`}>{c.category}</span></td>
                     <td>—</td>
                     <td><span className="status-badge status-won">Completed</span></td>
                     <td>—</td>
                     <td>—</td>
                     <td>
-                      {row.v.current && MANAGE_ROLES.includes(role) ? (
-                        <span className="visit-edit">
-                          <input
-                            type="date"
-                            aria-label={`Completed date for visit ${row.v.i + 1}`}
-                            value={visitDraft[row.v.i] !== undefined ? visitDraft[row.v.i] : fmtDate(row.v.completedDate)}
-                            onChange={(ev) => setVisitDraft((pv) => ({ ...pv, [row.v.i]: ev.target.value }))}
-                          />
-                          <button type="button" className="btn sm sec" disabled={busyVisit === row.v.i}
-                            onClick={() => saveVisit(row.v.i)}>{busyVisit === row.v.i ? '…' : 'Save'}</button>
-                          <button type="button" className="btn sm ghost" disabled={busyVisit === row.v.i}
-                            onClick={() => saveVisit(row.v.i, '')}>Clear</button>
-                        </span>
-                      ) : null}
+                      {row.v.current && MANAGE_ROLES.includes(role) ? (() => {
+                        const vk = visitKey(row.v.siteIndex, row.v.i);
+                        return (
+                          <span className="visit-edit">
+                            <input
+                              type="date"
+                              aria-label={`Completed date for visit ${row.v.i + 1}${manySites && row.v.siteName ? ` at ${row.v.siteName}` : ''}`}
+                              value={visitDraft[vk] !== undefined ? visitDraft[vk] : fmtDate(row.v.completedDate)}
+                              onChange={(ev) => setVisitDraft((pv) => ({ ...pv, [vk]: ev.target.value }))}
+                            />
+                            <button type="button" className="btn sm sec" disabled={busyVisit === vk}
+                              onClick={() => saveVisit(row.v.siteIndex, row.v.i)}>{busyVisit === vk ? '…' : 'Save'}</button>
+                            <button type="button" className="btn sm ghost" disabled={busyVisit === vk}
+                              onClick={() => saveVisit(row.v.siteIndex, row.v.i, '')}>Clear</button>
+                          </span>
+                        );
+                      })() : null}
                     </td>
                   </tr>
                 )))}
@@ -615,16 +741,18 @@ export default function ContractDetail() {
         ) : (
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th>#</th><th>Scheduled month</th><th>Status</th><th>Record completion</th></tr></thead>
+              <thead><tr><th>#</th>{manySites && <th>Site</th>}<th>Scheduled month</th><th>Status</th><th>Record completion</th></tr></thead>
               <tbody>
                 {pendingVisits.map((v) => {
                   const due = v.month <= tm;
                   const overdue = v.month < tm;
                   const label = overdue ? 'Overdue' : due ? 'Due' : 'Upcoming';
                   const cls = overdue ? 'status-lost' : due ? 'status-pending' : 'status-open';
+                  const key = visitKey(v.siteIndex, v.i);
                   return (
-                    <tr key={v.i}>
+                    <tr key={key}>
                       <td>{v.i + 1}</td>
+                      {manySites && <td><strong>{v.siteName}</strong></td>}
                       <td>{v.month}</td>
                       <td><span className={`status-badge ${cls}`}>{label}</span></td>
                       <td>
@@ -632,12 +760,12 @@ export default function ContractDetail() {
                           <span className="visit-edit">
                             <input
                               type="date"
-                              aria-label={`Completed date for visit ${v.i + 1}`}
-                              value={visitDraft[v.i] !== undefined ? visitDraft[v.i] : ''}
-                              onChange={(ev) => setVisitDraft((p) => ({ ...p, [v.i]: ev.target.value }))}
+                              aria-label={`Completed date for visit ${v.i + 1}${manySites ? ` at ${v.siteName}` : ''}`}
+                              value={visitDraft[key] !== undefined ? visitDraft[key] : ''}
+                              onChange={(ev) => setVisitDraft((p) => ({ ...p, [key]: ev.target.value }))}
                             />
-                            <button type="button" className="btn sm sec" disabled={busyVisit === v.i}
-                              onClick={() => saveVisit(v.i)}>{busyVisit === v.i ? '\u2026' : 'Save'}</button>
+                            <button type="button" className="btn sm sec" disabled={busyVisit === key}
+                              onClick={() => saveVisit(v.siteIndex, v.i)}>{busyVisit === key ? '\u2026' : 'Save'}</button>
                           </span>
                         ) : '\u2014'}
                       </td>

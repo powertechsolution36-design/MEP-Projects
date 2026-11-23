@@ -409,11 +409,19 @@ function createEnquiryFakeStore(seed = {}) {
     async listByCompany(companyId) {
       return state.contracts.filter((c) => String(c.companyId) === String(companyId)).map((c) => cloneDeep(c));
     },
-    async setVisitCompleted(companyId, id, visitIndex, completedDate) {
+    async setVisitCompleted(companyId, id, visitIndex, completedDate, session, siteIndex = 0) {
       const doc = state.contracts.find((c) => matchesId(c, id) && String(c.companyId) === String(companyId));
       if (!doc) return null;
-      doc.scheduledVisits = doc.scheduledVisits || [];
-      if (doc.scheduledVisits[visitIndex]) doc.scheduledVisits[visitIndex].completedDate = completedDate;
+      const si = Number(siteIndex) || 0;
+      if (si === 0) {
+        doc.scheduledVisits = doc.scheduledVisits || [];
+        if (doc.scheduledVisits[visitIndex]) doc.scheduledVisits[visitIndex].completedDate = completedDate;
+      } else {
+        const extra = (doc.extraSites || [])[si - 1];
+        if (extra && (extra.scheduledVisits || [])[visitIndex]) {
+          extra.scheduledVisits[visitIndex].completedDate = completedDate;
+        }
+      }
       return cloneDeep(doc);
     },
     async update(companyId, id, patch) {

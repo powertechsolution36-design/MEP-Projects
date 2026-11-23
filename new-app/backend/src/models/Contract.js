@@ -21,6 +21,33 @@ const scheduledVisitSchema = new Schema(
   { _id: false }
 );
 
+/*
+ * A second (third, fourth) site under the SAME contract.
+ *
+ * Owner question, answered 23 Nov 2026: "What if the client has AMC site
+ * with 2 different location under 1 AMC — example Kapil Agency has a site
+ * in Baner and Nana Peth", and his decision — one AMC and one amount, but
+ * the visits and the machine details held per site, so the PM calendar
+ * still tells an engineer which site to attend.
+ *
+ * The contract's own `site`, `capacity`, `make`, `equipmentModel`,
+ * `equipmentType` and `scheduledVisits` ARE the first site. Everything
+ * written before this existed therefore remains a one-site contract with
+ * nothing to migrate, and every screen that reads `contract.site` keeps
+ * reading the same thing. These are the sites after it.
+ */
+const extraSiteSchema = new Schema(
+  {
+    name: { type: String, required: true },
+    capacity: { type: String, default: '' },
+    make: { type: String, default: '' },
+    equipmentModel: { type: String, default: '' },
+    equipmentType: { type: String, default: '' },
+    scheduledVisits: { type: [scheduledVisitSchema], default: [] },
+  },
+  { _id: false }
+);
+
 // Owner request (22 Oct 2026): the AMC is marked paid on the client, which
 // unlocks the AMC letter.
 const PAYMENT_MODES = ['Bank Transfer/NEFT', 'Cheque', 'UPI', 'Cash', 'RTGS'];
@@ -47,6 +74,9 @@ const renewalSchema = new Schema(
     amcType: { type: String },
     amount: { type: Number, default: 0 },
     visits: { type: [scheduledVisitSchema], default: [] },
+    // The other sites' visits for that period, in the order they are
+    // listed on the contract (23 Nov 2026).
+    siteVisits: { type: [[scheduledVisitSchema]], default: [] },
     payment: { type: amcPaymentSchema, default: undefined },
     renewedAt: { type: Date, required: true },
     renewedByUserId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
@@ -104,6 +134,8 @@ const contractSchema = new Schema(
     category: { type: String, enum: ['AMC', 'Warranty'], required: true }, // PWA FACT
     amount: { type: Number, default: 0 }, // PWA FACT
     scheduledVisits: { type: [scheduledVisitSchema], default: [] }, // PWA FACT — generated at creation
+    // The sites after the first one (23 Nov 2026) — see extraSiteSchema.
+    extraSites: { type: [extraSiteSchema], default: [] },
     originatingProjectId: { type: Schema.Types.ObjectId, ref: 'Project', default: null }, // PWA FACT
     payment: { type: amcPaymentSchema, default: () => ({ status: 'Pending' }) },
     renewals: { type: [renewalSchema], default: [] },

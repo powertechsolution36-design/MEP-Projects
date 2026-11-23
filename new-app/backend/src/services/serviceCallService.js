@@ -656,11 +656,19 @@ async function equipmentFromContract(serviceCall, actorAuth, deps, session) {
   if (!serviceCall || !serviceCall.contractId || !deps.contractRepo) return null;
   const contract = await deps.contractRepo.findById(actorAuth.companyId, serviceCall.contractId, session);
   if (!contract) return null;
+  /*
+   * Owner decision (23 Nov 2026): one AMC may cover several addresses, each
+   * with its own machine. The report is filled from the site this call is
+   * at — a cassette in Baner is not the VRF in Nana Peth. A call whose site
+   * the contract does not list falls back to the contract's own site, which
+   * is what every contract had before this existed.
+   */
+  const site = contractService.sitesOf(contract)[contractService.siteIndexFor(contract, serviceCall.site)];
   return {
-    make: contract.make || '',
-    model: contract.equipmentModel || '',
-    capacity: contract.capacity || '',
-    type: contract.equipmentType || '',
+    make: site.make || '',
+    model: site.equipmentModel || '',
+    capacity: site.capacity || '',
+    type: site.equipmentType || '',
   };
 }
 
@@ -1098,6 +1106,10 @@ async function completeServiceCall(id, input, actorAuth, deps) {
       // breakdown is not one of the contracted services.
       await contractService.completePmVisitForContract(updated.contractId, actorAuth, txnDeps, {
         assignedEngineerUserId: updated.engineerId,
+        // Owner decision (23 Nov 2026): one AMC may cover several
+        // addresses, so the visit is ticked off at the site this call was
+        // actually at — not at whichever site the contract lists first.
+        siteName: updated.site,
       });
     }
 

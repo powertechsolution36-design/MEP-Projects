@@ -233,7 +233,14 @@ export default function ContractList() {
                 >
                   <td>
                     <b>{c.customer || c.site || '—'}</b>
-                    {c.site && c.customer && <div className="cell-sub">{c.site}</div>}
+                    {c.site && c.customer && (
+                      <div className="cell-sub">
+                        {c.site}
+                        {/* One AMC may cover several addresses (23 Nov 2026). */}
+                        {(c.extraSites || []).length > 0
+                          && ` + ${c.extraSites.length} more site${c.extraSites.length === 1 ? '' : 's'}`}
+                      </div>
+                    )}
                   </td>
                   <td>{c.division || '—'}</td>
                   <td>
