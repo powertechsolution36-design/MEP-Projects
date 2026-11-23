@@ -884,3 +884,41 @@ test('renewing an AMC renews every site, and keeps the period just ended', async
   assert.equal(archived.siteVisits.length, 1);
   assert.ok(archived.siteVisits[0][0].completedDate, 'Nana Peth’s completed visit is in the history');
 });
+
+/*
+ * Owner, 23 Nov 2026: "Nana peth is Address not Site, it is a place in
+ * Pune." The site is the firm; the address is where it is, and it is what
+ * tells two AMC records of the same firm apart.
+ */
+test('an AMC record keeps the address the site is at, and it can be corrected', async () => {
+  const store = createEnquiryFakeStore({ companies: [{ id: 'co1', name: 'Co' }] });
+  const a = auth({ role: 'admin' });
+
+  const baner = await service.createManualContract(
+    {
+      customer: 'Rohit Gupta', site: 'Kapil Agencies Moto Central', address: 'Baner',
+      amcType: 'Quarterly', category: 'AMC', amount: 46079,
+      start: '2026-07-09', end: '2027-07-08',
+    },
+    a,
+    store
+  );
+  const nanaPeth = await service.createManualContract(
+    {
+      customer: 'Rohit Gupta', site: 'Kapil Agencies Moto Central', address: 'Nana Peth',
+      amcType: 'Quarterly', category: 'AMC', amount: 46079,
+      start: '2026-07-09', end: '2027-07-08',
+    },
+    a,
+    store
+  );
+  assert.equal(baner.address, 'Baner');
+  assert.equal(nanaPeth.address, 'Nana Peth');
+  // Two records of the same firm, told apart by where they are.
+  assert.equal(baner.site, nanaPeth.site);
+  assert.notEqual(String(baner.id), String(nanaPeth.id));
+
+  const fixed = await service.editContract(baner.id, { address: 'Baner, Pune 411045' }, a, store);
+  assert.equal(fixed.address, 'Baner, Pune 411045');
+  assert.equal(fixed.site, 'Kapil Agencies Moto Central', 'the firm is untouched');
+});

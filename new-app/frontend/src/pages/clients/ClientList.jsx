@@ -15,7 +15,7 @@ import { useAuth } from '../../auth/AuthContext';
 import ContactsField from '../../components/ContactsField';
 
 const BLANK = {
-  companyName: '', clientName: '', designation: '', phone: '', sites: [],
+  companyName: '', clientName: '', designation: '', phone: '', otherAddresses: [],
   gst: '', address: '', email: '', notes: '', contacts: [],
 };
 
@@ -289,39 +289,40 @@ export default function ClientList() {
               </div>
 
               {/* Owner request (23 Nov 2026), pointing at the AMC record's
-                  own list: "put this option in Client". A firm is often in
-                  more than one place — Kapil Agencies Moto Central at Baner
-                  and at Nana Peth — and this is the directory saying so.
-                  The AMC records stay one per site; this changes none of
-                  them. */}
+                  own list: "put this option in Client" — and his correction
+                  of my wording: "Nana Peth is Address not Site, it is a
+                  place in Pune". The SITE is the firm; these are the places
+                  it is at. The AMC records stay one per address; this
+                  changes none of them. */}
               <fieldset className="contacts-field">
-                <legend>Other sites under this client</legend>
+                <legend>Other addresses for this client</legend>
                 <p className="muted" style={{ marginTop: 0 }}>
-                  Where else this firm is. Their AMC records stay one per site — this is
-                  only the list of places, so the office can see them on the client.
+                  Where else this firm is — Baner, Nana Peth. Their AMC records stay one per
+                  address; this is only the list of places, so the office can see them here.
                 </p>
-                {(form.sites || []).map((row, k) => (
+                {(form.otherAddresses || []).map((row, k) => (
                   <div className="filter-grid" key={k} style={{ marginBottom: 8 }}>
                     <div className="filter-field">
-                      <label>Site</label>
+                      <label>Address</label>
                       <input
-                        value={row.name}
+                        value={row.address}
                         placeholder="e.g. Nana Peth"
                         onChange={(e) => setForm((f) => {
-                          const list = [...(f.sites || [])];
-                          list[k] = { ...list[k], name: e.target.value };
-                          return { ...f, sites: list };
+                          const list = [...(f.otherAddresses || [])];
+                          list[k] = { ...list[k], address: e.target.value };
+                          return { ...f, otherAddresses: list };
                         })}
                       />
                     </div>
                     <div className="filter-field">
-                      <label>Address</label>
+                      <label>Called</label>
                       <input
-                        value={row.address || ''}
+                        value={row.label || ''}
+                        placeholder="optional, e.g. Branch office"
                         onChange={(e) => setForm((f) => {
-                          const list = [...(f.sites || [])];
-                          list[k] = { ...list[k], address: e.target.value };
-                          return { ...f, sites: list };
+                          const list = [...(f.otherAddresses || [])];
+                          list[k] = { ...list[k], label: e.target.value };
+                          return { ...f, otherAddresses: list };
                         })}
                       />
                     </div>
@@ -330,7 +331,7 @@ export default function ClientList() {
                         type="button"
                         className="btn danger sm"
                         onClick={() => setForm((f) => ({
-                          ...f, sites: (f.sites || []).filter((_, j) => j !== k),
+                          ...f, otherAddresses: (f.otherAddresses || []).filter((_, j) => j !== k),
                         }))}
                       >
                         Remove
@@ -341,9 +342,11 @@ export default function ClientList() {
                 <button
                   type="button"
                   className="btn sec sm"
-                  onClick={() => setForm((f) => ({ ...f, sites: [...(f.sites || []), { name: '', address: '' }] }))}
+                  onClick={() => setForm((f) => ({
+                    ...f, otherAddresses: [...(f.otherAddresses || []), { address: '', label: '' }],
+                  }))}
                 >
-                  + Add another site
+                  + Add another address
                 </button>
               </fieldset>
 

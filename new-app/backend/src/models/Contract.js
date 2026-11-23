@@ -102,7 +102,16 @@ const contractSchema = new Schema(
       validate: { validator: maxContacts, message: `A client has at most ${MAX_CONTACTS} contacts.` },
     },
     email: { type: String }, // PWA FACT
-    site: { type: String, required: true }, // PWA FACT
+    site: { type: String, required: true }, // PWA FACT — the firm, in the owner's words
+    /*
+     * Where that site is (owner, 23 Nov 2026): "Nana peth is Address not
+     * Site, it is a place in Pune." Kapil Agencies Moto Central is the
+     * site; Baner and Nana Peth are the addresses it is at, and the two
+     * AMC records are told apart by this. Optional: every contract written
+     * before this existed has none, and those are left for staff to fill
+     * rather than guessed at.
+     */
+    address: { type: String, default: '' },
     capacity: { type: String }, // PWA FACT
     /*
      * Owner request (19 Nov 2026): "Use detail from AMC/PM list of AMC

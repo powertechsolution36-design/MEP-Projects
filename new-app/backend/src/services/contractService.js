@@ -400,6 +400,8 @@ async function createManualContract(input, actorAuth, deps) {
     contacts,
     email: (input && input.email) || '',
     site,
+    // Where that site is — Baner, Nana Peth (owner, 23 Nov 2026).
+    address: (input && input.address) || '',
     capacity: (input && input.capacity) || '',
     // The machine under cover (owner request, 19 Nov 2026) — it fills the
     // service report of every visit to this client.
@@ -822,6 +824,7 @@ async function searchClients(actorAuth, { q = '', limit = 25 } = {}, deps) {
       customer: c.customer || '',
       phone: c.phone || '',
       site: c.site || '',
+      address: c.address || '',
       capacity: c.capacity || '',
       make: c.make || '',
       equipmentModel: c.equipmentModel || '',
@@ -1006,7 +1009,8 @@ async function completePmVisitForContract(contractId, actorAuth, deps, { assigne
  *     time through setVisitCompletedDate below.
  */
 const EDITABLE = Object.freeze([
-  'customer', 'phone', 'email', 'site', 'capacity', 'amcType', 'category', 'amount',
+  // 'address' is where the site is (owner, 23 Nov 2026) — Baner, Nana Peth.
+  'customer', 'phone', 'email', 'site', 'address', 'capacity', 'amcType', 'category', 'amount',
   // The machine under cover (owner request, 19 Nov 2026).
   'make', 'equipmentModel', 'equipmentType',
   // Owner request (14 Nov 2026): a client tagged to the wrong side of the

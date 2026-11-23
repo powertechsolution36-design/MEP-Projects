@@ -237,7 +237,10 @@ export default function ContractList() {
                     <b>{c.customer || c.site || '—'}</b>
                     {c.site && c.customer && (
                       <div className="cell-sub">
-                        {c.site}
+                        {/* The firm, then where it is (owner, 23 Nov 2026) —
+                            which is what tells two records of the same firm
+                            apart. */}
+                        {c.site}{c.address ? ` \u00b7 ${c.address}` : ''}
                         {/* One AMC may cover several addresses (23 Nov 2026). */}
                         {(c.extraSites || []).length > 0
                           && ` + ${c.extraSites.length} more site${c.extraSites.length === 1 ? '' : 's'}`}

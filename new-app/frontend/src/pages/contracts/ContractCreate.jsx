@@ -45,6 +45,8 @@ export default function ContractCreate() {
     phone: '',
     email: '',
     site: '',
+    // Where the site is (owner, 23 Nov 2026): Baner, Nana Peth.
+    address: '',
     capacity: '',
     make: '',
     equipmentModel: '',
@@ -144,10 +146,14 @@ export default function ContractCreate() {
                 setPickedClient(c);
                 setForm((f) => ({
                   ...f,
-                  customer: c.companyName || c.clientName || f.customer,
+                  // His words (23 Nov 2026): the firm is the Site, the
+                  // person is the Customer Name, and where it is is the
+                  // Address.
+                  customer: c.clientName || c.companyName || f.customer,
                   phone: f.phone || c.phone || '',
                   email: f.email || c.email || '',
-                  site: f.site || c.address || '',
+                  site: f.site || c.companyName || '',
+                  address: f.address || c.address || '',
                   contacts: (f.contacts || []).some((r) => r.name) ? f.contacts : (c.contacts || []),
                 }));
               }}
@@ -170,6 +176,12 @@ export default function ContractCreate() {
                 onChange={e => setField('site', e.target.value)}
                 required
               />
+            </div>
+            <div className="filter-field">
+              {/* Owner, 23 Nov 2026: the site is the firm, the address is
+                  where it is — Baner, Nana Peth. */}
+              <label>Address</label>
+              <input value={form.address || ''} placeholder="e.g. Baner" onChange={e => setField('address', e.target.value)} />
             </div>
             <div className="filter-field">
               <label>Capacity</label>

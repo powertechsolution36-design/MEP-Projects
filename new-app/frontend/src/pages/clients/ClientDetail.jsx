@@ -172,13 +172,14 @@ export default function ClientDetail() {
           </div>
         )}
         {/* Owner request (23 Nov 2026): the firm's other places, listed on
-            the client itself. */}
-        {(c.sites || []).length > 0 && (
+            the client itself. His words: Nana Peth is an address, not a
+            site — the site is the firm. */}
+        {(c.otherAddresses || []).length > 0 && (
           <div style={{ marginTop: 10 }}>
-            <strong>Other sites</strong>
-            {c.sites.map((x, k) => (
+            <strong>Other addresses</strong>
+            {c.otherAddresses.map((x, k) => (
               <div key={k} style={{ fontSize: 13 }}>
-                {x.name}{x.address ? ` \u00b7 ${x.address}` : ''}
+                {x.address}{x.label ? ` \u00b7 ${x.label}` : ''}
               </div>
             ))}
           </div>

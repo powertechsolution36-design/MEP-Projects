@@ -54,28 +54,30 @@ const clientSchema = new Schema(
     },
 
     /*
-     * The client's other sites (owner request, 23 Nov 2026 — he pointed at
-     * the AMC record's own list and said "put this option in Client").
+     * The client's other addresses (owner request, 23 Nov 2026 — he
+     * pointed at the AMC record's own list and said "put this option in
+     * Client", then corrected my wording: "Nana Peth is Address not Site,
+     * it is a place in Pune").
      *
      * A firm is often in more than one place: Kapil Agencies Moto Central
-     * is at Baner and at Nana Peth. This is the directory's own list of
-     * those places, so the office can see them all on the client without
-     * opening every AMC record. It is a list of addresses, nothing more —
-     * what is under cover at each, and the PM visits, belong to the AMC
-     * records, which stay one per site.
+     * is at Baner and at Nana Peth. The SITE is the firm; these are the
+     * places it is at. The directory keeps them so the office can see them
+     * all on the client without opening every AMC record — what is under
+     * cover at each, and the PM visits, belong to the AMC records, which
+     * stay one per address.
      */
-    sites: {
+    otherAddresses: {
       type: [new Schema(
         {
-          name: { type: String, required: true, trim: true },
-          address: { type: String, default: '', trim: true },
+          address: { type: String, required: true, trim: true },
+          label: { type: String, default: '', trim: true },
         },
         { _id: false }
       )],
       default: [],
       validate: {
         validator: (list) => !list || list.length <= 25,
-        message: 'A client has at most 25 sites.',
+        message: 'A client has at most 25 addresses.',
       },
     },
 
