@@ -6,6 +6,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { money, fmtDate } from '../../utils/format';
 import { todayKey } from '../../utils/platform';
 import { divisionClass } from '../../utils/divisions';
+import SortSelect, { sortRows } from '../../components/SortSelect';
 
 /**
  * Project List — PWA `vProjects()` (MEP_PROJECTS_PWA/index.html:2089-2109).
@@ -38,6 +39,8 @@ export default function ProjectList() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [projects, setProjects] = useState([]);
+  // Owner request (23 Nov 2026): A–Z, Z–A, newest, oldest.
+  const [sort, setSort] = useState('');
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -110,6 +113,8 @@ export default function ProjectList() {
       <div className="proj-header">
         <h2>🏗️ {divisionLabel ? `${divisionLabel} Projects` : 'Projects'}</h2>
         <div className="proj-actions">
+          {/* Owner request (23 Nov 2026): the sort, on the right. */}
+          <SortSelect value={sort} onChange={setSort} />
           {canExport && <button className="btn sec sm" onClick={handleExport}>📥 Report</button>}
         </div>
       </div>
@@ -161,7 +166,7 @@ export default function ProjectList() {
               </tr>
             </thead>
             <tbody>
-              {projects.map((p) => {
+              {sortRows(projects, sort, { name: (p) => p.name, date: (p) => p.createdAt }).map((p) => {
                 const overdue = p.overduePoints || 0;
                 const pay = p.payment;
                 const pendingReturn = p.materialPendingReturn || 0;

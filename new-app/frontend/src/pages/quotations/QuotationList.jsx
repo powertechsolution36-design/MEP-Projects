@@ -4,6 +4,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { api } from '../../api/client';
 import { money, fmtDate } from '../../utils/format';
 import DivisionSelector from '../../components/DivisionSelector';
+import SortSelect, { sortRows } from '../../components/SortSelect';
 
 /**
  * Quotation list — admin, sales, finance, and the three division Managers
@@ -25,6 +26,8 @@ export default function QuotationList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
+  // Owner request (23 Nov 2026): A–Z, Z–A, newest, oldest.
+  const [sort, setSort] = useState('');
   const [divFilter, setDivFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
@@ -86,7 +89,9 @@ export default function QuotationList() {
     <div className="enq-page">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h2>Quotations</h2>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {/* Owner request (23 Nov 2026): the sort, on the right. */}
+          <SortSelect value={sort} onChange={setSort} />
           {/* The export is the whole register, so it stays with the
               commercial roles — a Manager's is one division's. */}
           {canCreate && <button className="btn sec sm" onClick={handleExportCsv}>Export CSV</button>}
@@ -124,7 +129,7 @@ export default function QuotationList() {
           <tbody>
             {filtered.length === 0 ? (
               <tr><td colSpan={7} style={{ textAlign: 'center', color: '#888' }}>No quotations found.</td></tr>
-            ) : filtered.map(q => (
+            ) : sortRows(filtered, sort, { name: (q) => q.customerName, date: (q) => q.date || q.createdAt }).map(q => (
               <tr key={q.id} onClick={() => navigate(`/quotations/${q.id}`)} style={{ cursor: 'pointer' }}>
                 <td><strong>{q.quotationNumber}</strong></td>
                 <td>{fmtDate(q.date)}</td>

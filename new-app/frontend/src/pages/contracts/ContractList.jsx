@@ -4,6 +4,7 @@ import { api, getStoredToken, assertDownloadOk } from '../../api/client';
 import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../auth/AuthContext';
 import { fmtDate } from '../../utils/format';
+import SortSelect, { sortRows } from '../../components/SortSelect';
 
 /**
  * AMC / Warranty clients.
@@ -110,11 +111,20 @@ export default function ContractList() {
     'PM due': rows.filter((r) => r.pmDue > 0).length,
   }), [rows]);
 
+  // Owner request (23 Nov 2026): A–Z, Z–A, newest, oldest — on the right.
+  const [sort, setSort] = useState('');
+
   const shown = useMemo(() => {
-    if (filter === 'All') return rows;
-    if (filter === 'PM due') return rows.filter((r) => r.pmDue > 0);
-    return rows.filter((r) => r.status === filter);
-  }, [rows, filter]);
+    const picked = filter === 'All' ? rows
+      : filter === 'PM due' ? rows.filter((r) => r.pmDue > 0)
+        : rows.filter((r) => r.status === filter);
+    // A–Z is the firm, and the address after it, so two records of the
+    // same firm stay together and in a sensible order.
+    return sortRows(picked, sort, {
+      name: (r) => `${r.c.site || r.c.customer || ''} ${r.c.address || ''}`,
+      date: (r) => r.c.createdAt,
+    });
+  }, [rows, filter, sort]);
 
   /* PWA FACT: export and creation are admin/service_mgr only (MANAGE_ROLES). */
   const canManage = ['admin', 'service_mgr', 'solar_pm'].includes(user?.role);
@@ -148,6 +158,9 @@ export default function ContractList() {
       <div className="enq-header">
         <h2>AMC / Warranty Clients</h2>
         <div className="enq-actions">
+          {/* Owner request (23 Nov 2026): the sort, on the right. A–Z here
+              is the firm's name; newest is when the record was made. */}
+          <SortSelect value={sort} onChange={setSort} />
           {canManage && (
             <button className="btn pri" onClick={() => navigate('/contracts/new')}>+ New AMC</button>
           )}

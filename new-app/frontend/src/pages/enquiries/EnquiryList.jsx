@@ -5,6 +5,7 @@ import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../auth/AuthContext';
 import { todayKey } from '../../utils/platform';
 import { EnquiryFilterPanel, EnquiryTable, filterParams } from './EnquiryFilterPanel';
+import SortSelect, { sortRows } from '../../components/SortSelect';
 
 /**
  * Enquiry List — PWA `vEnqs()` / `enqTable()` exact reproduction.
@@ -30,6 +31,8 @@ export default function EnquiryList() {
   const [searchParams] = useSearchParams();
   const [filters, setFilters] = useState(() => (searchParams.get('segment') ? { segment: searchParams.get('segment') } : {}));
   const [showFilters, setShowFilters] = useState(() => Boolean(searchParams.get('segment')));
+  // Owner request (23 Nov 2026): A–Z, Z–A, newest, oldest.
+  const [sort, setSort] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -82,6 +85,8 @@ export default function EnquiryList() {
       <div className="enq-header">
         <h2>📋 Enquiries</h2>
         <div className="enq-actions">
+          {/* Owner request (23 Nov 2026): the sort, on the right. */}
+          <SortSelect value={sort} onChange={setSort} />
           <button className="btn sec sm" onClick={() => setShowFilters(!showFilters)}>
             🔎 {showFilters ? 'Hide Filters' : 'Filters'}
           </button>
@@ -111,7 +116,7 @@ export default function EnquiryList() {
         <p className="muted">No enquiries found.</p>
       ) : (
         <EnquiryTable
-          rows={enquiries}
+          rows={sortRows(enquiries, sort, { name: (e) => e.name, date: (e) => e.createdAt })}
           todayKey={todayKey()}
           onOpen={(e) => navigate(`/enquiries/${e.id}`)}
           /* Owner request (20 Nov 2026): "admin can see all Enquiries with

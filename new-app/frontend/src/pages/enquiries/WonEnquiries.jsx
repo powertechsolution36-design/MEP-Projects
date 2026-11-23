@@ -5,6 +5,7 @@ import { API_BASE_URL } from '../../config';
 import { money, fmtDate } from '../../utils/format';
 import { todayKey } from '../../utils/platform';
 import { EnquiryFilterPanel, EnquiryTable, filterParams } from './EnquiryFilterPanel';
+import SortSelect, { sortRows } from '../../components/SortSelect';
 
 /**
  * Won Enquiries — owner request (20 Nov 2026): "Won enquiries should moved
@@ -29,6 +30,8 @@ export default function WonEnquiries() {
   const [error, setError] = useState(null);
   const [filters, setFilters] = useState({});
   const [showFilters, setShowFilters] = useState(false);
+  // Owner request (23 Nov 2026): A–Z, Z–A, newest, oldest.
+  const [sort, setSort] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -77,7 +80,7 @@ export default function WonEnquiries() {
   }
 
   // Newest first, as on the Lost screen.
-  const ordered = [...rows].reverse();
+  const ordered = sortRows([...rows].reverse(), sort, { name: (e) => e.name, date: (e) => e.createdAt });
   const wonValue = unfiltered.reduce((a, b) => a + (b.estimatedValue || 0), 0);
   const filteredValue = rows.reduce((a, b) => a + (b.estimatedValue || 0), 0);
   const today = todayKey();
@@ -87,6 +90,8 @@ export default function WonEnquiries() {
       <div className="enq-header">
         <h2>🏆 Won Enquiries</h2>
         <div className="enq-actions">
+          {/* Owner request (23 Nov 2026): the sort, on the right. */}
+          <SortSelect value={sort} onChange={setSort} />
           {/* Owner request (21 Nov 2026): "This quotation option not required
               move this inside Won enquiries." The register left the menu, so
               it lives here — and it is the only way to reach a quotation

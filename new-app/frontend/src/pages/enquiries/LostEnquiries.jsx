@@ -5,6 +5,7 @@ import { API_BASE_URL } from '../../config';
 import { money, fmtDate } from '../../utils/format';
 import { todayKey } from '../../utils/platform';
 import { EnquiryFilterPanel, EnquiryTable, filterParams } from './EnquiryFilterPanel';
+import SortSelect, { sortRows } from '../../components/SortSelect';
 
 /**
  * Lost Enquiries — PWA `vLost()` (MEP_PROJECTS_PWA/index.html:1889-1900).
@@ -42,6 +43,8 @@ export default function LostEnquiries() {
   const [error, setError] = useState(null);
   const [filters, setFilters] = useState({});
   const [showFilters, setShowFilters] = useState(false);
+  // Owner request (23 Nov 2026): A–Z, Z–A, newest, oldest.
+  const [sort, setSort] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -92,7 +95,7 @@ export default function LostEnquiries() {
   }
 
   // PWA FACT (index.html:1891): newest first.
-  const ordered = [...rows].reverse();
+  const ordered = sortRows([...rows].reverse(), sort, { name: (e) => e.name, date: (e) => e.createdAt });
   const lostValue = unfiltered.reduce((a, b) => a + (b.estimatedValue || 0), 0);
   const filteredValue = rows.reduce((a, b) => a + (b.estimatedValue || 0), 0);
   const today = todayKey();
@@ -102,6 +105,8 @@ export default function LostEnquiries() {
       <div className="enq-header">
         <h2>❌ Lost Enquiries</h2>
         <div className="enq-actions">
+          {/* Owner request (23 Nov 2026): the sort, on the right. */}
+          <SortSelect value={sort} onChange={setSort} />
           <button className="btn sec sm" onClick={() => setShowFilters(!showFilters)}>
             🔎 {showFilters ? 'Hide Filters' : 'Filters'}
           </button>

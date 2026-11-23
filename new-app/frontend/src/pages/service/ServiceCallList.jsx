@@ -4,6 +4,7 @@ import { api, getStoredToken, assertDownloadOk } from '../../api/client';
 import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../auth/AuthContext';
 import { money, fmtDate } from '../../utils/format';
+import SortSelect, { sortRows } from '../../components/SortSelect';
 
 /**
  * Service Call List — PWA `viewServiceCalls()` exact reproduction.
@@ -64,6 +65,8 @@ export default function ServiceCallList() {
   const [search, setSearch] = useState('');
   // '' is every status, banded. A chip narrows it to one band.
   const [statusFilter, setStatusFilter] = useState('');
+  // Owner request (23 Nov 2026): A–Z, Z–A, newest, oldest.
+  const [sort, setSort] = useState('');
   /*
    * Owner request (20 Nov 2026): "add quick time and date filter also for
    * Scheduled Service/PM." One tap for today, tomorrow or the next seven
@@ -197,7 +200,12 @@ export default function ServiceCallList() {
   const bandOrder = [...STATUS_ORDER, ...Object.keys(byStatus).filter((st) => !STATUS_ORDER.includes(st))];
   const shownBands = bandOrder
     .filter((st) => (statusFilter ? st === statusFilter : true))
-    .map((st) => [st, byStatus[st]])
+    // The chosen order applies within a band (owner request, 23 Nov 2026):
+    // A–Z is the customer, newest is when the call was registered.
+    .map((st) => [st, sortRows(byStatus[st], sort, {
+      name: (c) => c.customer || c.site,
+      date: (c) => c.registeredDate || c.createdAt,
+    })])
     .filter(([, rows]) => rows.length > 0);
 
   /* Role gate: only MANAGE_ROLES can see the list (PWA exact) */
@@ -216,6 +224,10 @@ export default function ServiceCallList() {
       <div className="enq-header">
         <h2>Service Calls</h2>
         <div className="enq-actions">
+          {/* Owner request (23 Nov 2026): the sort, on the right. It orders
+              the calls INSIDE each status band; the bands themselves keep
+              their own order, which is what the screen is built around. */}
+          <SortSelect value={sort} onChange={setSort} />
           <button className="btn pri" onClick={() => navigate('/service-calls/new')}>
             + Register Complaint
           </button>

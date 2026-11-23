@@ -13,6 +13,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import ContactsField from '../../components/ContactsField';
+import SortSelect, { sortRows } from '../../components/SortSelect';
 
 const BLANK = {
   companyName: '', clientName: '', designation: '', phone: '', otherAddresses: [],
@@ -62,8 +63,13 @@ export default function ClientList() {
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState(null); // null = closed; {} = adding; {id} = editing
   const [importNote, setImportNote] = useState('');
+  // Owner request (23 Nov 2026): A–Z, Z–A, newest, oldest.
+  const [sort, setSort] = useState('');
 
   const canDelete = user?.role === 'admin';
+  /* The rows in the chosen order — the firm's name is what A–Z means here,
+     falling back to the person when a client has no firm. */
+  const shown = sortRows(clients, sort, { name: (c) => c.companyName || c.clientName });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -145,7 +151,9 @@ export default function ClientList() {
     <div className="enq-page">
       <div className="detail-head">
         <h2>Clients</h2>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* Owner request (23 Nov 2026): the sort, on the right. */}
+          <SortSelect value={sort} onChange={setSort} />
           <button className="btn sec sm" onClick={importAmc} disabled={busy}>
             ⬇ Add from AMC / PM list
           </button>
@@ -195,7 +203,7 @@ export default function ClientList() {
                 {clients.length === 0 && (
                   <tr><td colSpan={6} className="muted">No clients yet. Add one, or bring in the AMC / PM list.</td></tr>
                 )}
-                {clients.map((c) => (
+                {shown.map((c) => (
                   // Owner request (17 Nov 2026): clicking the client opens
                   // them. The row IS the link, the same as the service call,
                   // project and sales order registers — there is no Open

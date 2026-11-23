@@ -4,6 +4,7 @@ import { api, getStoredToken, assertDownloadOk } from '../../api/client';
 import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../auth/AuthContext';
 import { money } from '../../utils/format';
+import SortSelect, { sortRows } from '../../components/SortSelect';
 
 /**
  * Sales Order List — PWA `vSOs()` exact reproduction.
@@ -19,6 +20,8 @@ export default function SalesOrderList() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [orders, setOrders] = useState([]);
+  // Owner request (23 Nov 2026): A–Z, Z–A, newest, oldest.
+  const [sort, setSort] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
@@ -69,6 +72,8 @@ export default function SalesOrderList() {
       <div className="so-header">
         <h2>🧾 Sales Orders</h2>
         <div className="so-actions">
+          {/* Owner request (23 Nov 2026): the sort, on the right. */}
+          <SortSelect value={sort} onChange={setSort} />
           <button className="btn sec sm" onClick={handleExport}>📥 Export CSV</button>
           {/* PWA FACT: "+ New SO" button only for sales/admin */}
           {canCreate && (
@@ -106,7 +111,7 @@ export default function SalesOrderList() {
               </tr>
             </thead>
             <tbody>
-              {orders.map(so => (
+              {sortRows(orders, sort, { name: (so) => so.projectName, date: (so) => so.createdAt }).map(so => (
                 <tr key={so.id} className="clickable-row" onClick={() => navigate(`/sales-orders/${so.id}`)}>
                   <td>SO-{so.orderNumber}</td>
                   <td>{so.projectName}</td>
