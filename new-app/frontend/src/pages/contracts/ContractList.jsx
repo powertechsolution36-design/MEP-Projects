@@ -118,10 +118,13 @@ export default function ContractList() {
     const picked = filter === 'All' ? rows
       : filter === 'PM due' ? rows.filter((r) => r.pmDue > 0)
         : rows.filter((r) => r.status === filter);
-    // A–Z is the firm, and the address after it, so two records of the
-    // same firm stay together and in a sensible order.
+    /* Owner (23 Nov 2026): "sort it according to the bold text, according
+       to customer name." The bold line on a row is the Customer Name, so
+       that is what A–Z follows; the site and address under it only break a
+       tie, which keeps two records of the same customer together and in a
+       sensible order between themselves. */
     return sortRows(picked, sort, {
-      name: (r) => `${r.c.site || r.c.customer || ''} ${r.c.address || ''}`,
+      name: (r) => `${r.c.customer || r.c.site || ''} ${r.c.site || ''} ${r.c.address || ''}`,
       date: (r) => r.c.createdAt,
     });
   }, [rows, filter, sort]);
