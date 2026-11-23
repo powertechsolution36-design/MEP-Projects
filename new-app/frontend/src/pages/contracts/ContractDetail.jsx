@@ -273,14 +273,6 @@ export default function ContractDetail() {
       amount: c.amount === undefined || c.amount === null ? '' : String(c.amount),
       // Owner request (5 Nov 2026): the other people at the site.
       contacts: (c.contacts || []).map((x) => ({ ...x })),
-      /* Owner decision (23 Nov 2026): the other addresses this one AMC
-         covers. A site keeps its own machine details and its own visits —
-         editing them here never touches the schedule, because the server
-         matches a site by name and keeps what it had. */
-      extraSites: (c.extraSites || []).map((x) => ({
-        name: x.name || '', capacity: x.capacity || '', make: x.make || '',
-        equipmentModel: x.equipmentModel || '', equipmentType: x.equipmentType || '',
-      })),
     });
     setShowPay(false); setShowRenew(false); setShowEdit(true);
   }
@@ -495,97 +487,15 @@ export default function ContractDetail() {
             </label>
           </div>
 
-          {/* Owner decision (23 Nov 2026): one AMC, more than one address —
-              "Kapil Agency has a site in Baner and Nana Peth". One amount
-              for the contract; each site keeps its own machine details and
-              its own PM visits. */}
-          <fieldset className="contacts-field" style={{ marginTop: 12 }}>
-            <legend>Other addresses under this AMC</legend>
-            <p className="muted" style={{ marginTop: 0 }}>
-              Only if ONE contract covers more than one address. Your AMC records stay one
-              per address, so leave this empty unless a single contract really does cover two
-              places. An address added here gets a PM visit schedule of its own on this same
-              contract; removing it removes its visit history with it.
-            </p>
-            {(editForm.extraSites || []).map((row, k) => (
-              <div className="filter-grid" key={k} style={{ marginBottom: 8 }}>
-                <label className="filter-field">Address *
-                  <input
-                    value={row.name}
-                    placeholder="e.g. Nana Peth"
-                    onChange={(e) => setEditForm((f) => {
-                      const list = [...f.extraSites];
-                      list[k] = { ...list[k], name: e.target.value };
-                      return { ...f, extraSites: list };
-                    })}
-                  />
-                </label>
-                <label className="filter-field">Capacity
-                  <input
-                    value={row.capacity}
-                    onChange={(e) => setEditForm((f) => {
-                      const list = [...f.extraSites];
-                      list[k] = { ...list[k], capacity: e.target.value };
-                      return { ...f, extraSites: list };
-                    })}
-                  />
-                </label>
-                <label className="filter-field">Make
-                  <input
-                    value={row.make}
-                    placeholder="e.g. Daikin"
-                    onChange={(e) => setEditForm((f) => {
-                      const list = [...f.extraSites];
-                      list[k] = { ...list[k], make: e.target.value };
-                      return { ...f, extraSites: list };
-                    })}
-                  />
-                </label>
-                <label className="filter-field">Model
-                  <input
-                    value={row.equipmentModel}
-                    onChange={(e) => setEditForm((f) => {
-                      const list = [...f.extraSites];
-                      list[k] = { ...list[k], equipmentModel: e.target.value };
-                      return { ...f, extraSites: list };
-                    })}
-                  />
-                </label>
-                <label className="filter-field">Type
-                  <input
-                    value={row.equipmentType}
-                    placeholder="e.g. Cassette, VRF"
-                    onChange={(e) => setEditForm((f) => {
-                      const list = [...f.extraSites];
-                      list[k] = { ...list[k], equipmentType: e.target.value };
-                      return { ...f, extraSites: list };
-                    })}
-                  />
-                </label>
-                <div className="filter-field" style={{ alignSelf: 'end' }}>
-                  <button
-                    type="button"
-                    className="btn danger sm"
-                    onClick={() => setEditForm((f) => ({
-                      ...f, extraSites: f.extraSites.filter((_, j) => j !== k),
-                    }))}
-                  >
-                    Remove this address
-                  </button>
-                </div>
-              </div>
-            ))}
-            <button
-              type="button"
-              className="btn sec sm"
-              onClick={() => setEditForm((f) => ({
-                ...f,
-                extraSites: [...(f.extraSites || []), { name: '', capacity: '', make: '', equipmentModel: '', equipmentType: '' }],
-              }))}
-            >
-              + Add another address
-            </button>
-          </fieldset>
+          {/* The "other addresses under this AMC" box was taken off this
+              screen on the owner's instruction (23 Nov 2026): his AMC
+              records are one per address — "Kapil Agencies Baner is
+              different and Kapil Agencies Nana Peth" — so an editor for
+              putting two addresses on one contract only invited his team to
+              record them the wrong way. A contract that already carries
+              more than one address still works and still shows each
+              address's visits below; there is simply no way to make a new
+              one from here. */}
 
           <ContactsField
             value={editForm.contacts}
