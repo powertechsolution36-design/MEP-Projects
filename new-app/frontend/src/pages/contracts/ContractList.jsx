@@ -141,6 +141,30 @@ export default function ContractList() {
    * stay, they simply stop being AMC calls.
    */
   const canDelete = user?.role === 'admin';
+  /*
+   * Owner request (23 Nov 2026): "add Enquiries option to Expired AMC and
+   * Expiring AMC only." A cover that is running has nothing to chase; one
+   * that is ending or has ended is a renewal to be sold, so the row offers
+   * to raise it as a lead with what we already know about the client filled
+   * in. The roles that may raise an enquiry are the ones that see it.
+   */
+  const canRaiseEnquiry = ['admin', 'sales', 'solar_pm'].includes(user?.role);
+  function raiseEnquiry(c, status) {
+    const until = c.endDate ? fmtDate(c.endDate) : '';
+    const query = new URLSearchParams({
+      name: [c.site, c.address].filter(Boolean).join(' - ') || c.customer || '',
+      phone: c.phone || '',
+      capacity: c.capacity || '',
+      source: 'AMC renewal',
+      remark: `${c.category || 'AMC'} ${status === 'Expired' ? 'expired' : 'expiring'}`
+        + `${until ? ` (covered until ${until})` : ''}`
+        + `${c.customer ? ` \u2014 ${c.customer}` : ''}`,
+    });
+    // The segment picker only offers this login's divisions plus AMC, so a
+    // contract with no division is left for them to choose.
+    if (c.division) query.set('segment', c.division);
+    navigate(`/enquiries/new?${query.toString()}`);
+  }
   async function handleDelete(c) {
     const naming = [c.site || c.customer || 'this AMC record', c.address].filter(Boolean).join(' \u00b7 ');
     if (!window.confirm(
@@ -259,6 +283,7 @@ export default function ContractList() {
                 <th>Cover</th>
                 <th>Covered until</th>
                 <th>Status</th>
+                {canRaiseEnquiry && <th aria-label="Raise an enquiry" />}
                 {canDelete && <th aria-label="Delete" />}
                 <th aria-label="Open" />
               </tr>
@@ -266,7 +291,7 @@ export default function ContractList() {
             <tbody>
               {shown.length === 0 && (
                 <tr>
-                  <td colSpan={canDelete ? 8 : 7} className="muted">
+                  <td colSpan={6 + (canRaiseEnquiry ? 1 : 0) + (canDelete ? 1 : 0) + 1} className="muted">
                     {contracts.length === 0
                       ? 'No AMC or Warranty clients yet.'
                       : `No clients under “${filter}”.`}
@@ -308,6 +333,20 @@ export default function ContractList() {
                     )}
                   </td>
                   <td><span className={`status-badge ${statusClass(status)}`}>{status}</span></td>
+                  {canRaiseEnquiry && (
+                    <td className="nowrap">
+                      {/* Only a cover that is ending or has ended. */}
+                      {(status === 'Expired' || status === 'Expiring Soon') ? (
+                        <button
+                          type="button"
+                          className="btn sec sm"
+                          onClick={(e) => { e.stopPropagation(); raiseEnquiry(c, status); }}
+                        >
+                          📋 Enquiry
+                        </button>
+                      ) : <span className="muted">—</span>}
+                    </td>
+                  )}
                   {canDelete && (
                     <td className="nowrap">
                       <button

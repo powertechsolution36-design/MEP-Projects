@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
 import useMyDivisions from '../../hooks/useMyDivisions';
 import ContactsField from '../../components/ContactsField';
@@ -21,11 +21,22 @@ export default function EnquiryCreate() {
   const SEGMENTS = [...useMyDivisions(), 'AMC']; // PWA mEnq: myDivs().concat(["AMC"])
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
+  /*
+   * Owner request (23 Nov 2026): an AMC that is expiring or has expired
+   * offers to raise an enquiry, so the renewal is chased as a lead. That
+   * screen sends what it knows in the address bar; everything here is
+   * still typed over freely, and a form opened with no parameters is
+   * exactly the blank form it has always been.
+   */
+  const [params] = useSearchParams();
+  const fromLink = (key, fallback = '') => params.get(key) || fallback;
   const [form, setForm] = useState({
     // PWA FACT (mEnq, index.html:1914): Site Type is a select with no blank
     // option, so it always submits a value (first option, Residential).
-    name: '', siteType: 'Residential', capacity: '', segment: '',
-    phone: '', referenceSource: '', rating: '3', estimatedValue: '', remark: '', // PWA default rating 3
+    name: fromLink('name'), siteType: 'Residential', capacity: fromLink('capacity'),
+    segment: fromLink('segment'),
+    phone: fromLink('phone'), referenceSource: fromLink('source'), rating: '3',
+    estimatedValue: '', remark: fromLink('remark'), // PWA default rating 3
     // Owner request (5 Nov 2026): the other people at the site.
     contacts: [],
   });

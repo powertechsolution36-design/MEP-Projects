@@ -345,6 +345,27 @@ export default function ContractDetail() {
         {MANAGE_ROLES.includes(role) && (
           <button className="btn sm sec" onClick={() => { setShowRenew((v) => !v); setShowPay(false); }}>Renew AMC</button>
         )}
+        {/* Owner request (23 Nov 2026): "add Enquiries option to Expired AMC
+            and Expiring AMC only." A cover that is ending or has ended is a
+            renewal to be sold, so it can be raised as a lead with what we
+            already know filled in. A running cover has nothing to chase. */}
+        {['admin', 'sales', 'solar_pm'].includes(role)
+          && (c.status === 'Expired' || c.status === 'Expiring Soon') && (
+          <button className="btn sm sec" onClick={() => {
+            const until = c.endDate ? fmtDate(c.endDate) : '';
+            const query = new URLSearchParams({
+              name: [c.site, c.address].filter(Boolean).join(' - ') || c.customer || '',
+              phone: c.phone || '',
+              capacity: c.capacity || '',
+              source: 'AMC renewal',
+              remark: `${c.category || 'AMC'} ${c.status === 'Expired' ? 'expired' : 'expiring'}`
+                + `${until ? ` (covered until ${until})` : ''}`
+                + `${c.customer ? ` \u2014 ${c.customer}` : ''}`,
+            });
+            if (c.division) query.set('segment', c.division);
+            navigate(`/enquiries/new?${query.toString()}`);
+          }}>Raise enquiry</button>
+        )}
         <button className="btn sm sec" onClick={() => navigate(`/contracts/${c.id}/amc-document?type=comprehensive`)}>AMC documents</button>
       </div>
 
