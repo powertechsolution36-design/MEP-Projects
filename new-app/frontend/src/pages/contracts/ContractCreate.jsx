@@ -47,6 +47,7 @@ export default function ContractCreate() {
     site: '',
     // Where the site is (owner, 23 Nov 2026): Baner, Nana Peth.
     address: '',
+    clientId: null,
     capacity: '',
     make: '',
     equipmentModel: '',
@@ -149,6 +150,9 @@ export default function ContractCreate() {
                   // His words (23 Nov 2026): the firm is the Site, the
                   // person is the Customer Name, and where it is is the
                   // Address.
+                  // Which client this is, so a correction on the client
+                  // reaches this record exactly (24 Nov 2026).
+                  clientId: c.id,
                   customer: c.clientName || c.companyName || f.customer,
                   phone: f.phone || c.phone || '',
                   email: f.email || c.email || '',

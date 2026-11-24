@@ -112,6 +112,19 @@ const contractSchema = new Schema(
      * rather than guessed at.
      */
     address: { type: String, default: '' },
+    /*
+     * Which client in the directory this cover belongs to (24 Nov 2026).
+     *
+     * Owner: "link from Client to AMC/PM list, Site to Site, Customer Name
+     * to Customer Name and Address to Address." The two lists had drifted
+     * apart because an AMC record only ever held typed text and was matched
+     * back to a client by name or number. A record raised from the client
+     * list now says WHICH client it is, so a correction on the client
+     * reaches it exactly rather than by resemblance. Optional: every
+     * contract written before this has none and is still matched the old
+     * way, which is what clientService does.
+     */
+    clientId: { type: Schema.Types.ObjectId, ref: 'Client', default: null },
     capacity: { type: String }, // PWA FACT
     /*
      * Owner request (19 Nov 2026): "Use detail from AMC/PM list of AMC

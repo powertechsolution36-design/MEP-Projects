@@ -978,3 +978,40 @@ test('deleteContract — admin only, and the service calls raised under it are k
     (err) => err.code === 'NOT_FOUND'
   );
 });
+
+/*
+ * Owner (24 Nov 2026), comparing the two lists: "this is not matching ...
+ * link from Client to AMC/PM List, Site to Site, Customer Name to Customer
+ * Name and Address to Address."
+ */
+test('an AMC raised from the client list says which client it is, and carries the three fields', async () => {
+  const store = createEnquiryFakeStore({ companies: [{ id: 'co1', name: 'Co' }] });
+  const a = auth({ role: 'admin' });
+
+  const made = await service.createManualContract(
+    {
+      clientId: 'cl1',
+      site: 'Abil office',          // the firm
+      customer: 'Vinita Bumb',      // the person
+      address: 'Baner',             // where it is
+      amcType: 'Quarterly', category: 'AMC', start: '2026-01-01', end: '2026-12-31',
+    },
+    a,
+    store
+  );
+  assert.equal(String(made.clientId), 'cl1');
+  assert.equal(made.site, 'Abil office');
+  assert.equal(made.customer, 'Vinita Bumb');
+  assert.equal(made.address, 'Baner');
+
+  // And it can be corrected later without losing the link.
+  const edited = await service.editContract(made.id, { address: 'Baner, Pune' }, a, store);
+  assert.equal(String(edited.clientId), 'cl1');
+  assert.equal(edited.address, 'Baner, Pune');
+
+  // A record typed without picking a client simply has no link, as before.
+  const typed = await service.createManualContract(
+    { site: 'Walk-in site', amcType: 'Quarterly', category: 'AMC' }, a, store
+  );
+  assert.ok(!typed.clientId);
+});

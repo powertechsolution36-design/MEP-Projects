@@ -402,6 +402,9 @@ async function createManualContract(input, actorAuth, deps) {
     site,
     // Where that site is — Baner, Nana Peth (owner, 23 Nov 2026).
     address: (input && input.address) || '',
+    // Which client this is, when it was raised from the directory
+    // (24 Nov 2026) — see the note on the model.
+    clientId: (input && input.clientId) || null,
     capacity: (input && input.capacity) || '',
     // The machine under cover (owner request, 19 Nov 2026) — it fills the
     // service report of every visit to this client.
@@ -1011,6 +1014,8 @@ async function completePmVisitForContract(contractId, actorAuth, deps, { assigne
 const EDITABLE = Object.freeze([
   // 'address' is where the site is (owner, 23 Nov 2026) — Baner, Nana Peth.
   'customer', 'phone', 'email', 'site', 'address', 'capacity', 'amcType', 'category', 'amount',
+  // Which client in the directory this is (24 Nov 2026).
+  'clientId',
   // The machine under cover (owner request, 19 Nov 2026).
   'make', 'equipmentModel', 'equipmentType',
   // Owner request (14 Nov 2026): a client tagged to the wrong side of the
