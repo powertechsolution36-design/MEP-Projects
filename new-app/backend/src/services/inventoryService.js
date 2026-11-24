@@ -313,6 +313,24 @@ function validateUnit(unit) {
   }
 }
 
+/**
+ * Which side of the business an item belongs to (owner request, 24 Nov
+ * 2026): HVAC, Solar, MEP — or "Common", which says out loud that it is
+ * everybody's rather than leaving the field blank and having people guess.
+ *
+ * Blank is still allowed and means nobody has said yet, which is every
+ * item that was on file before the field existed.
+ */
+const ITEM_DIVISIONS = Object.freeze(['HVAC', 'Solar', 'MEP', 'Common']);
+function validateItemDivision(value) {
+  const v = String(value === undefined || value === null ? '' : value).trim();
+  if (v && !ITEM_DIVISIONS.includes(v)) {
+    throw new ServiceError(`Division must be one of ${ITEM_DIVISIONS.join(', ')}.`, 'VALIDATION_ERROR', 400);
+  }
+  return v;
+}
+
+
 async function createItem(input, actorAuth, deps) {
   assertCompanyContext(actorAuth);
   assertCanManageInventory(actorAuth, 'create an Inventory item');
@@ -358,6 +376,7 @@ async function createItem(input, actorAuth, deps) {
         returnable: !!src.returnable,
         minimumStockLevel: toNum(src.minimumStockLevel),
         ratePerUnit: toNum(src.ratePerUnit),
+        division: validateItemDivision(src.division),
         stockByLocation,
       },
       session
@@ -417,6 +436,7 @@ async function updateItem(id, input, actorAuth, deps) {
     patch.unit = src.unit;
   }
   if (src.returnable !== undefined) patch.returnable = !!src.returnable;
+  if (src.division !== undefined) patch.division = validateItemDivision(src.division);
   if (src.minimumStockLevel !== undefined) patch.minimumStockLevel = toNum(src.minimumStockLevel);
   if (src.ratePerUnit !== undefined) patch.ratePerUnit = toNum(src.ratePerUnit);
   return deps.inventoryItemRepo.update(actorAuth.companyId, id, patch);
@@ -1109,7 +1129,8 @@ async function exportStockCsv(actorAuth, deps) {
     nameMaps(actorAuth, deps),
   ]);
   const locations = maps.locations;
-  const header = ['Code', 'Name', 'Category', 'Unit', ...locations.map((l) => l.name), 'Total Stock', 'With Staff', 'Min Level', 'Status', 'Stock Value'];
+  // 'Division' joined the item on 24 Nov 2026 — HVAC, Solar, MEP or Common.
+  const header = ['Code', 'Name', 'Category', 'Division', 'Unit', ...locations.map((l) => l.name), 'Total Stock', 'With Staff', 'Min Level', 'Status', 'Stock Value'];
   const lines = [header.map(csvEscape).join(',')];
   let grandValue = 0;
   for (const item of items) {
@@ -1121,6 +1142,7 @@ async function exportStockCsv(actorAuth, deps) {
       item.code || '',
       item.name,
       maps.catName.get(String(item.categoryId)) || '',
+      item.division || '',
       item.unit,
       ...locations.map((l) => stockAtLocation(item, l.id)),
       totQty(item),
@@ -1265,6 +1287,7 @@ async function listRecipientCandidates(actorAuth, deps) {
 }
 
 module.exports = {
+  ITEM_DIVISIONS,
   MANAGE_ROLES,
   STOCK_REPORT_ROLES,
   ISSUED_REPORT_ROLES,

@@ -574,7 +574,7 @@ test('canViewStock — dlStock/dlIssued reachable by broader Stock-screen roles,
   await seedItemWithStock(store, a, { openingQty: 100 });
   const pmAuth = auth({ userId: 'u_pm', role: 'hvac_pm' });
   const csv = await service.exportStockCsv(pmAuth, store);
-  assert.match(csv, /Code,Name,Category,Unit/);
+  assert.match(csv, /Code,Name,Category,Division,Unit/); // Division joined the header 24 Nov 2026
   await assert.rejects(() => service.exportStockCsv(auth({ role: 'sales' }), store), /FORBIDDEN|not permitted/);
 });
 
@@ -584,7 +584,7 @@ test('FIX-3.6-01 — exportStockCsv is reachable by hvac_pm/solar_pm/service_mgr
   await seedItemWithStock(store, a, { openingQty: 100 });
   for (const role of ['hvac_pm', 'solar_pm', 'service_mgr']) {
     const csv = await service.exportStockCsv(auth({ userId: `u_${role}`, role }), store);
-    assert.match(csv, /Code,Name,Category,Unit/);
+    assert.match(csv, /Code,Name,Category,Division,Unit/); // Division joined the header 24 Nov 2026
   }
   await assert.rejects(
     () => service.exportStockCsv(auth({ userId: 'u_mep', role: 'mep_pm' }), store),
@@ -784,4 +784,46 @@ test('transferStock — an end named rather than chosen becomes a stock point, a
   const after3 = await service.getItem(item.id, a, store);
   assert.equal(Number((after3.stockByLocation || {})[String(made.id)] || 0), 0);
   assert.equal(Number((after3.stockByLocation || {})[String(location.id)] || 0), 100);
+});
+
+/*
+ * Owner request (24 Nov 2026): "add Division HVAC, Solar and MEP or Common
+ * for all the Division." Copper pipe is HVAC's, a panel is Solar's, a
+ * drill is everybody's — and Common says so rather than leaving it blank.
+ */
+test('an item carries its division, Common included, and refuses anything else', async () => {
+  const store = baseStore();
+  const a = auth();
+  const { category } = await seedCategoryAndLocation(store, a);
+
+  const hvac = await service.createItem(
+    { name: 'Copper pipe', categoryId: category.id, division: 'HVAC' }, a, store
+  );
+  assert.equal(hvac.division, 'HVAC');
+
+  const common = await service.createItem(
+    { name: 'Drill machine', categoryId: category.id, division: 'Common' }, a, store
+  );
+  assert.equal(common.division, 'Common');
+
+  // Nobody has said yet — which is every item that predates the field.
+  const untagged = await service.createItem({ name: 'Old stock', categoryId: category.id }, a, store);
+  assert.equal(untagged.division, '');
+
+  await assert.rejects(
+    () => service.createItem({ name: 'Bad', categoryId: category.id, division: 'Plumbing' }, a, store),
+    /Division must be one of/
+  );
+
+  // It can be corrected later, and left alone by an edit that omits it.
+  const fixed = await service.updateItem(untagged.id, { division: 'Solar' }, a, store);
+  assert.equal(fixed.division, 'Solar');
+  const renamed = await service.updateItem(untagged.id, { name: 'Old stock (solar)' }, a, store);
+  assert.equal(renamed.division, 'Solar');
+
+  // And it reaches the stock report.
+  const csv = await service.exportStockCsv(a, store);
+  assert.match(csv.split('\n')[0], /Code,Name,Category,Division,Unit/);
+  assert.ok(csv.includes('Copper pipe'));
+  assert.ok(csv.split('\n').some((l) => l.includes('Drill machine') && l.includes('Common')));
 });

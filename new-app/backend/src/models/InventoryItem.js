@@ -1,6 +1,7 @@
 'use strict';
 
 const { Schema, model } = require('mongoose');
+const { DIVISIONS } = require('./shared/enums');
 
 /**
  * inventoryItems — a stock-keeping unit (returnable tool/equipment or
@@ -25,6 +26,17 @@ const inventoryItemSchema = new Schema(
     returnable: { type: Boolean, required: true }, // PWA FACT
     minimumStockLevel: { type: Number, default: 0 }, // PWA FACT
     ratePerUnit: { type: Number, default: 0 }, // PWA FACT
+    /*
+     * Which side of the business the item belongs to (owner request, 24
+     * Nov 2026): "add Division HVAC, Solar and MEP, or Common for all the
+     * divisions." Copper pipe is HVAC's, a panel is Solar's, and a drill is
+     * everybody's — "Common" says so rather than leaving it blank and
+     * having people guess.
+     *
+     * Empty means nobody has said yet, which is every item on file before
+     * today: those are left for staff to tag rather than guessed at.
+     */
+    division: { type: String, enum: [...DIVISIONS, 'Common', ''], default: '' },
     // Map key: InventoryLocation id (as string); value: quantity at that location.
     stockByLocation: { type: Map, of: Number, default: {} }, // PWA FACT
   },

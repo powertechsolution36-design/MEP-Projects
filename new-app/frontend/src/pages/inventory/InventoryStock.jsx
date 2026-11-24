@@ -18,6 +18,12 @@ import { money } from '../../utils/format';
 const MANAGE_ROLES = ['inventory', 'admin'];
 const STOCK_REPORT_ROLES = ['admin', 'inventory', 'hvac_pm', 'solar_pm', 'service_mgr'];
 const UNITS = ['Nos', 'Mtr', 'Kg', 'Set', 'Box', 'Roll', 'Ltr'];
+/* Owner request (24 Nov 2026): "add Division HVAC, Solar and MEP, or
+   Common for all the divisions." Common says out loud that an item is
+   everybody's — a drill, a ladder — rather than leaving it blank and
+   having the storekeeper guess. Blank stays allowed: it is what every
+   item on file before today has, and those are tagged by hand. */
+const ITEM_DIVISIONS = ['HVAC', 'Solar', 'MEP', 'Common'];
 const ADJUSTMENT_TYPES = ['Purchase In', 'Opening Stock', 'Damage / Write-off', 'Adjustment'];
 
 function totQty(item) {
@@ -54,13 +60,13 @@ export default function InventoryStock() {
 
   /* Create form */
   const [createForm, setCreateForm] = useState({
-    code: '', name: '', categoryId: '', unit: 'Nos', returnable: false,
+    code: '', name: '', categoryId: '', unit: 'Nos', returnable: false, division: '',
     minimumStockLevel: '', ratePerUnit: '', openingStock: '', openingLocationId: '',
   });
 
   /* Edit form */
   const [editForm, setEditForm] = useState({
-    code: '', name: '', categoryId: '', unit: 'Nos', returnable: false,
+    code: '', name: '', categoryId: '', unit: 'Nos', returnable: false, division: '',
     minimumStockLevel: '', ratePerUnit: '',
   });
 
@@ -129,6 +135,8 @@ export default function InventoryStock() {
         categoryId: createForm.categoryId || undefined,
         unit: createForm.unit,
         returnable: createForm.returnable,
+        // Which side of the business it belongs to (24 Nov 2026).
+        division: createForm.division,
         minimumStockLevel: createForm.minimumStockLevel ? Number(createForm.minimumStockLevel) : undefined,
         ratePerUnit: createForm.ratePerUnit ? Number(createForm.ratePerUnit) : undefined,
         // Backend contract: { <locationId>: qty } (PWA per-location opening entry).
@@ -137,7 +145,7 @@ export default function InventoryStock() {
           : undefined,
       });
       setShowCreate(false);
-      setCreateForm({ code: '', name: '', categoryId: '', unit: 'Nos', returnable: false, minimumStockLevel: '', ratePerUnit: '', openingStock: '', openingLocationId: '' });
+      setCreateForm({ code: '', name: '', categoryId: '', unit: 'Nos', returnable: false, division: '', minimumStockLevel: '', ratePerUnit: '', openingStock: '', openingLocationId: '' });
       await load();
     } catch (err) {
       setError(err.message);
@@ -154,6 +162,7 @@ export default function InventoryStock() {
       categoryId: item.categoryId || '',
       unit: item.unit || 'Nos',
       returnable: !!item.returnable,
+      division: item.division || '',
       minimumStockLevel: item.minimumStockLevel != null ? String(item.minimumStockLevel) : '',
       ratePerUnit: item.ratePerUnit != null ? String(item.ratePerUnit) : '',
     });
@@ -172,6 +181,7 @@ export default function InventoryStock() {
         categoryId: editForm.categoryId || undefined,
         unit: editForm.unit,
         returnable: editForm.returnable,
+        division: editForm.division,
         minimumStockLevel: editForm.minimumStockLevel ? Number(editForm.minimumStockLevel) : undefined,
         ratePerUnit: editForm.ratePerUnit ? Number(editForm.ratePerUnit) : undefined,
       });
@@ -284,6 +294,7 @@ export default function InventoryStock() {
                 <th>Code</th>
                 <th>Name</th>
                 <th>Category</th>
+                <th>Division</th>
                 <th>Unit</th>
                 <th>Qty</th>
                 <th>Rate</th>
@@ -294,7 +305,7 @@ export default function InventoryStock() {
             </thead>
             <tbody>
               {filtered.length === 0 && (
-                <tr><td colSpan={canManage ? 9 : 8} className="muted">No items found.</td></tr>
+                <tr><td colSpan={canManage ? 10 : 9} className="muted">No items found.</td></tr>
               )}
               {filtered.map(item => {
                 const qty = totQty(item);
@@ -305,6 +316,7 @@ export default function InventoryStock() {
                     <td>{item.code || '—'}</td>
                     <td>{item.name}</td>
                     <td>{catName(item.categoryId)}</td>
+                    <td>{item.division || <span className="muted">—</span>}</td>
                     <td>{item.unit}</td>
                     <td>{qty}</td>
                     <td>{money(item.ratePerUnit)}</td>
@@ -343,6 +355,12 @@ export default function InventoryStock() {
                 <div className="filter-field"><label>Unit</label>
                   <select value={createForm.unit} onChange={e => setCreateForm(p => ({ ...p, unit: e.target.value }))}>
                     {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                </div>
+                <div className="filter-field"><label>Division</label>
+                  <select value={createForm.division} onChange={e => setCreateForm(p => ({ ...p, division: e.target.value }))}>
+                    <option value="">— not set —</option>
+                    {ITEM_DIVISIONS.map(d => <option key={d} value={d}>{d === 'Common' ? 'Common (all divisions)' : d}</option>)}
                   </select>
                 </div>
                 <div className="filter-field"><label>Min Stock Level</label><input type="number" value={createForm.minimumStockLevel} onChange={e => setCreateForm(p => ({ ...p, minimumStockLevel: e.target.value }))} /></div>
@@ -386,6 +404,12 @@ export default function InventoryStock() {
                 <div className="filter-field"><label>Unit</label>
                   <select value={editForm.unit} onChange={e => setEditForm(p => ({ ...p, unit: e.target.value }))}>
                     {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                  </select>
+                </div>
+                <div className="filter-field"><label>Division</label>
+                  <select value={editForm.division} onChange={e => setEditForm(p => ({ ...p, division: e.target.value }))}>
+                    <option value="">— not set —</option>
+                    {ITEM_DIVISIONS.map(d => <option key={d} value={d}>{d === 'Common' ? 'Common (all divisions)' : d}</option>)}
                   </select>
                 </div>
                 <div className="filter-field"><label>Min Stock Level</label><input type="number" value={editForm.minimumStockLevel} onChange={e => setEditForm(p => ({ ...p, minimumStockLevel: e.target.value }))} /></div>
