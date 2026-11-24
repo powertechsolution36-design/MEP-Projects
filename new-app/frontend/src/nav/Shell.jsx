@@ -200,9 +200,18 @@ export default function Shell() {
           </svg>
         </button>
 
+        {/* Owner's choice (24 Nov 2026), shown four ways and picked: the
+            mark stands on the dark bar with no white plate behind it, and
+            the word sits in two tight lines — which also makes the block
+            narrow enough to leave the company name room on a phone. The
+            mark is lifted a little in brightness, because red line art on
+            a near-black bar is otherwise muddy. */}
         <div className="shell-brand">
-          <span className="shell-logo-plate"><img className="shell-logo" src="/icons/icon-192.png" alt="" width="28" height="28" /></span>
-          <span><em>MEP</em> PROJECTS</span>
+          <img className="shell-logo" src="/icons/icon-192.png" alt="" width="34" height="34" />
+          <span className="shell-wordmark">
+            <span className="shell-wordmark-top">MEP</span>
+            <span className="shell-wordmark-sub">PROJECTS</span>
+          </span>
         </div>
 
         {/* The company and its divisions, up where the eye goes first. On a
