@@ -242,6 +242,191 @@
 }
 .nav-item-label { overflow: hidden; text-overflow: ellipsis; }
 
+/* ============================================================
+   Shell redesign (owner request, 24 Nov 2026): drawn icons, a rail that
+   folds to icons, the company in the header, one user menu — and two
+   looks to choose between. Everything below either styles those new
+   parts or is scoped to [data-skin="light"]; the dark rail above is
+   untouched, so "Dark" is exactly the shell he has been using.
+   ============================================================ */
+
+/* ---- The icons ---- */
+.nav-item-icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  opacity: 0.92;
+}
+.nav-item.active .nav-item-icon { opacity: 1; }
+
+/* ---- The company, in the header ---- */
+.shell-org {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-width: 0;
+  padding-left: var(--s-5);
+  margin-left: var(--s-2);
+  border-left: 1px solid rgba(255, 255, 255, 0.16);
+}
+.shell-org-name {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semi);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 28ch;
+}
+.shell-org-divisions { display: inline-flex; gap: var(--s-2); }
+
+/* ---- The user menu ---- */
+.user-menu { position: relative; }
+.user-menu-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: 4px 8px 4px 4px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.08);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  max-width: 230px;
+}
+.user-menu-button:hover { background: rgba(255, 255, 255, 0.16); }
+.user-avatar {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--brand-600);
+  color: #fff;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+}
+.user-menu-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.15;
+  min-width: 0;
+}
+.user-menu-text .shell-user-name { font-size: var(--fs-sm); max-width: 16ch; }
+.shell-user-role {
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  opacity: 0.75;
+  white-space: nowrap;
+}
+.user-menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  min-width: 232px;
+  padding: var(--s-3);
+  border-radius: var(--r-md);
+  background: var(--surface, #fff);
+  color: var(--text, #15202b);
+  box-shadow: 0 12px 32px rgba(16, 24, 40, 0.18);
+  border: 1px solid var(--border, #e3e8ee);
+  z-index: calc(var(--z-header) + 1);
+}
+.user-menu-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--s-3) var(--s-3) var(--s-4);
+  border-bottom: 1px solid var(--border, #e3e8ee);
+}
+.user-menu-section { padding: var(--s-4) var(--s-3) var(--s-3); }
+.user-menu-label {
+  display: block;
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--muted, #5b6b7c);
+  margin-bottom: var(--s-2);
+}
+.skin-switch { display: flex; gap: 6px; }
+.skin-switch button {
+  flex: 1;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border, #e3e8ee);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.skin-switch button.is-on {
+  background: var(--brand-600);
+  border-color: var(--brand-600);
+  color: #fff;
+  font-weight: var(--fw-semi);
+}
+.user-menu-item {
+  width: 100%;
+  text-align: left;
+  padding: var(--s-3);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.user-menu-item:hover { background: var(--surface-2, #f4f6f8); }
+
+/* ---- The rail, folded to icons (laptop only) ---- */
+.rail-toggle { display: inline-flex; }
+.shell.rail-collapsed .shell-nav { width: var(--rail-w-collapsed, 64px); padding-left: var(--s-2); padding-right: var(--s-2); }
+.shell.rail-collapsed .shell-nav .nav-item { justify-content: center; padding: 0; gap: 0; }
+.shell.rail-collapsed .shell-nav .nav-item-label { display: none; }
+.shell.rail-collapsed .shell-company { display: none; }
+
+@media (max-width: 1023px) {
+  /* The phone keeps its drawer, labels and all: folding a drawer to icons
+     would be a worse phone, not a better one. */
+  .rail-toggle { display: none; }
+  .shell.rail-collapsed .shell-nav { width: min(84vw, 300px); padding-left: var(--s-4); padding-right: var(--s-4); }
+  .shell.rail-collapsed .shell-nav .nav-item { justify-content: flex-start; padding: 0 var(--s-5); gap: var(--s-4); }
+  .shell.rail-collapsed .shell-nav .nav-item-label { display: block; }
+  .shell.rail-collapsed .shell-company { display: block; }
+  /* The company has no room in a phone header; the drawer carries it. */
+  .shell-org { display: none; }
+  .user-menu-text { display: none; }
+  .user-menu-button { padding: 4px; background: transparent; }
+}
+
+/* ---- The lighter look ---- */
+.shell[data-skin="light"] {
+  --rail: #f7f9fb;
+  --rail-hover: #e9eef4;
+  --rail-fg: #40506180;
+}
+.shell[data-skin="light"] .shell-nav {
+  color: #3d4b5a;
+  border-right: 1px solid var(--border, #e3e8ee);
+}
+.shell[data-skin="light"] .shell-nav .nav-item { color: #3d4b5a; }
+.shell[data-skin="light"] .shell-nav .nav-item:hover { background: #e9eef4; color: #15202b; }
+.shell[data-skin="light"] .shell-nav .nav-item.active { background: #fdeaea; color: #a51d1d; }
+.shell[data-skin="light"] .shell-nav .nav-item.active::before { background: var(--brand-600); }
+.shell[data-skin="light"] .shell-company { border-bottom-color: var(--border, #e3e8ee); }
+.shell[data-skin="light"] .shell-company-name { color: #15202b; }
+.shell[data-skin="light"] .shell-company-label { color: #5b6b7c; }
+.shell[data-skin="light"] .shell-nav .rail-chip {
+  background: #e9eef4;
+  box-shadow: inset 0 0 0 1px #d8e0e9;
+  color: #3d4b5a;
+}
+
 .shell-scrim { display: none; }
 
 /* Shared compact navigation for the signed-in user's most-used destinations. */
@@ -410,11 +595,11 @@
   }
 
   .mobile-nav-icon {
-    height: 20px;
-    display: flex;
-    align-items: center;
-    font-size: 17px;
-    line-height: 1;
+    /* A drawn icon now, not an emoji (24 Nov 2026) — a fixed box so the
+       five destinations stay evenly spaced on the smallest phone. */
+    width: 21px;
+    height: 21px;
+    display: block;
   }
 
   .mobile-nav-label {

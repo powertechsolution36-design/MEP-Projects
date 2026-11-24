@@ -170,6 +170,8 @@
 
   /* ---- Layout ---------------------------------------------------- */
   --rail-w:     232px;
+  /* The rail folded to icons (owner request, 24 Nov 2026). */
+  --rail-w-collapsed: 64px;
   --header-h:   56px;
   --page-max:   1360px;
   --page-pad:   var(--s-8);

@@ -128,7 +128,11 @@ async function group6a(browser) {
   rec('notifications: the raise notification is listed and opening the page marks it read (PATCH /:id/read)', !!before && before.isRead === false && after?.isRead === true && (await f.page.locator(`text=${note}`).count()) >= 1, `${before?.isRead} -> ${after?.isRead}`);
   // Logout ends the server session, not just the local one.
   const tok = f.token;
-  await f.page.locator('text=Log out').first().click();
+  // Log out moved into the user menu when the shell was redesigned
+  // (24 Nov 2026), so it is opened first — the assertions below are
+  // unchanged: the session must end on the server, not just here.
+  await f.page.locator('.user-menu-button').click();
+  await f.page.locator('.user-menu-panel button:has-text("Log out")').click();
   await f.page.waitForURL(/\/login/, { timeout: 8000 }).catch(() => {});
   const me = await fetch(BASE + '/api/auth/me', { headers: { authorization: `Bearer ${tok}` } });
   rec('logout: returns to login and revokes the server session (POST /api/auth/logout)', f.page.url().includes('/login') && me.status === 401, `${f.page.url()} ${me.status}`);
