@@ -34,11 +34,19 @@ import useMyDivisions from '../../hooks/useMyDivisions';
 
 const AMC_TYPES = ['Monthly', 'Quarterly', 'Half-Yearly'];
 const CATEGORIES = ['AMC', 'Warranty'];
+// Owner request (24 Nov 2026): the Solar Manager registers AMC clients too.
+// The server has allowed it since 14 Nov; this page had not caught up.
+const MANAGE_ROLES = ['admin', 'service_mgr', 'solar_pm'];
+// A division-bound login works in one division only, so the form fills it in
+// rather than asking — the same table every other screen uses, and the same
+// one the server enforces on save.
+const PM_DIVISION = { hvac_pm: 'HVAC', solar_pm: 'Solar', mep_pm: 'MEP' };
 
 export default function ContractCreate() {
   const { user } = useAuth();
   // Owner request (14 Nov 2026): say which side of the business the cover is.
   const myDivisions = useMyDivisions();
+  const myDivision = PM_DIVISION[user?.role] || '';
   const navigate = useNavigate();
   const [form, setForm] = useState({
     customer: '',
@@ -52,7 +60,7 @@ export default function ContractCreate() {
     make: '',
     equipmentModel: '',
     equipmentType: '',
-    division: '',
+    division: PM_DIVISION[user?.role] || '',
     category: 'AMC',
     amcType: 'Quarterly',
     amount: '',
@@ -66,7 +74,7 @@ export default function ContractCreate() {
   const [pickedClient, setPickedClient] = useState(null);
   const [error, setError] = useState(null);
 
-  const canManage = ['admin', 'service_mgr'].includes(user?.role);
+  const canManage = MANAGE_ROLES.includes(user?.role);
 
   function setField(key, value) {
     setForm(prev => ({ ...prev, [key]: value }));
@@ -91,6 +99,10 @@ export default function ContractCreate() {
         phone: form.phone,
         email: form.email,
         site: form.site,
+        // Where the site is, and which client it is — so a new record is
+        // linked the same way the corrected ones are (owner, 24 Nov 2026).
+        address: form.address,
+        clientId: form.clientId,
         capacity: form.capacity,
         make: form.make,
         equipmentModel: form.equipmentModel,
@@ -116,7 +128,7 @@ export default function ContractCreate() {
   if (!canManage) {
     return (
       <div className="enq-page">
-        <p style={{ color: 'red' }}>Only Admin and Service Manager can create contracts.</p>
+        <p style={{ color: 'red' }}>Only Admin, Service Manager and Solar Manager can create contracts.</p>
         <button className="btn sec" onClick={() => navigate('/contracts')}>Back</button>
       </div>
     );
@@ -237,10 +249,14 @@ export default function ContractCreate() {
           <div className="form-grid">
             <div className="filter-field">
               <label>Division *</label>
-              <select value={form.division} onChange={e => setField('division', e.target.value)} required>
-                <option value="">— select —</option>
-                {myDivisions.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
+              {myDivision ? (
+                <input value={myDivision} readOnly title="This login works in one division." />
+              ) : (
+                <select value={form.division} onChange={e => setField('division', e.target.value)} required>
+                  <option value="">— select —</option>
+                  {myDivisions.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              )}
             </div>
             <div className="filter-field">
               <label>Category</label>
