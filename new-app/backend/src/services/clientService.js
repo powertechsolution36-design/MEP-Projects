@@ -1,6 +1,8 @@
 'use strict';
 
 const { ServiceError } = require('../errors');
+const { ROLE_DIVISION_MAP } = require('../auth/roleDivision');
+const { DIVISIONS } = require('../models/shared/enums');
 const { buildContacts } = require('./shared/contacts');
 
 /**
@@ -23,6 +25,48 @@ const MAX_FIELD = 200;
 // Mirrors the gate on quotationRoutes, which the quotation service itself
 // does not carry.
 const QUOTATION_VIEW_ROLES = Object.freeze(['admin', 'sales', 'finance']);
+
+/**
+ * Which divisions a client is ours for, and who may see them.
+ *
+ * Owner request (24 Nov 2026): "now Solar is able to see all the clients —
+ * these are all AC clients. Add division, so Solar will see only solar
+ * clients and HVAC will see theirs; or if a client has both HVAC and
+ * solar, or all three, can select multiple division."
+ *
+ * A client with NO divisions is visible to everyone. That is deliberate
+ * and it matters: every client on file today is untagged, and hiding all
+ * of them from the Solar Manager the moment this ships would repeat the
+ * 19 Nov project-assignment mistake, which emptied every Manager's list
+ * overnight. The directory narrows as it is tagged, not before.
+ */
+function readDivisions(value) {
+  if (value === undefined) return undefined;
+  const list = Array.isArray(value) ? value : [value];
+  const out = [];
+  for (const raw of list) {
+    const d = String(raw === null || raw === undefined ? '' : raw).trim();
+    if (!d) continue;
+    if (!DIVISIONS.includes(d)) {
+      throw new ServiceError(`Division must be one of: ${DIVISIONS.join(', ')}.`, 'VALIDATION_ERROR', 400);
+    }
+    if (!out.includes(d)) out.push(d);
+  }
+  return out;
+}
+
+/** The division this login is confined to, or null when it sees them all. */
+function divisionScope(auth) {
+  return ROLE_DIVISION_MAP[auth && auth.role] || null;
+}
+
+/** Is this client one that login may see? Untagged is everybody's. */
+function visibleToDivision(client, auth) {
+  const mine = divisionScope(auth);
+  if (!mine) return true;
+  const tagged = (client && client.divisions) || [];
+  return tagged.length === 0 || tagged.includes(mine);
+}
 
 function assertCompanyContext(auth) {
   if (!auth || !auth.companyId) {
@@ -83,6 +127,10 @@ function buildFields(input, existing = {}) {
   const contacts = buildContacts(input && input.contacts);
   if (contacts !== undefined) out.contacts = contacts;
 
+  // Which sides of the business they are ours for (24 Nov 2026).
+  const divisions = readDivisions(input && input.divisions);
+  if (divisions !== undefined) out.divisions = divisions;
+
   /*
    * The client's other addresses (owner request, 23 Nov 2026, with his own
    * correction: "Nana Peth is Address not Site, it is a place in Pune").
@@ -118,7 +166,9 @@ function buildFields(input, existing = {}) {
 
 async function listClients(auth, { search } = {}, deps) {
   assertMayUseClients(auth, 'see the client list');
-  const all = await deps.clientRepo.listByCompany(auth.companyId);
+  const everyone = await deps.clientRepo.listByCompany(auth.companyId);
+  // A division-confined login sees its own clients and the untagged ones.
+  const all = everyone.filter((c) => visibleToDivision(c, auth));
   const q = normalizeName(search);
   if (!q) return all;
   const digits = normalizePhone(search);
@@ -136,6 +186,12 @@ async function getClient(id, auth, deps) {
   assertMayUseClients(auth, 'open a client');
   const client = await deps.clientRepo.findById(auth.companyId, id);
   if (!client) throw new ServiceError('Client not found.', 'NOT_FOUND', 404);
+  // The same rule as the list: a division-confined login cannot reach
+  // another division's client by typing its id. Not found, not forbidden —
+  // whose client it is is not the business of somebody who may not see it.
+  if (!visibleToDivision(client, auth)) {
+    throw new ServiceError('Client not found.', 'NOT_FOUND', 404);
+  }
   return client;
 }
 
@@ -559,6 +615,8 @@ async function importFromContracts(auth, deps) {
 }
 
 module.exports = {
+  readDivisions,
+  visibleToDivision,
   findExistingClient,
   listClients,
   getClient,

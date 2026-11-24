@@ -1,6 +1,7 @@
 'use strict';
 
 const { Schema, model } = require('mongoose');
+const { DIVISIONS } = require('./shared/enums');
 const { contactPersonSchema, maxContacts, MAX_CONTACTS } = require('./shared/contactSchema');
 
 /**
@@ -47,6 +48,26 @@ const clientSchema = new Schema(
     // are the rest of the site; see models/shared/contactSchema.js.
     phone: { type: String, default: '', trim: true },
     designation: { type: String, default: '', trim: true },
+
+    /*
+     * Which sides of the business this client is ours for (owner request,
+     * 24 Nov 2026): "Solar will see only solar client and HVAC will see
+     * their client, or if a client has both HVAC and solar, or all three,
+     * can select multiple division."
+     *
+     * A list rather than one value, because a client genuinely can be
+     * both — an air-conditioning customer who later puts panels on the
+     * roof. EMPTY MEANS NOBODY HAS SAID YET, and an untagged client stays
+     * visible to every office login: on 19 Nov confining projects to the
+     * Manager they were assigned to emptied every Manager's list overnight,
+     * and the same mistake with the client directory would hide all 53 of
+     * them from the Solar Manager at once. They become confidential as
+     * they are tagged, one at a time, by somebody who knows.
+     */
+    divisions: {
+      type: [{ type: String, enum: DIVISIONS }],
+      default: [],
+    },
     contacts: {
       type: [contactPersonSchema],
       default: [],

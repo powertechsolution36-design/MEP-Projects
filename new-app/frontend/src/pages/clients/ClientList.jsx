@@ -16,7 +16,7 @@ import ContactsField from '../../components/ContactsField';
 import SortSelect, { sortRows, useSort } from '../../components/SortSelect';
 
 const BLANK = {
-  companyName: '', clientName: '', designation: '', phone: '', otherAddresses: [],
+  companyName: '', clientName: '', designation: '', phone: '', otherAddresses: [], divisions: [],
   gst: '', address: '', email: '', notes: '', contacts: [],
 };
 
@@ -193,6 +193,8 @@ export default function ClientList() {
                       unchanged — this is what they are called. */}
                   <th>Site</th>
                   <th>Customer Name</th>
+                  {/* Whose client this is (24 Nov 2026). */}
+                  <th>Divisions</th>
                   <th>Phone</th>
                   <th>GST</th>
                   <th>Contacts</th>
@@ -201,7 +203,7 @@ export default function ClientList() {
               </thead>
               <tbody>
                 {clients.length === 0 && (
-                  <tr><td colSpan={6} className="muted">No clients yet. Add one, or bring in the AMC / PM list.</td></tr>
+                  <tr><td colSpan={7} className="muted">No clients yet. Add one, or bring in the AMC / PM list.</td></tr>
                 )}
                 {shown.map((c) => (
                   // Owner request (17 Nov 2026): clicking the client opens
@@ -226,6 +228,14 @@ export default function ClientList() {
                         ? <button type="button" className="name-link" onClick={() => navigate(`/clients/${c.id}`)}>{c.clientName}</button>
                         : '—'}
                       {c.designation && <div className="muted" style={{ fontSize: 11 }}>{c.designation}</div>}
+                    </td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {/* Untagged reads "everyone", not a dash — it means
+                          nobody has said yet, which is not the same as
+                          nothing (24 Nov 2026). */}
+                      {(c.divisions || []).length
+                        ? c.divisions.join(' · ')
+                        : <span className="muted">everyone</span>}
                     </td>
                     <td style={{ whiteSpace: 'nowrap' }}>{c.phone || '—'}</td>
                     <td style={{ whiteSpace: 'normal', maxWidth: 180 }}>{c.gst || '—'}</td>
@@ -295,6 +305,38 @@ export default function ClientList() {
                 <label>Address</label>
                 <textarea rows={2} value={form.address} onChange={(e) => setField('address', e.target.value)} />
               </div>
+
+              {/* Owner request (24 Nov 2026): "Solar will see only solar
+                  clients and HVAC will see theirs; or if a client has both
+                  HVAC and solar, or all three, can select multiple
+                  division." Left unticked the client stays visible to
+                  everyone — which is what every client on file is today,
+                  so nothing disappears from anybody's list until somebody
+                  who knows has said whose it is. */}
+              <fieldset className="contacts-field">
+                <legend>Divisions</legend>
+                <p className="muted" style={{ marginTop: 0 }}>
+                  Whose client this is. Tick more than one when they are both — an AC customer
+                  who later puts panels on the roof. Leave all three unticked and every office
+                  login can see them.
+                </p>
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                  {['HVAC', 'Solar', 'MEP'].map((d) => (
+                    <label key={d} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <input
+                        type="checkbox"
+                        checked={(form.divisions || []).includes(d)}
+                        onChange={(e) => setForm((f) => {
+                          const on = new Set(f.divisions || []);
+                          if (e.target.checked) on.add(d); else on.delete(d);
+                          return { ...f, divisions: ['HVAC', 'Solar', 'MEP'].filter((x) => on.has(x)) };
+                        })}
+                      />
+                      {d}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
 
               {/* Owner request (23 Nov 2026), pointing at the AMC record's
                   own list: "put this option in Client" — and his correction

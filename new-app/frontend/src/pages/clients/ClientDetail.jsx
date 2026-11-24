@@ -157,6 +157,11 @@ export default function ClientDetail() {
           <div><strong>Site:</strong> {dash(c.companyName)}</div>
           <div><strong>Customer Name:</strong> {dash(c.clientName)}{c.designation ? ` (${c.designation})` : ''}</div>
           <div><strong>Phone:</strong> {dash(c.phone)}</div>
+          {/* Whose client this is (24 Nov 2026); untagged is everyone's. */}
+          <div>
+            <strong>Divisions:</strong>{' '}
+            {(c.divisions || []).length ? c.divisions.join(' · ') : 'everyone'}
+          </div>
           <div><strong>GST:</strong> {dash(c.gst)}</div>
           <div><strong>Email:</strong> {dash(c.email)}</div>
           <div><strong>Address:</strong> {dash(c.address)}</div>

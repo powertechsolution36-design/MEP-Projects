@@ -436,3 +436,64 @@ test('a client can list its other addresses, and an edit that leaves them out ke
   );
   assert.deepEqual(replaced.otherAddresses.map((x) => x.address), ['Nana Peth', 'Hadapsar']);
 });
+
+/*
+ * Owner request (24 Nov 2026): "now Solar is able to see all the clients —
+ * these are all AC clients. Add division, so Solar will see only solar
+ * clients and HVAC will see theirs; or if a client has both HVAC and
+ * solar, or all three, can select multiple division."
+ */
+test('a client is tagged with the divisions it belongs to, and more than one', async () => {
+  const store = createEnquiryFakeStore({ companies: [{ id: 'co1', name: 'Co' }] });
+  const admin = { userId: 'u1', companyId: 'co1', role: 'admin', name: 'Admin' };
+
+  const both = await service.createClient(
+    { companyName: 'Rooftop Hotel', divisions: ['HVAC', 'Solar'] }, admin, store
+  );
+  assert.deepEqual(both.divisions, ['HVAC', 'Solar']);
+
+  // The same division twice is kept once; a made-up one is refused.
+  const one = await service.createClient(
+    { companyName: 'AC only', divisions: ['HVAC', 'HVAC'] }, admin, store
+  );
+  assert.deepEqual(one.divisions, ['HVAC']);
+  await assert.rejects(
+    () => service.createClient({ companyName: 'Bad', divisions: ['Plumbing'] }, admin, store),
+    /Division must be one of/
+  );
+
+  // Left out of an edit, the tags are left alone.
+  const renamed = await service.updateClient(both.id, { phone: '9000000001' }, admin, store);
+  assert.deepEqual(renamed.divisions, ['HVAC', 'Solar']);
+  // Sent empty, they are cleared — the client goes back to everyone's.
+  const cleared = await service.updateClient(both.id, { divisions: [] }, admin, store);
+  assert.deepEqual(cleared.divisions, []);
+});
+
+test('a division-confined login sees its own clients and the ones nobody has tagged', async () => {
+  const store = createEnquiryFakeStore({ companies: [{ id: 'co1', name: 'Co' }] });
+  const admin = { userId: 'u1', companyId: 'co1', role: 'admin', name: 'Admin' };
+  const solar = { userId: 'u2', companyId: 'co1', role: 'solar_pm', name: 'Solar Manager' };
+  const hvac = { userId: 'u3', companyId: 'co1', role: 'hvac_pm', name: 'HVAC Manager' };
+
+  const ac = await service.createClient({ companyName: 'AC client', divisions: ['HVAC'] }, admin, store);
+  await service.createClient({ companyName: 'Panel client', divisions: ['Solar'] }, admin, store);
+  await service.createClient({ companyName: 'Both client', divisions: ['HVAC', 'Solar'] }, admin, store);
+  const untagged = await service.createClient({ companyName: 'Nobody has said' }, admin, store);
+
+  const seenBy = async (who) => (await service.listClients(who, {}, store)).map((c) => c.companyName).sort();
+
+  assert.deepEqual(await seenBy(admin), ['AC client', 'Both client', 'Nobody has said', 'Panel client']);
+  assert.deepEqual(await seenBy(solar), ['Both client', 'Nobody has said', 'Panel client']);
+  assert.deepEqual(await seenBy(hvac), ['AC client', 'Both client', 'Nobody has said']);
+
+  // Sales and finance are not confined at all.
+  assert.equal((await seenBy({ ...admin, role: 'sales' })).length, 4);
+
+  // And one cannot be reached by id either.
+  await assert.rejects(
+    () => service.getClient(ac.id, solar, store),
+    (err) => err.code === 'NOT_FOUND'
+  );
+  assert.equal((await service.getClient(untagged.id, solar, store)).companyName, 'Nobody has said');
+});
