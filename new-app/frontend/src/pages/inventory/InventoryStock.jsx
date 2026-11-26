@@ -127,8 +127,12 @@ export default function InventoryStock() {
   });
 
   /* Adjust form */
+  /* Owner request (26 Nov 2026): "some of the added stock is more, how
+     to edit it". Correcting a count was possible before only by typing a
+     negative quantity, which nothing on the screen said. The form now
+     asks what you are doing and works the difference out itself. */
   const [adjustForm, setAdjustForm] = useState({
-    type: 'Purchase In', quantity: '', locationId: '', remark: '',
+    mode: 'set', type: 'Adjustment', quantity: '', locationId: '', remark: '',
   });
 
   const canManage = MANAGE_ROLES.includes(user?.role);
@@ -394,9 +398,27 @@ export default function InventoryStock() {
   }
 
   /* ---- Adjust Stock ---- */
+  /* Default to the one location when there is only one, so the current
+     count can be shown straight away. */
   function openAdjust(item) {
-    setAdjustForm({ type: 'Purchase In', quantity: '', locationId: '', remark: '' });
+    const only = locations.length === 1 ? String(locations[0].id || locations[0]._id) : '';
+    setAdjustForm({ mode: 'set', type: 'Adjustment', quantity: '', locationId: only, remark: '' });
     setShowAdjust(item);
+  }
+
+  /* What is in stock at the chosen location right now. */
+  function adjustCurrent() {
+    const map = showAdjust?.stockByLocation || {};
+    return Number(map[adjustForm.locationId] || 0);
+  }
+
+  /* The signed change the API wants, worked out from what was typed. */
+  function adjustDelta() {
+    const q = Number(adjustForm.quantity);
+    if (!adjustForm.quantity || Number.isNaN(q)) return null;
+    if (adjustForm.mode === 'set') return q - adjustCurrent();
+    if (adjustForm.mode === 'remove') return -Math.abs(q);
+    return Math.abs(q);
   }
 
   async function handleAdjust(e) {
@@ -405,9 +427,17 @@ export default function InventoryStock() {
     setError(null);
     try {
       const itemId = showAdjust.id || showAdjust._id;
+      const delta = adjustDelta();
+      if (!delta) {
+        setError(adjustForm.mode === 'set'
+          ? 'That is the count already — nothing to change.'
+          : 'Enter a quantity.');
+        setSaving(false);
+        return;
+      }
       await api.post(`/api/inventory/items/${itemId}/adjust`, {
         type: adjustForm.type,
-        quantity: Number(adjustForm.quantity) || 0,
+        quantity: delta,
         locationId: adjustForm.locationId || undefined,
         remark: adjustForm.remark || undefined,
       });
@@ -777,23 +807,60 @@ export default function InventoryStock() {
             <h3>Adjust Stock — {showAdjust.name}</h3>
             <form onSubmit={handleAdjust}>
               <div className="form-grid">
-                <div className="filter-field"><label>Adjustment Type</label>
-                  <select value={adjustForm.type} onChange={e => setAdjustForm(p => ({ ...p, type: e.target.value }))}>
-                    {ADJUSTMENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                </div>
-                <div className="filter-field"><label>Quantity *</label><input type="number" value={adjustForm.quantity} onChange={e => setAdjustForm(p => ({ ...p, quantity: e.target.value }))} required /></div>
                 <div className="filter-field"><label>Location *</label>
                   <select value={adjustForm.locationId} onChange={e => setAdjustForm(p => ({ ...p, locationId: e.target.value }))} required>
                     <option value="">— Select —</option>
                     {locations.map(l => <option key={l.id || l._id} value={l.id || l._id}>{l.name}</option>)}
                   </select>
                 </div>
+                <div className="filter-field"><label>What are you doing?</label>
+                  <select
+                    value={adjustForm.mode}
+                    onChange={e => setAdjustForm(p => ({
+                      ...p,
+                      mode: e.target.value,
+                      type: e.target.value === 'add' ? 'Purchase In'
+                        : e.target.value === 'remove' ? 'Damage / Write-off'
+                        : 'Adjustment',
+                    }))}
+                  >
+                    <option value="set">Correcting the count</option>
+                    <option value="add">Adding stock</option>
+                    <option value="remove">Taking stock out</option>
+                  </select>
+                </div>
+                <div className="filter-field">
+                  <label>{adjustForm.mode === 'set' ? 'The correct quantity *' : 'How many *'}</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={adjustForm.quantity}
+                    onChange={e => setAdjustForm(p => ({ ...p, quantity: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div className="filter-field"><label>Recorded as</label>
+                  <select value={adjustForm.type} onChange={e => setAdjustForm(p => ({ ...p, type: e.target.value }))}>
+                    {ADJUSTMENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
                 <div className="filter-field"><label>Remark</label><input type="text" value={adjustForm.remark} onChange={e => setAdjustForm(p => ({ ...p, remark: e.target.value }))} /></div>
               </div>
+              {/* Say out loud what is about to happen, so nobody has to
+                  work out the arithmetic in their head. */}
+              {adjustForm.locationId && (
+                <p className="muted" style={{ margin: '4px 0 0' }}>
+                  {adjustCurrent()} in stock here now
+                  {adjustDelta() !== null && adjustDelta() !== 0 && (
+                    <> → <b>{adjustCurrent() + adjustDelta()}</b> after this
+                      {' '}({adjustDelta() > 0 ? '+' : ''}{adjustDelta()})</>
+                  )}
+                  {adjustDelta() === 0 && <> — that is the count already.</>}
+                </p>
+              )}
               <div className="modal-actions">
                 <button type="button" className="btn sec" onClick={() => setShowAdjust(null)}>Cancel</button>
-                <button type="submit" className="btn pri" disabled={saving}>{saving ? 'Saving...' : 'Adjust'}</button>
+                <button type="submit" className="btn pri" disabled={saving}>{saving ? 'Saving...' : 'Save'}</button>
               </div>
             </form>
           </div>
