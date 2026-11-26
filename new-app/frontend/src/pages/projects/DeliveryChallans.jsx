@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
+import { useAuth } from '../../auth/AuthContext';
 import { fmtDate } from '../../utils/format';
 import SortSelect, { useSort, sortRows } from '../../components/SortSelect';
 
@@ -16,7 +17,22 @@ import SortSelect, { useSort, sortRows } from '../../components/SortSelect';
  * Every row links back to its project, where it can be edited, returned
  * against and printed.
  */
+/*
+ * Who may write a challan: the Manager of the project, an engineer
+ * assigned to it, or admin -- the server's own rule
+ * (assertIsPmOrAssignedEngineer). The storekeeper can read this register
+ * but not start a challan, so the button is not dangled in front of
+ * them only to be refused on save.
+ */
+const CAN_START_ROLES = ['admin', 'hvac_pm', 'solar_pm', 'mep_pm'];
+
 export default function DeliveryChallans() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const canStart = CAN_START_ROLES.includes(user?.role);
+  const [projects, setProjects] = useState([]);
+  const [picking, setPicking] = useState(false);
+  const [pickedProject, setPickedProject] = useState('');
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -30,12 +46,19 @@ export default function DeliveryChallans() {
     try {
       const r = await api.get('/api/projects/delivery-challans/all');
       setRows(r.challans || []);
+      if (canStart) {
+        // The projects a challan can be written against: the same list
+        // the Projects screen shows this reader, minus the ones closed
+        // to challans once they are In Service.
+        const pr = await api.get('/api/projects').catch(() => ({ projects: [] }));
+        setProjects((pr.projects || []).filter((p) => p.status !== 'In Service'));
+      }
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [canStart]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -61,6 +84,11 @@ export default function DeliveryChallans() {
         <h2>Delivery Challan</h2>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <SortSelect value={sort} onChange={setSort} />
+          {canStart && (
+            <button className="btn pri sm" onClick={() => { setPickedProject(''); setPicking(true); }}>
+              + New Challan
+            </button>
+          )}
         </div>
       </div>
 
@@ -83,6 +111,48 @@ export default function DeliveryChallans() {
           <span>Only challans with material still to come back</span>
         </label>
       </div>
+
+      {/* A challan belongs to a project, so starting one here is a
+          question of which -- then the project's own challan form opens,
+          the same one, rather than a second copy of it living here. */}
+      {picking && (
+        <div className="modal-overlay" onClick={() => setPicking(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>New Delivery Challan</h3>
+            <div className="filter-field">
+              <label>Which project is it for? *</label>
+              <select value={pickedProject} onChange={(e) => setPickedProject(e.target.value)}>
+                <option value="">— Select project —</option>
+                {projects.map((p) => (
+                  <option key={p.id || p._id} value={p.id || p._id}>
+                    {p.name}{p.customer ? ` — ${p.customer}` : ''}
+                  </option>
+                ))}
+              </select>
+              {projects.length === 0 && (
+                <span className="muted">No open project to write a challan against.</span>
+              )}
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="btn sec" onClick={() => setPicking(false)}>Cancel</button>
+              <button
+                type="button"
+                className="btn pri"
+                disabled={!pickedProject}
+                onClick={() => navigate(`/projects/${pickedProject}?dc=new`)}
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!canStart && !loading && (
+        <p className="muted" style={{ marginTop: 0 }}>
+          A challan is written by the project&apos;s Manager or an engineer assigned to it.
+        </p>
+      )}
 
       {error && <div className="panel err">{error}</div>}
 

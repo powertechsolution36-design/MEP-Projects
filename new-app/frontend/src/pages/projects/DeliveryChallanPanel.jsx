@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api, getStoredToken } from '../../api/client';
 import { API_BASE_URL } from '../../config';
 import { fmtDate } from '../../utils/format';
@@ -109,8 +109,9 @@ function buildChallanHtml({ challanNumber, group, project, company }) {
 </body></html>`;
 }
 
-export default function DeliveryChallanPanel({ project, projectId, canAct, notInService, onProjectUpdated }) {
+export default function DeliveryChallanPanel({ project, projectId, canAct, notInService, onProjectUpdated, autoOpenNew = false }) {
   const rows = project.deliveryChallans || [];
+  const panelRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [form, setForm] = useState(null); // { challanNumber, appending, date, receivedByName, remark, items }
@@ -151,6 +152,24 @@ export default function DeliveryChallanPanel({ project, projectId, canAct, notIn
       items: Array.from({ length: BLANK_ROWS }, blankItem),
     });
   }
+
+  /*
+   * Arriving from the Delivery Challan register's "+ New Challan"
+   * (owner, 26 Nov 2026): the project opens with this form already up,
+   * so writing a challan is one screen, not a hunt down the page. Once
+   * only -- closing it must not make it spring back.
+   */
+  const opened = useRef(false);
+  useEffect(() => {
+    if (!autoOpenNew || opened.current) return;
+    if (!canAct || !notInService) return;
+    opened.current = true;
+    openNew(null);
+    panelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // openNew is stable for this purpose: it only reads rows, which are
+    // loaded before the panel renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpenNew, canAct, notInService]);
 
   function setItem(i, patch) {
     setForm((f) => ({ ...f, items: f.items.map((row, j) => (j === i ? { ...row, ...patch } : row)) }));
@@ -264,7 +283,7 @@ export default function DeliveryChallanPanel({ project, projectId, canAct, notIn
   }
 
   return (
-    <div className="panel flush">
+    <div className="panel flush" ref={panelRef}>
       <div className="panel-head">
         <h3>📦 Delivery Challans — Material</h3>
         <div className="panel-head-meta">

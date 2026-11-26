@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, getStoredToken } from '../../api/client';
 import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../auth/AuthContext';
@@ -118,6 +118,7 @@ function itemStatus(c) {
 
 export default function ProjectDetail() {
   const { id } = useParams();
+  const [params] = useSearchParams();
   const { user } = useAuth();
   const navigate = useNavigate();
   const [proj, setProj] = useState(null);
@@ -1147,6 +1148,9 @@ export default function ProjectDetail() {
         canAct={canAct}
         notInService={notInService}
         onProjectUpdated={applyProject}
+        /* "?dc=new" comes from the Delivery Challan register's
+           "+ New Challan" (owner, 26 Nov 2026). */
+        autoOpenNew={params.get('dc') === 'new'}
       />
 
       {/* ====================== MODALS ====================== */}
