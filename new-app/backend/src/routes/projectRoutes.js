@@ -36,6 +36,7 @@ const { requireCompanyContext, rejectClientSuppliedCompanyId } = require('../mid
  *   POST   /api/projects/:id/checklist/:i/pm-sign                  PM counter-sign
  *   PATCH  /api/projects/:id/checklist/:i/milestone-link       tie a point to the payment milestone it releases
  *   POST   /api/projects/:id/updates                            append an execution update
+ *   GET    /api/projects/delivery-challans/all                    every challan, as a register
  *   POST   /api/projects/:id/delivery-challans                   create/append to a DC
  *   PATCH  /api/projects/:id/delivery-challans/:i                 edit one DC item
  *   DELETE /api/projects/:id/delivery-challans/:i                 delete one DC item
@@ -85,6 +86,19 @@ function createProjectRouter(deps) {
       const pmDivision = { hvac_pm: 'HVAC', solar_pm: 'Solar', mep_pm: 'MEP' }[req.auth.role] || 'all';
       res.setHeader('Content-Disposition', `attachment; filename="${reportFilename(`projects-${pmDivision}`)}"`);
       return res.status(200).send(csv);
+    })
+  );
+
+  /*
+   * The Delivery Challan register (owner, 26 Nov 2026) -- every challan
+   * the reader is entitled to, newest first, each one naming its project.
+   * Declared before '/:id' so "delivery-challans" is never read as an id.
+   */
+  router.get(
+    '/delivery-challans/all',
+    handle(async (req, res) => {
+      const challans = await service.listDeliveryChallans(req.auth, deps);
+      return res.status(200).json({ challans });
     })
   );
 

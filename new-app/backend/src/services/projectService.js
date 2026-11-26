@@ -645,6 +645,89 @@ async function listProjects(actorAuth, { filters = {}, enrich = false } = {}, de
   return ordered.map((p) => buildProjectListRow(p, { nameById, soOrderNumberById, soById, payments }));
 }
 
+/*
+ * Delivery Challans, all of them, as one register.
+ *
+ * Owner request (26 Nov 2026): "create a new option in sidebar as
+ * Delivery Challan, and it will be linked to project." The panel inside a
+ * project stays exactly as it is -- this is a way in from the other end,
+ * for the storekeeper who knows the challan number but not which project
+ * it belongs to.
+ *
+ * The rows live on the project (Project.deliveryChallans[]), one row per
+ * material line, grouped here by challan number the same way the project
+ * panel groups them: the first line of a challan carries its date, its
+ * receiver and its remark.
+ */
+const CHALLAN_LIST_ROLES = Object.freeze(['admin', 'hvac_pm', 'solar_pm', 'mep_pm', 'inventory']);
+
+async function listDeliveryChallans(actorAuth, deps) {
+  assertCompanyContext(actorAuth);
+  assertRole(actorAuth, CHALLAN_LIST_ROLES, 'view the Delivery Challan register');
+
+  const all = await deps.projectRepo.listByCompany(actorAuth.companyId);
+  const divisions = await getEffectiveDivisions(actorAuth.companyId, deps);
+  const entitled = all.filter((p) => divisions.includes(p.division));
+  /*
+   * A Manager sees the challans of the projects assigned to them, by the
+   * same rule as the Projects list -- 19 Nov. Admin and the storekeeper
+   * see every project the company has paid for.
+   */
+  const pmDiv = PM_DIVISION_FOR_ROLE[actorAuth.role];
+  const scoped = pmDiv ? entitled.filter((p) => isAssignedManager(actorAuth, p)) : entitled;
+
+  const users = await deps.userRepoForEnquiry.listByCompany(actorAuth.companyId);
+  const nameById = new Map(users.map((u) => [String(u.id), u.name]));
+
+  const out = [];
+  for (const p of scoped) {
+    const groups = new Map();
+    for (const line of p.deliveryChallans || []) {
+      const no = String(line.challanNumber || '').trim();
+      if (!no) continue;
+      if (!groups.has(no)) {
+        groups.set(no, {
+          challanNumber: no,
+          date: line.date || null,
+          receivedBy: line.receivedByName
+            || nameById.get(String(line.recordedByUserId)) || '',
+          remark: line.remark || '',
+          projectId: p.id,
+          projectName: p.name || '',
+          customer: p.customer || '',
+          site: p.site || '',
+          division: p.division || '',
+          lines: 0,
+          totalQuantity: 0,
+          returnableLines: 0,
+          // What went out returnable and has not come back yet -- the
+          // number worth chasing.
+          outstandingReturn: 0,
+        });
+      }
+      const g = groups.get(no);
+      const qty = Number(line.quantity) || 0;
+      g.lines += 1;
+      g.totalQuantity += qty;
+      if (line.returnable) {
+        g.returnableLines += 1;
+        g.outstandingReturn += Math.max(0, qty - (Number(line.returnedQuantity) || 0));
+      }
+    }
+    for (const g of groups.values()) out.push(g);
+  }
+
+  // Newest first, and a challan with no date last rather than first.
+  return out.sort((a, b) => {
+    const x = a.date ? new Date(a.date).getTime() : null;
+    const y = b.date ? new Date(b.date).getTime() : null;
+    if (x === null && y === null) return 0;
+    if (x === null) return 1;
+    if (y === null) return -1;
+    return y - x;
+  });
+}
+
 /* ================= STAGE / STATUS / COMPLETION ================= */
 
 // PWA FACT (§10, `pend`): sum of (quantity - returnedQuantity) over
@@ -2310,6 +2393,8 @@ function retryOnConflict(fn) {
 module.exports = {
   getProject,
   listProjects,
+  listDeliveryChallans,
+  CHALLAN_LIST_ROLES,
   assignProjectManager,
   listManagerCandidates,
   ASSIGN_ROLES,

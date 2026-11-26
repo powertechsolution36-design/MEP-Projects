@@ -44,6 +44,7 @@ import InventoryStock from './pages/inventory/InventoryStock';
 import InventoryIssue from './pages/inventory/InventoryIssue';
 import InventoryReturns from './pages/inventory/InventoryReturns';
 import InventoryTransfer from './pages/inventory/InventoryTransfer';
+import DeliveryChallans from './pages/projects/DeliveryChallans';
 import InventoryCategories from './pages/inventory/InventoryCategories';
 import InventoryHistory from './pages/inventory/InventoryHistory';
 import MyMaterial from './pages/inventory/MyMaterial';
@@ -160,6 +161,10 @@ export default function App() {
           <Route path="users" element={<UserManagement />} />
           <Route path="reports" element={<Reports />} />
           <Route path="notifications" element={<Notifications />} />
+
+          {/* Owner request (26 Nov 2026): the challan register, linked
+              to the projects the challans belong to. */}
+          <Route path="delivery-challans" element={<DeliveryChallans />} />
 
           <Route path="inventory/stock" element={<InventoryStock />} />
           <Route path="inventory/issue" element={<InventoryIssue />} />

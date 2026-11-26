@@ -1180,3 +1180,68 @@ test('renaming a project renames its payment rows too, but not one typed over by
   assert.equal(byId.pay3, 'Mete Flat');
   assert.equal(byId.pay4, 'Other job', 'another order is untouched');
 });
+
+/*
+ * Owner request (26 Nov 2026): "create a new option in sidebar as
+ * Delivery Challan, and it will be linked to project." The register
+ * reads the rows off the projects and groups them by challan number,
+ * the same grouping the project's own panel uses.
+ */
+test('the Delivery Challan register gathers every challan, grouped and linked to its project', async () => {
+  const when = new Date('2026-11-20');
+  const older = new Date('2026-11-02');
+  const store = createEnquiryFakeStore({
+    projects: [
+      baseProject({
+        deliveryChallans: [
+          { challanNumber: '7', date: when, materialName: 'Copper pipe', quantity: 10, unit: 'Mtr', returnable: true, returnedQuantity: 4, receivedByName: 'Site store', remark: 'gate pass 12' },
+          { challanNumber: '7', date: when, materialName: 'Elbows', quantity: 20, unit: 'Nos', returnable: false, returnedQuantity: 0 },
+          { challanNumber: '3', date: older, materialName: 'Drill', quantity: 1, unit: 'Nos', returnable: true, returnedQuantity: 0 },
+        ],
+      }),
+    ],
+  });
+  const rows = await service.listDeliveryChallans(auth(), store);
+
+  assert.equal(rows.length, 2);
+  // Newest first.
+  assert.deepEqual(rows.map((r) => r.challanNumber), ['7', '3']);
+
+  const seven = rows[0];
+  assert.equal(seven.lines, 2);
+  assert.equal(seven.totalQuantity, 30);
+  assert.equal(seven.returnableLines, 1);
+  // 10 went out returnable, 4 came back: 6 still to chase.
+  assert.equal(seven.outstandingReturn, 6);
+  assert.equal(seven.receivedBy, 'Site store');
+  assert.equal(seven.remark, 'gate pass 12');
+  // Linked to the project it belongs to, which is the whole point.
+  assert.equal(seven.projectId, 'proj1');
+  assert.equal(seven.projectName, 'Tower Chiller Plant');
+  assert.equal(seven.customer, 'Ravi');
+});
+
+test('the Delivery Challan register is closed to roles that have no business in it', async () => {
+  const store = createEnquiryFakeStore({ projects: [baseProject()] });
+  // The storekeeper keeps challans, so the register is open to them even
+  // though the Projects list is not.
+  assert.ok(Array.isArray(await service.listDeliveryChallans(auth({ role: 'inventory' }), store)));
+  await assert.rejects(() => service.listDeliveryChallans(auth({ role: 'sales' }), store), /Delivery Challan register/);
+  await assert.rejects(() => service.listDeliveryChallans(auth({ role: 'finance' }), store), /Delivery Challan register/);
+});
+
+test('a Manager sees the challans of the projects assigned to them, and no others', async () => {
+  const mine = baseProject({ id: 'mine', deliveryChallans: [{ challanNumber: '1', date: new Date(), materialName: 'Pipe', quantity: 5, unit: 'Mtr', returnable: false, returnedQuantity: 0 }] });
+  const theirs = baseProject({
+    id: 'theirs', salesOrderId: 'so2', projectManagerUserId: 'u9',
+    deliveryChallans: [{ challanNumber: '2', date: new Date(), materialName: 'Pipe', quantity: 5, unit: 'Mtr', returnable: false, returnedQuantity: 0 }],
+  });
+  const store = createEnquiryFakeStore({ projects: [mine, theirs] });
+
+  const pm = await service.listDeliveryChallans(auth(), store);
+  assert.deepEqual(pm.map((r) => r.challanNumber), ['1']);
+
+  // Admin and the storekeeper see both.
+  const admin = await service.listDeliveryChallans(auth({ role: 'admin' }), store);
+  assert.equal(admin.length, 2);
+});

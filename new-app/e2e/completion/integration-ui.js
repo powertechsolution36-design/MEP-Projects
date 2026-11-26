@@ -980,8 +980,11 @@ async function group6j(browser) {
   // Owner request (21 Nov 2026): "All quotation need to belong to enquiries
   // only" — the Quotations register left this menu again; a quotation is
   // reached from its lead.
+  // Owner request (26 Nov 2026): the Delivery Challan register, under
+  // Projects — every challan, linked to the project it belongs to.
   const want = ['Dashboard', 'Clients', 'Enquiries', 'Sales Orders', 'Won Enquiries', 'Lost Enquiries',
-    'Projects', 'Service Calls', 'My Service Tasks', 'Daily Tasks', 'AMC / PM List', 'Issue Material', 'Checklists'];
+    'Projects', 'Delivery Challan', 'Service Calls', 'My Service Tasks', 'Daily Tasks', 'AMC / PM List',
+    'Issue Material', 'Checklists'];
   rec('Solar Manager: the menu is the screens asked for, Clients included',
     want.every((w) => menu.some((m) => m.includes(w))) && menu.length === want.length,
     menu.join(' | '));

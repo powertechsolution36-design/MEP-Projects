@@ -52,6 +52,9 @@ export const MENUS = {
     ['won', '🏆 Won Enquiries', '/enquiries/won'],
     ['lost', '❌ Lost Enquiries', '/enquiries/lost'],
     ['projects', '🏗️ Projects', '/projects'],
+    // Owner request (26 Nov 2026): every challan in one register, each
+    // one linked back to the project it was written against.
+    ['challans', '🚚 Delivery Challan', '/delivery-challans'],
     ['service', '🛠️ Service Calls', '/service-calls'],
     ['pmlist', '🔁 AMC / PM List', '/contracts'],
     ['payments', '💰 Payments', '/payments'],
@@ -82,6 +85,7 @@ export const MENUS = {
     ['dash', '🏠 Dashboard', '/'],
     ['clients', '🏢 Clients', '/clients'],
     ['projects', '🏗️ Projects', '/projects'],
+    ['challans', '🚚 Delivery Challan', '/delivery-challans'],
     ['quotations', '📄 Quotations', '/quotations'],
     ['sos', '🧾 Sales Orders', '/sales-orders'],
     // Owner request (20 Nov 2026): "Add my Service Task and Daily task to
@@ -110,6 +114,7 @@ export const MENUS = {
     ['won', '🏆 Won Enquiries', '/enquiries/won'],
     ['lost', '❌ Lost Enquiries', '/enquiries/lost'],
     ['projects', '🏗️ Projects', '/projects'],
+    ['challans', '🚚 Delivery Challan', '/delivery-challans'],
     ['service', '🛠️ Service Calls', '/service-calls'],
     // Owner request (20 Nov 2026): the Solar Manager's own calls, beside
     // the division register it already has, and its daily tasks.
@@ -123,6 +128,7 @@ export const MENUS = {
     ['dash', '🏠 Dashboard', '/'],
     ['clients', '🏢 Clients', '/clients'],
     ['projects', '🏗️ Projects', '/projects'],
+    ['challans', '🚚 Delivery Challan', '/delivery-challans'],
     ['quotations', '📄 Quotations', '/quotations'],
     ['sos', '🧾 Sales Orders', '/sales-orders'],
     ['myservice', '🛠️ My Service Tasks', '/my-service-tasks'],
@@ -141,6 +147,8 @@ export const MENUS = {
     ['invissue', '📤 Issue Material', '/inventory/issue'],
     ['invreturn', '📥 Material Returns', '/inventory/returns'],
     ['invtransfer', '🔄 Stock Transfer', '/inventory/transfer'],
+    ['challans', '🚚 Delivery Challan', '/delivery-challans'],
+
     ['invcats', '🗂 Categories & Locations', '/inventory/categories'],
     ['invhistory', '🧾 Transactions', '/inventory/history'],
   ],
