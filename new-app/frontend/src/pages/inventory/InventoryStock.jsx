@@ -4,6 +4,7 @@ import { api, apiRequest, getStoredToken, assertDownloadOk } from '../../api/cli
 import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../auth/AuthContext';
 import { money } from '../../utils/format';
+import SortSelect, { useSort, sortRows } from '../../components/SortSelect';
 
 /**
  * Inventory Stock — PWA `vStock()` exact reproduction.
@@ -109,6 +110,8 @@ export default function InventoryStock() {
      menu per row. Three buttons on every line pushed the code and name
      columns off the side of the screen. */
   const [menuFor, setMenuFor] = useState(null);
+  // Owner request (26 Nov 2026): the same sort as the other registers.
+  const [sort, setSort] = useSort('stock');
   /* Owner request (26 Nov 2026): inside Split, the two halves get their
      own sections under the names the trade uses -- IDU for the indoor
      unit, ODU for the outdoor one. */
@@ -224,7 +227,10 @@ export default function InventoryStock() {
   if (group === 'Machines') for (const i of groupItems) subCounts[subTabOf(i)] += 1;
   const inMachines = group === 'Machines';
   const showingSplit = inMachines && subTab === 'Split';
-  const filtered = inMachines ? groupItems.filter(i => subTabOf(i) === subTab) : groupItems;
+  const filtered = sortRows(
+    inMachines ? groupItems.filter(i => subTabOf(i) === subTab) : groupItems,
+    sort,
+  );
 
   const divisionsOffered = myDivision ? [myDivision] : ['HVAC', 'Solar', 'MEP'];
   function divisionCount(d) { return searched.filter(i => inDivision(i, d)).length; }
@@ -234,8 +240,12 @@ export default function InventoryStock() {
      the set count is the smaller of the two. An unpaired half is shown
      on its own, because that is the number that otherwise stays hidden
      until an engineer is on site holding half a machine. */
-  const splitIndoors = inMachines ? groupItems.filter(i => i.subGroup === 'Split Indoor') : [];
-  const splitOutdoors = inMachines ? groupItems.filter(i => i.subGroup === 'Split Outdoor') : [];
+  const splitIndoors = sortRows(
+    inMachines ? groupItems.filter(i => i.subGroup === 'Split Indoor') : [], sort,
+  );
+  const splitOutdoors = sortRows(
+    inMachines ? groupItems.filter(i => i.subGroup === 'Split Outdoor') : [], sort,
+  );
   const pairedOutdoorIds = new Set();
   const splitPairs = splitIndoors.map(indoor => {
     const partner = (indoor.fitsItemIds || [])
@@ -492,6 +502,8 @@ export default function InventoryStock() {
       <div className="enq-header">
         <h2>Stock</h2>
         <div className="enq-actions">
+          {/* Owner request (26 Nov 2026): sort here too, on the right. */}
+          <SortSelect value={sort} onChange={setSort} />
           {canManage && (
             <button className="btn pri" onClick={() => setShowCreate(true)}>+ New Item</button>
           )}
