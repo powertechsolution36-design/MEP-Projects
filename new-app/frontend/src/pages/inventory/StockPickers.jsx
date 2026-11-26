@@ -15,6 +15,11 @@ export const ITEM_GROUPS = ['Machines', 'Piping & Refnuts', 'PCB', 'Permanent St
 export const MACHINE_SUBGROUPS = [
   'Indoor', 'Outdoor', 'Panels', 'Remote', 'Split Indoor', 'Split Outdoor',
 ];
+export const PIPING_SUBGROUPS = ['Copper Piping', 'Refnuts', 'Joints', 'Drain', 'Other'];
+export const SUBGROUPS_BY_GROUP = {
+  Machines: MACHINE_SUBGROUPS,
+  'Piping & Refnuts': PIPING_SUBGROUPS,
+};
 export const SHELF_LABEL = {
   'Split Indoor': 'Split Indoor (IDU)',
   'Split Outdoor': 'Split Outdoor (ODU)',
@@ -80,18 +85,19 @@ export function ItemFilters({ value, onChange }) {
           onChange={e => onChange({
             ...value,
             group: e.target.value,
-            subGroup: e.target.value === 'Machines' ? value.subGroup : '',
+            subGroup: (SUBGROUPS_BY_GROUP[e.target.value] || []).includes(value.subGroup)
+              ? value.subGroup : '',
           })}
         >
           <option value="">— All —</option>
           {ITEM_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
         </select>
       </div>
-      {value.group === 'Machines' && (
+      {(SUBGROUPS_BY_GROUP[value.group] || []).length > 0 && (
         <div className="filter-field"><label>Shelf</label>
           <select value={value.subGroup} onChange={e => onChange({ ...value, subGroup: e.target.value })}>
             <option value="">— All —</option>
-            {MACHINE_SUBGROUPS.map(t => (
+            {SUBGROUPS_BY_GROUP[value.group].map(t => (
               <option key={t} value={t}>{SHELF_LABEL[t] || t}</option>
             ))}
           </select>

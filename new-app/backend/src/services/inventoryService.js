@@ -370,6 +370,19 @@ const ITEM_GROUPS = Object.freeze(['Machines', 'Piping & Refnuts', 'PCB', 'Perma
 const MACHINE_SUBGROUPS = Object.freeze([
   'Indoor', 'Outdoor', 'Panels', 'Remote', 'Split Indoor', 'Split Outdoor',
 ]);
+/*
+ * Owner request (26 Nov 2026): shelves inside Piping & Refnuts as well.
+ * "Other" is deliberate -- a drawer with no home for the odd item ends
+ * up with everything filed wrongly rather than filed honestly.
+ */
+const PIPING_SUBGROUPS = Object.freeze([
+  'Copper Piping', 'Refnuts', 'Joints', 'Drain', 'Other',
+]);
+/* Which shelves each drawer has. A drawer absent here has none. */
+const SUBGROUPS_BY_GROUP = Object.freeze({
+  Machines: MACHINE_SUBGROUPS,
+  'Piping & Refnuts': PIPING_SUBGROUPS,
+});
 
 function validateItemGroup(value) {
   const v = String(value === undefined || value === null ? '' : value).trim();
@@ -387,11 +400,16 @@ function validateItemGroup(value) {
 function validateSubGroup(value, group) {
   const v = String(value === undefined || value === null ? '' : value).trim();
   if (!v) return '';
-  if (!MACHINE_SUBGROUPS.includes(v)) {
-    throw new ServiceError(`Sub-group must be one of ${MACHINE_SUBGROUPS.join(', ')}.`, 'VALIDATION_ERROR', 400);
+  const allowed = SUBGROUPS_BY_GROUP[group];
+  if (!allowed) {
+    throw new ServiceError(
+      `${group || 'An ungrouped item'} has no shelves.`, 'VALIDATION_ERROR', 400
+    );
   }
-  if (group !== 'Machines') {
-    throw new ServiceError('Only an item in Machines can have a sub-group.', 'VALIDATION_ERROR', 400);
+  if (!allowed.includes(v)) {
+    throw new ServiceError(
+      `A ${group} sub-group must be one of ${allowed.join(', ')}.`, 'VALIDATION_ERROR', 400
+    );
   }
   return v;
 }
@@ -548,7 +566,10 @@ async function updateItem(id, input, actorAuth, deps) {
   const nextGroup = src.group !== undefined ? validateItemGroup(src.group) : (item.group || '');
   if (src.group !== undefined) {
     patch.group = nextGroup;
-    if (nextGroup !== 'Machines') patch.subGroup = '';
+    // A shelf belongs to one drawer, so moving drawers drops it unless
+    // the new drawer happens to have a shelf of the same name.
+    const keeps = SUBGROUPS_BY_GROUP[nextGroup] || [];
+    if (!keeps.includes(item.subGroup || '')) patch.subGroup = '';
     if (nextGroup === 'Permanent Stock') patch.returnable = true;
   }
   if (src.subGroup !== undefined) patch.subGroup = validateSubGroup(src.subGroup, nextGroup);
@@ -1416,6 +1437,8 @@ module.exports = {
   ITEM_GROUPS,
   LOW_STOCK_FLOOR,
   MACHINE_SUBGROUPS,
+  PIPING_SUBGROUPS,
+  SUBGROUPS_BY_GROUP,
   MANAGE_ROLES,
   STOCK_REPORT_ROLES,
   ISSUED_REPORT_ROLES,

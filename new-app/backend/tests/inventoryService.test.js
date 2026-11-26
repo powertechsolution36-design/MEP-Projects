@@ -871,13 +871,27 @@ test('an item says which drawer it lives in, and only a machine has a shelf', as
     () => service.createItem({ name: 'Bad', categoryId: category.id, group: 'Spares' }, a, store),
     /Group must be one of/
   );
-  // A shelf outside Machines is a mistake, not something to drop quietly.
+  // A shelf from the wrong drawer is a mistake, not something to drop
+  // quietly: the item would sit where nobody meant to put it.
   await assert.rejects(
     () => service.createItem(
       { name: 'Board', categoryId: category.id, group: 'PCB', subGroup: 'Indoor' }, a, store
     ),
-    /Only an item in Machines can have a sub-group/
+    /PCB has no shelves/
   );
+  await assert.rejects(
+    () => service.createItem(
+      { name: 'Pipe', categoryId: category.id, group: 'Piping & Refnuts', subGroup: 'Outdoor' }, a, store
+    ),
+    /must be one of Copper Piping, Refnuts, Joints, Drain, Other/
+  );
+
+  // Owner request (26 Nov 2026): Piping & Refnuts has shelves of its own.
+  const copper = await service.createItem(
+    { name: '7/8 copper pipe', categoryId: category.id, group: 'Piping & Refnuts', subGroup: 'Copper Piping' },
+    a, store
+  );
+  assert.equal(copper.subGroup, 'Copper Piping');
 
   // Moving a machine out of Machines takes its shelf with it.
   const moved = await service.updateItem(odu.id, { group: 'Permanent Stock' }, a, store);

@@ -34,7 +34,18 @@ const UNSORTED = 'Not sorted yet';
 /* The shelves inside Machines. A split is shelved in two halves because
    it is sold as a set -- see the Split tab below. */
 const MACHINE_SUBGROUPS = ['Indoor', 'Outdoor', 'Panels', 'Remote', 'Split Indoor', 'Split Outdoor'];
-const SUB_TABS = ['Indoor', 'Outdoor', 'Panels', 'Remote', 'Split'];
+/* Owner request (26 Nov 2026): shelves inside Piping & Refnuts too. */
+const PIPING_SUBGROUPS = ['Copper Piping', 'Refnuts', 'Joints', 'Drain', 'Other'];
+const SUBGROUPS_BY_GROUP = {
+  Machines: MACHINE_SUBGROUPS,
+  'Piping & Refnuts': PIPING_SUBGROUPS,
+};
+/* What the tabs read. Machines shows one Split tab for its two halves,
+   because a split is counted in sets; every other shelf is its own tab. */
+const SUB_TABS_BY_GROUP = {
+  Machines: ['Indoor', 'Outdoor', 'Panels', 'Remote', 'Split'],
+  'Piping & Refnuts': PIPING_SUBGROUPS,
+};
 const UNSHELVED = 'Not shelved yet';
 /* A login tied to one division works in that division only -- the same
    table the client list and the AMC form use. */
@@ -62,10 +73,10 @@ function inDivision(item, division) {
 function groupOf(item) {
   return ITEM_GROUPS.includes(item.group) ? item.group : UNSORTED;
 }
-function subTabOf(item) {
+function subTabOf(item, group) {
   const sg = item.subGroup || '';
   if (sg === 'Split Indoor' || sg === 'Split Outdoor') return 'Split';
-  return SUB_TABS.includes(sg) ? sg : UNSHELVED;
+  return (SUB_TABS_BY_GROUP[group] || []).includes(sg) ? sg : UNSHELVED;
 }
 
 function totQty(item) {
@@ -123,7 +134,14 @@ export default function InventoryStock() {
   const [splitSide, setSplitSide] = useState(() => readStored('mep_stock_split_side', 'IDU'));
   function pickSplitSide(v) { setSplitSide(v); writeStored('mep_stock_split_side', v); }
   function pickDivision(d) { setDivision(d); writeStored('mep_stock_division', d); }
-  function pickGroup(g) { setGroup(g); writeStored('mep_stock_group', g); }
+  function pickGroup(g) {
+    setGroup(g);
+    writeStored('mep_stock_group', g);
+    // Land on a shelf this drawer has, or the first one, rather than on
+    // a tab that belongs to the drawer you just left.
+    const tabs = SUB_TABS_BY_GROUP[g];
+    if (tabs && !tabs.includes(subTab) && subTab !== UNSHELVED) pickSubTab(tabs[0]);
+  }
   function pickSubTab(t) { setSubTab(t); writeStored('mep_stock_sub', t); }
 
   /* Modals */
@@ -227,12 +245,17 @@ export default function InventoryStock() {
   for (const g of [...ITEM_GROUPS, UNSORTED]) groupCounts[g] = 0;
   for (const i of divisionItems) groupCounts[groupOf(i)] += 1;
   const groupItems = divisionItems.filter(i => groupOf(i) === group);
+  /* The shelves of the drawer in front of you -- Machines and Piping &
+     Refnuts have them, the other drawers do not. */
+  const subTabs = SUB_TABS_BY_GROUP[group] || null;
   const subCounts = {};
-  for (const t of [...SUB_TABS, UNSHELVED]) subCounts[t] = 0;
-  if (group === 'Machines') for (const i of groupItems) subCounts[subTabOf(i)] += 1;
+  if (subTabs) {
+    for (const t of [...subTabs, UNSHELVED]) subCounts[t] = 0;
+    for (const i of groupItems) subCounts[subTabOf(i, group)] += 1;
+  }
   const inMachines = group === 'Machines';
   const showingSplit = inMachines && subTab === 'Split';
-  const shelfItems = inMachines ? groupItems.filter(i => subTabOf(i) === subTab) : groupItems;
+  const shelfItems = subTabs ? groupItems.filter(i => subTabOf(i, group) === subTab) : groupItems;
   /* The three quick filters, counted on exactly the rows they would show. */
   const stateKey = i => {
     const l = stockState(i).label;
@@ -287,7 +310,8 @@ export default function InventoryStock() {
             onChange={e => setForm(p => ({
               ...p,
               group: e.target.value,
-              subGroup: e.target.value === 'Machines' ? p.subGroup : '',
+              subGroup: (SUBGROUPS_BY_GROUP[e.target.value] || []).includes(p.subGroup)
+                ? p.subGroup : '',
               // Permanent Stock is the returnable drawer -- it goes to
               // site and comes back. The server decides the same way.
               returnable: e.target.value === 'Permanent Stock' ? true : p.returnable,
@@ -297,11 +321,11 @@ export default function InventoryStock() {
             {ITEM_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
           </select>
         </div>
-        {form.group === 'Machines' && (
+        {(SUBGROUPS_BY_GROUP[form.group] || []).length > 0 && (
           <div className="filter-field"><label>Shelf</label>
             <select value={form.subGroup} onChange={e => setForm(p => ({ ...p, subGroup: e.target.value }))}>
               <option value="">— not shelved yet —</option>
-              {MACHINE_SUBGROUPS.map(t => (
+              {SUBGROUPS_BY_GROUP[form.group].map(t => (
                 <option key={t} value={t}>
                   {t === 'Split Indoor' ? 'Split Indoor (IDU)'
                     : t === 'Split Outdoor' ? 'Split Outdoor (ODU)' : t}
@@ -361,7 +385,8 @@ export default function InventoryStock() {
         division: createForm.division,
         // Which drawer and shelf it belongs in (26 Nov 2026).
         group: createForm.group,
-        subGroup: createForm.group === 'Machines' ? createForm.subGroup : '',
+        subGroup: (SUBGROUPS_BY_GROUP[createForm.group] || []).includes(createForm.subGroup)
+          ? createForm.subGroup : '',
         fitsItemIds: createForm.fitsItemIds,
         minimumStockLevel: createForm.minimumStockLevel ? Number(createForm.minimumStockLevel) : undefined,
         ratePerUnit: createForm.ratePerUnit ? Number(createForm.ratePerUnit) : undefined,
@@ -412,7 +437,8 @@ export default function InventoryStock() {
         returnable: editForm.returnable,
         division: editForm.division,
         group: editForm.group,
-        subGroup: editForm.group === 'Machines' ? editForm.subGroup : '',
+        subGroup: (SUBGROUPS_BY_GROUP[editForm.group] || []).includes(editForm.subGroup)
+          ? editForm.subGroup : '',
         fitsItemIds: editForm.fitsItemIds,
         minimumStockLevel: editForm.minimumStockLevel ? Number(editForm.minimumStockLevel) : undefined,
         ratePerUnit: editForm.ratePerUnit ? Number(editForm.ratePerUnit) : undefined,
@@ -568,9 +594,9 @@ export default function InventoryStock() {
         ))}
       </div>
 
-      {inMachines && (
+      {subTabs && (
         <div className="stock-subtabs">
-          {[...SUB_TABS, UNSHELVED].map(t => (
+          {[...subTabs, UNSHELVED].map(t => (
             <button
               key={t}
               type="button"

@@ -23,6 +23,11 @@ const ITEM_GROUPS = Object.freeze(['Machines', 'Piping & Refnuts', 'PCB', 'Perma
 const MACHINE_SUBGROUPS = Object.freeze([
   'Indoor', 'Outdoor', 'Panels', 'Remote', 'Split Indoor', 'Split Outdoor',
 ]);
+// Owner request (26 Nov 2026): shelves inside Piping & Refnuts too.
+const PIPING_SUBGROUPS = Object.freeze([
+  'Copper Piping', 'Refnuts', 'Joints', 'Drain', 'Other',
+]);
+const ALL_SUBGROUPS = Object.freeze([...MACHINE_SUBGROUPS, ...PIPING_SUBGROUPS]);
 
 const inventoryItemSchema = new Schema(
   {
@@ -61,10 +66,13 @@ const inventoryItemSchema = new Schema(
      */
     group: { type: String, enum: [...ITEM_GROUPS, ''], default: '' },
     /*
-     * The shelf inside Machines: Indoor, Outdoor, Panels, Remote, Split.
-     * Only meaningful when group === 'Machines'; blank everywhere else.
+     * The shelf inside the drawer. Machines has Indoor, Outdoor, Panels,
+     * Remote and the two Split halves; Piping & Refnuts has Copper
+     * Piping, Refnuts, Joints, Drain and Other. A shelf is only valid
+     * for the drawer it belongs to -- inventoryService enforces that --
+     * and the other drawers have none, so it stays blank there.
      */
-    subGroup: { type: String, enum: [...MACHINE_SUBGROUPS, ''], default: '' },
+    subGroup: { type: String, enum: [...ALL_SUBGROUPS, ''], default: '' },
     /*
      * Which units this part fits (owner request, 26 Nov 2026): "I can
      * select in PCB that this PCB belongs to this Indoor from stock." A
