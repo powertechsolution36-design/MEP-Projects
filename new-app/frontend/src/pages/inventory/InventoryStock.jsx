@@ -5,7 +5,7 @@ import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../auth/AuthContext';
 import { money } from '../../utils/format';
 import SortSelect, { useSort, sortRows } from '../../components/SortSelect';
-import PipeSizeTable from './PipeSizeTable';
+import PipeSizeTable, { sizeInInches } from './PipeSizeTable';
 
 /**
  * Inventory Stock — PWA `vStock()` exact reproduction.
@@ -274,10 +274,28 @@ export default function InventoryStock() {
   };
   const stateCounts = { in: 0, low: 0, out: 0 };
   for (const i of shelfItems) stateCounts[stateKey(i)] += 1;
-  const filtered = sortRows(
-    stockFilter ? shelfItems.filter(i => stateKey(i) === stockFilter) : shelfItems,
-    sort,
-  );
+  /*
+   * Owner request (26 Nov 2026): "sort the data in Piping & Refnuts
+   * properly." A–Z is the wrong order for fittings -- it puts 1/8 after
+   * 1/2 and 1-1/8 between them, because it is reading characters, not
+   * sizes. Left to itself this drawer now runs by size, smallest first,
+   * with each size's elbow and socket together, which is how the stock
+   * is counted and how his own sheet lists it. Choosing a sort still
+   * does exactly what it says.
+   */
+  function bySize(a, b) {
+    const x = sizeInInches(a.name);
+    const y = sizeInInches(b.name);
+    if (x === null && y === null) return String(a.name).localeCompare(String(b.name));
+    if (x === null) return 1;   // no size in the name: after the sized ones
+    if (y === null) return -1;
+    if (Math.abs(x - y) > 0.001) return x - y;
+    return String(a.name).localeCompare(String(b.name));
+  }
+  const picked = stockFilter ? shelfItems.filter(i => stateKey(i) === stockFilter) : shelfItems;
+  const filtered = sort
+    ? sortRows(picked, sort)
+    : (group === 'Piping & Refnuts' ? [...picked].sort(bySize) : picked);
 
   const divisionsOffered = myDivision ? [myDivision] : ['HVAC', 'Solar', 'MEP'];
   function divisionCount(d) { return searched.filter(i => inDivision(i, d)).length; }
