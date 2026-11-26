@@ -4,6 +4,7 @@ import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../auth/AuthContext';
 import { fmtDate } from '../../utils/format';
 import { ReturnModal, MarkUsedModal, issueBalance, issueStatusClass } from './IssueActions';
+import { UsedForPicker, ItemFilters, filterItems, EMPTY_FILTERS } from './StockPickers';
 
 /**
  * Issue Material — PWA `vIssue()` exact reproduction.
@@ -36,6 +37,9 @@ export default function InventoryIssue() {
   const [showIssue, setShowIssue] = useState(false);
   const [issueForm, setIssueForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  /* Owner request (26 Nov 2026): the same two rows as Stock Transfer --
+     where the material is going to be used, and which kind of item. */
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [returnTarget, setReturnTarget] = useState(null);
   const [usedTarget, setUsedTarget] = useState(null);
 
@@ -67,9 +71,17 @@ export default function InventoryIssue() {
   useEffect(() => { if (canManage) load(); }, [load, canManage]);
 
   const inStock = items.filter(i => totalQty(i) > 0);
+  /* What is left after the filters, and the sites of the kind chosen --
+     both keep their original index so the form still posts the right
+     site. */
+  const pickable = filterItems(inStock, filters);
+  const siteChoices = sites
+    .map((s, i) => ({ s, i }))
+    .filter(({ s }) => !filters.usedFor || (s.group || 'Other') === filters.usedFor);
 
   function openIssue() {
     if (!inStock.length) { alert('No stock available to issue'); return; }
+    setFilters(EMPTY_FILTERS);
     setIssueForm({
       ...emptyForm,
       itemId: inStock[0].id,
@@ -201,10 +213,35 @@ export default function InventoryIssue() {
           <div className="modal modal-wide" onClick={e => e.stopPropagation()}>
             <h3>Issue Material</h3>
             <form onSubmit={handleIssue}>
+              {/* Where it is going, and which kind of item (26 Nov 2026). */}
+              <div className="form-grid stock-filter-row">
+                <UsedForPicker
+                  sites={sites}
+                  includeStockPoint={false}
+                  value={filters.usedFor}
+                  onChange={v => {
+                    const next = { ...filters, usedFor: v };
+                    setFilters(next);
+                    const first = sites.findIndex(s => !v || (s.group || 'Other') === v);
+                    setIssueForm(p => ({ ...p, siteIndex: String(first < 0 ? 0 : first) }));
+                  }}
+                />
+                <ItemFilters
+                  value={filters}
+                  onChange={next => {
+                    setFilters(next);
+                    const left = filterItems(inStock, next);
+                    const still = left.some(i => String(i.id) === String(issueForm.itemId));
+                    if (!still) setIssueForm(p => ({ ...p, itemId: left[0] ? left[0].id : '' }));
+                  }}
+                />
+              </div>
+
               <div className="form-grid">
                 <div className="filter-field"><label>Item *</label>
                   <select value={issueForm.itemId} onChange={e => setIssueForm(p => ({ ...p, itemId: e.target.value }))} required>
-                    {inStock.map(i => (
+                    <option value="">— Select Item —</option>
+                    {pickable.map(i => (
                       <option key={i.id} value={i.id}>
                         {i.code ? `${i.code} — ` : ''}{i.name} ({totalQty(i)} {i.unit} available){i.returnable ? ' · returnable' : ''}
                       </option>
@@ -234,10 +271,8 @@ export default function InventoryIssue() {
                     project, an order, a lead, an AMC site or a client. */}
                 <div className="filter-field"><label>Site / Project *</label>
                   <select value={issueForm.siteIndex} onChange={e => setIssueForm(p => ({ ...p, siteIndex: e.target.value }))}>
-                    {[...new Set(sites.map((s) => s.group || ''))].map((group) => {
-                      const inGroup = sites
-                        .map((s, i) => ({ s, i }))
-                        .filter(({ s }) => (s.group || '') === group);
+                    {[...new Set(siteChoices.map(({ s }) => s.group || ''))].map((group) => {
+                      const inGroup = siteChoices.filter(({ s }) => (s.group || '') === group);
                       if (!group) {
                         return inGroup.map(({ s, i }) => <option key={i} value={i}>{s.label}</option>);
                       }

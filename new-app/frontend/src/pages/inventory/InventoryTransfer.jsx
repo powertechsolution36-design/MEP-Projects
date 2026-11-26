@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
+import { UsedForPicker, ItemFilters, filterItems, EMPTY_FILTERS } from './StockPickers';
 
 /**
  * Stock Transfer — PWA `vTransfer()` exact reproduction.
@@ -26,6 +27,11 @@ export default function InventoryTransfer() {
   const [form, setForm] = useState({
     itemId: '', fromLocationId: '', toLocationId: '', quantity: '', remark: '',
   });
+  /* Owner request (26 Nov 2026): say where the stock is going to be used
+     and which kind of item it is, and the two long lists below shorten to
+     match. Nothing is hidden for good -- clearing a filter brings it
+     back. */
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
 
   const canManage = MANAGE_ROLES.includes(user?.role);
 
@@ -80,6 +86,14 @@ export default function InventoryTransfer() {
     const row = siteGroups.find((g) => g[0] === group);
     if (row) { if (!row[1].includes(name)) row[1].push(name); } else siteGroups.push([group, [name]]);
   }
+  /* "Used for" decides which kind of place the destination list offers.
+     Stock point means the company's own locations. */
+  const wantKind = filters.usedFor;
+  const showStockPoints = !wantKind || wantKind === 'Stock point';
+  const destGroups = wantKind && wantKind !== 'Stock point'
+    ? siteGroups.filter(([g]) => g === wantKind)
+    : siteGroups;
+  const pickable = filterItems(items, filters);
 
   async function handleTransfer(e) {
     e.preventDefault();
@@ -132,11 +146,37 @@ export default function InventoryTransfer() {
       {!loading && (
         <div className="panel">
           <form onSubmit={handleTransfer}>
+            {/* Where it is going, and which kind of item (26 Nov 2026). */}
+            <div className="form-grid stock-filter-row">
+              <UsedForPicker
+                sites={sites}
+                value={filters.usedFor}
+                onChange={v => {
+                  setFilters(f => ({ ...f, usedFor: v }));
+                  setForm(p => ({ ...p, toLocationId: '' }));
+                }}
+                label="Used for"
+              />
+              <ItemFilters
+                value={filters}
+                onChange={next => {
+                  setFilters(next);
+                  const still = filterItems(items, next)
+                    .some(i => String(i.id || i._id) === String(form.itemId));
+                  if (!still) setForm(p => ({ ...p, itemId: '' }));
+                }}
+              />
+            </div>
+
             <div className="form-grid">
               <div className="filter-field"><label>Item *</label>
                 <select value={form.itemId} onChange={e => setForm(p => ({ ...p, itemId: e.target.value }))} required>
                   <option value="">— Select Item —</option>
-                  {items.map(i => <option key={i.id || i._id} value={i.id || i._id}>{i.name} ({i.code || '—'})</option>)}
+                  {pickable.map(i => (
+                    <option key={i.id || i._id} value={i.id || i._id}>
+                      {i.name} ({i.code || '—'})
+                    </option>
+                  ))}
                 </select>
               </div>
               <div className="filter-field"><label>From Location *</label>
@@ -157,10 +197,12 @@ export default function InventoryTransfer() {
               <div className="filter-field"><label>To Location *</label>
                 <select value={form.toLocationId} onChange={e => setForm(p => ({ ...p, toLocationId: e.target.value }))} required>
                   <option value="">— Select —</option>
-                  <optgroup label="Stock points">
-                    {locations.map(l => <option key={l.id || l._id} value={l.id || l._id}>{l.name}</option>)}
-                  </optgroup>
-                  {siteGroups.map(([group, rows]) => (
+                  {showStockPoints && (
+                    <optgroup label="Stock points">
+                      {locations.map(l => <option key={l.id || l._id} value={l.id || l._id}>{l.name}</option>)}
+                    </optgroup>
+                  )}
+                  {destGroups.map(([group, rows]) => (
                     <optgroup key={group} label={group}>
                       {rows.map((siteName) => (
                         <option key={siteName} value={`name:${siteName}`}>{siteName}</option>
@@ -176,6 +218,10 @@ export default function InventoryTransfer() {
                 <input type="text" value={form.remark} onChange={e => setForm(p => ({ ...p, remark: e.target.value }))} />
               </div>
             </div>
+
+            <p className="muted" style={{ margin: '6px 0 0', fontSize: '.86em' }}>
+              {pickable.length} of {items.length} item{items.length === 1 ? '' : 's'} match.
+            </p>
 
             {/* Stock guidance for selected item */}
             {stockEntries.length > 0 && (

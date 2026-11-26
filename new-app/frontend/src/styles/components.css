@@ -2717,3 +2717,15 @@
 .row-menu-list button:hover { background: var(--surface-hover); }
 .row-menu-list button.danger { color: var(--primary); }
 .row-menu-list button.danger:hover { background: var(--brand-50); }
+
+/* The "used for" / division / group / shelf row that narrows the lists
+   on Stock Transfer and Issue Material (owner, 26 Nov 2026). Set apart
+   from the form proper so it reads as a filter, not as something being
+   saved with the transfer. */
+.stock-filter-row {
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  margin-bottom: 14px;
+}
