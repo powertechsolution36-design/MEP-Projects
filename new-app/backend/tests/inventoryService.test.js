@@ -151,10 +151,21 @@ test('stockAtLocation / totQty / stockValue', () => {
   assert.equal(service.stockValue(item), 5300);
 });
 
-test('stockState — Out of Stock takes priority; min-falsy items can never be Low Stock', () => {
+/*
+ * Owner request (26 Nov 2026): "show low stock when anything is below 5
+ * quantity." This replaces the old PWA quirk (Decision 11) under which
+ * an item with no minimum could never read Low Stock -- which was every
+ * item on file, so the warning had never fired once.
+ */
+test('stockState — Out of Stock first, then below five, then an item\'s own minimum', () => {
   assert.equal(service.stockState({ stockByLocation: { a: 0 }, minimumStockLevel: 5 }).label, 'Out of Stock');
   assert.equal(service.stockState({ stockByLocation: { a: 3 }, minimumStockLevel: 5 }).label, 'Low Stock');
-  assert.equal(service.stockState({ stockByLocation: { a: 3 }, minimumStockLevel: 0 }).label, 'In Stock');
+  // The house floor: four is low even with no minimum of its own, five is not.
+  assert.equal(service.stockState({ stockByLocation: { a: 4 }, minimumStockLevel: 0 }).label, 'Low Stock');
+  assert.equal(service.stockState({ stockByLocation: { a: 1 } }).label, 'Low Stock');
+  assert.equal(service.stockState({ stockByLocation: { a: 5 }, minimumStockLevel: 0 }).label, 'In Stock');
+  // A higher minimum of its own still wins.
+  assert.equal(service.stockState({ stockByLocation: { a: 18 }, minimumStockLevel: 20 }).label, 'Low Stock');
   assert.equal(service.stockState({ stockByLocation: { a: 100 }, minimumStockLevel: 5 }).label, 'In Stock');
 });
 

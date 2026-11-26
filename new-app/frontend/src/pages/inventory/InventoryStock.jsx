@@ -75,10 +75,17 @@ function totQty(item) {
   return entries.reduce((s, v) => s + (Number(v) || 0), 0);
 }
 
+/* Owner request (26 Nov 2026): "show low stock when anything is below 5
+   quantity." An item with no minimum of its own used to read In Stock
+   down to the last piece; five is now the house floor. An item's own
+   minimum still counts, and still wins when it is higher. */
+const LOW_STOCK_FLOOR = 5;
+
 function stockState(item) {
   const t = totQty(item);
   if (t <= 0) return { label: 'Out of Stock', cls: 'status-lost' };
-  if (item.minimumStockLevel && t <= item.minimumStockLevel) return { label: 'Low Stock', cls: 'status-pending' };
+  const min = Math.max(Number(item?.minimumStockLevel) || 0, LOW_STOCK_FLOOR - 1);
+  if (t <= min) return { label: 'Low Stock', cls: 'status-pending' };
   return { label: 'In Stock', cls: 'status-open' };
 }
 

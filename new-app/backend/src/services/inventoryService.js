@@ -24,8 +24,10 @@ const { ServiceError } = require('../errors');
  *    that would take it negative, INDEPENDENTLY of the separate pre-save
  *    "available quantity" checks that normally make the clamp unreachable
  *    (Decision 10) -- both mechanisms are implemented, not collapsed into one.
- *  - An item with minimumStockLevel falsy/unset can only ever be "In
- *    Stock" or "Out of Stock", never "Low Stock" (Decision 11).
+ *  - (RETIRED 26 Nov 2026 at the owner's request -- an item with no
+ *    minimum used to be unable to read "Low Stock" at all, Decision 11.
+ *    A house floor of five now applies to every item. See
+ *    LOW_STOCK_FLOOR below and docs/INVENTORY_DECISION_LOCK.md.)
  *  - Return requests never move stock or write a ledger transaction --
  *    only the eventual accepted return does (Decision 16).
  *  - Repeated return-request calls on the same issue simply overwrite the
@@ -191,10 +193,28 @@ function totQty(item) {
   return sum;
 }
 
+/*
+ * Owner request (26 Nov 2026): "show low stock when anything is below 5
+ * quantity." Until now an item with no minimum could never read Low --
+ * a PWA quirk kept on purpose (Decision 11) -- and since every item on
+ * file has no minimum, the warning had never once fired. The owner has
+ * now set a house floor, so the quirk is retired: below five is low,
+ * whatever the item.
+ *
+ * A minimum of its own still counts, and still wins when it is higher:
+ * twenty refnuts can be low while four drills are not a worry.
+ */
+const LOW_STOCK_FLOOR = 5;
+
+/** The level an item is judged against: its own, or the house floor. */
+function effectiveMinimum(item) {
+  return Math.max(toNum(item && item.minimumStockLevel), LOW_STOCK_FLOOR - 1);
+}
+
 function stockState(item) {
   const t = totQty(item);
   if (t <= 0) return { label: 'Out of Stock', cls: 'b-red', level: 2 };
-  if (item.minimumStockLevel && t <= item.minimumStockLevel) return { label: 'Low Stock', cls: 'b-amb', level: 1 };
+  if (t <= effectiveMinimum(item)) return { label: 'Low Stock', cls: 'b-amb', level: 1 };
   return { label: 'In Stock', cls: 'b-grn', level: 0 };
 }
 
@@ -687,7 +707,7 @@ async function issueMaterial(input, actorAuth, deps) {
       await txnDeps.notificationRepo.create(
         {
           companyId: actorAuth.companyId,
-          text: `⚠ ${state.label}: ${item.name} — ${totQty(updatedItem)} ${item.unit} left (min ${item.minimumStockLevel || 0})`,
+          text: `⚠ ${state.label}: ${item.name} — ${totQty(updatedItem)} ${item.unit} left (min ${effectiveMinimum(item)})`,
           date: todayDate(),
           targetRoles: ['inventory', 'admin'],
           readByUserIds: [],
@@ -1051,8 +1071,10 @@ async function getDashboard(actorAuth, deps) {
       const st = stockState(i);
       return {
         id: i.id, code: i.code || '', name: i.name, category: catName.get(String(i.categoryId)) || '',
-        inStock: totQty(i), unit: i.unit, min: i.minimumStockLevel || 0,
-        shortfall: Math.max(0, (i.minimumStockLevel || 0) - totQty(i)), status: st.label, level: st.level,
+        // The level it is actually judged against, so the table and the
+        // badge cannot disagree with each other.
+        inStock: totQty(i), unit: i.unit, min: effectiveMinimum(i),
+        shortfall: Math.max(0, effectiveMinimum(i) - totQty(i)), status: st.label, level: st.level,
       };
     }),
     totalItems: items.length,
@@ -1392,6 +1414,7 @@ async function listRecipientCandidates(actorAuth, deps) {
 module.exports = {
   ITEM_DIVISIONS,
   ITEM_GROUPS,
+  LOW_STOCK_FLOOR,
   MACHINE_SUBGROUPS,
   MANAGE_ROLES,
   STOCK_REPORT_ROLES,

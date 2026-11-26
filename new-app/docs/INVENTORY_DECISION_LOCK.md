@@ -115,7 +115,12 @@ Classification: PRESERVE PWA — explicit PWA quirk, not to be normalized into a
 Implementation consequence: a future stock-mutation function must (a) still perform its own pre-check that blocks an operation which would exceed available quantity (Issue: `q<=stock@fromLocation`; Transfer: `q<=stock@fromLocation`; Adjustment: blocked if the result would go negative at that location), AND (b) the underlying stock-mutation primitive itself must clamp to zero rather than allow (or reject via database constraint) a negative value, exactly mirroring the PWA's belt-and-suspenders behavior. Collapsing these into one check (e.g. relying solely on the pre-check and letting the primitive throw on a hypothetical negative) would be a silent behavioral simplification, not a preservation.
 Reason: the audit explicitly frames these as two independently verified, structurally separate mechanisms — conflating them changes observable behavior in the one hypothetical case where the pre-check is somehow bypassed (e.g. a future direct API/script call).
 
-**Decision 11 — Low/out-of-stock thresholds**
+**Decision 11 — Low/out-of-stock thresholds** — *SUPERSEDED 26 Nov 2026 by the owner.*
+
+> The owner asked for "low stock when anything is below 5 quantity". The `min`-falsy quirk below is therefore retired: `stockState` now judges every item against `max(its own minimum, 4)`, so a quantity of 1–4 reads Low Stock even with no minimum set, while an item's own higher minimum still wins. Out-of-Stock is still checked first. Everything else in this decision stands. The original text is kept below for the record.
+
+**Original:**
+
 PWA fact: Out of Stock = `totQty(it) <= 0` (checked first, priority over Low); Low Stock = `it.min` truthy AND `totQty(it) <= it.min`; with `min` falsy/unset, the Low branch is structurally unreachable (audit §6/§13).
 Decision: preserve exactly, including the `min` falsy → Low-Stock-unreachable quirk.
 Classification: PRESERVE PWA.
@@ -482,7 +487,7 @@ Restates the audit's own 20-item §28 list plus the additional material decision
 **Decision 8** (§7) — Stock model: per-location map, pure derived calculations — **PRESERVE PWA**.
 **Decision 9** (§8) — Stock-adjustment types and semantics — **PRESERVE PWA**.
 **Decision 10** (§8) — Negative-stock clamp, independent of pre-save availability checks — **PRESERVE PWA**.
-**Decision 11** (§8) — Low/out-of-stock thresholds, including the `min`-falsy quirk — **PRESERVE PWA**.
+**Decision 11** (§8) — Low/out-of-stock thresholds — **SUPERSEDED 26 Nov 2026**: a house floor of 5 replaces the `min`-falsy quirk, at the owner's request.
 **Decision 12** (§8) — Stock value calculation (flat qty × rate) — **PRESERVE PWA**.
 **Decision 13** (§9) — Item/location/staff/site selection pools — **PRESERVE PWA**.
 **Decision 14** (§9) — Quantity validation against the chosen location specifically — **PRESERVE PWA**.

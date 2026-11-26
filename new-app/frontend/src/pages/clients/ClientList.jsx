@@ -58,11 +58,13 @@ export default function ClientList() {
   const navigate = useNavigate();
   const [clients, setClients] = useState([]);
   const [search, setSearch] = useState('');
+  /* What the last save reached -- the 18 Nov propagation note. (It used
+     to carry the AMC import's message too; that button is gone.) */
+  const [importNote, setImportNote] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState(null); // null = closed; {} = adding; {id} = editing
-  const [importNote, setImportNote] = useState('');
   // Owner request (23 Nov 2026): A–Z, Z–A, newest, oldest.
   const [sort, setSort] = useSort('clients');
 
@@ -129,23 +131,12 @@ export default function ClientList() {
     }
   }
 
-  /* The AMC / PM clients we already have, brought in. Safe to run again:
-     a client already on the list is left alone. */
-  async function importAmc() {
-    setBusy(true);
-    setImportNote('');
-    try {
-      const r = await api.post('/api/clients/import/amc', {});
-      setImportNote(r.added === 0
-        ? `Nothing new — all ${r.seen} AMC clients are already on the list.`
-        : `${r.added} client${r.added === 1 ? '' : 's'} added from the AMC / PM list.`);
-      await load();
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setBusy(false);
-    }
-  }
+  /* "Add from AMC / PM list" was removed on the owner's instruction
+     (26 Nov 2026) -- from every account, not hidden by role. The AMC
+     clients are on the list already, so the button could only ever
+     report "nothing new", and a one-off import button sitting on a
+     daily screen invites a click nobody wants. The server route stays
+     for one-off use; nothing in the app calls it. */
 
   return (
     <div className="enq-page">
@@ -154,9 +145,6 @@ export default function ClientList() {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           {/* Owner request (23 Nov 2026): the sort, on the right. */}
           <SortSelect value={sort} onChange={setSort} />
-          <button className="btn sec sm" onClick={importAmc} disabled={busy}>
-            ⬇ Add from AMC / PM list
-          </button>
           <button className="btn pri sm" onClick={() => setForm({ ...BLANK })} disabled={busy}>
             + New Client
           </button>
@@ -173,8 +161,9 @@ export default function ClientList() {
             aria-label="Search clients"
           />
         </div>
-        {importNote && <p style={{ marginTop: 8 }}>{importNote}</p>}
       </div>
+
+      {importNote && <p style={{ marginTop: 8 }}>{importNote}</p>}
 
       {error && <div className="panel err">{error}</div>}
       {loading ? <p>Loading…</p> : (
