@@ -16,6 +16,14 @@ const { DIVISIONS } = require('./shared/enums');
 
 const UNITS = Object.freeze(['Nos', 'Mtr', 'Kg', 'Set', 'Box', 'Roll', 'Ltr']);
 
+// Owner request (26 Nov 2026) -- the drawers of the Stock screen, and the
+// shelves inside Machines. Kept in step with inventoryService's copies,
+// which are what the API validates against.
+const ITEM_GROUPS = Object.freeze(['Machines', 'Piping & Refnuts', 'PCB', 'Permanent Stock']);
+const MACHINE_SUBGROUPS = Object.freeze([
+  'Indoor', 'Outdoor', 'Panels', 'Remote', 'Split Indoor', 'Split Outdoor',
+]);
+
 const inventoryItemSchema = new Schema(
   {
     companyId: { type: Schema.Types.ObjectId, ref: 'Company', required: true }, // PWA FACT
@@ -37,6 +45,34 @@ const inventoryItemSchema = new Schema(
      * today: those are left for staff to tag rather than guessed at.
      */
     division: { type: String, enum: [...DIVISIONS, 'Common', ''], default: '' },
+    /*
+     * Which drawer of the Stock screen the item lives in (owner request,
+     * 26 Nov 2026). Division answers "whose is it"; the group answers
+     * "what kind of thing is it", and the screen shows one drawer at a
+     * time -- standing in Machines you see machines, not refnuts.
+     *
+     * Permanent Stock is the returnable drawer: a drill, a gas cylinder,
+     * a multimeter -- it goes to site and comes back, so choosing it
+     * turns `returnable` on (inventoryService.createItem/updateItem).
+     *
+     * Empty means nobody has sorted it yet. Those items are NOT hidden:
+     * the screen gathers them under "Not sorted yet" (the lesson of the
+     * 19 Nov assignment change, which emptied lists silently).
+     */
+    group: { type: String, enum: [...ITEM_GROUPS, ''], default: '' },
+    /*
+     * The shelf inside Machines: Indoor, Outdoor, Panels, Remote, Split.
+     * Only meaningful when group === 'Machines'; blank everywhere else.
+     */
+    subGroup: { type: String, enum: [...MACHINE_SUBGROUPS, ''], default: '' },
+    /*
+     * Which units this part fits (owner request, 26 Nov 2026): "I can
+     * select in PCB that this PCB belongs to this Indoor from stock." A
+     * PCB points at the machines it serves, so the storekeeper handing
+     * one over can see what it is for without knowing the model numbers
+     * by heart. Many-to-many: one board often fits several units.
+     */
+    fitsItemIds: [{ type: Schema.Types.ObjectId, ref: 'InventoryItem' }],
     // Map key: InventoryLocation id (as string); value: quantity at that location.
     stockByLocation: { type: Map, of: Number, default: {} }, // PWA FACT
   },
@@ -44,6 +80,7 @@ const inventoryItemSchema = new Schema(
 );
 
 inventoryItemSchema.index({ companyId: 1, categoryId: 1 });
+inventoryItemSchema.index({ companyId: 1, group: 1, subGroup: 1 });
 inventoryItemSchema.index({ companyId: 1, code: 1 });
 
 module.exports = model('InventoryItem', inventoryItemSchema);

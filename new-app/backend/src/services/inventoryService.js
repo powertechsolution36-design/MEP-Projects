@@ -331,6 +331,76 @@ function validateItemDivision(value) {
 }
 
 
+/**
+ * The drawers of the Stock screen, and the shelves inside Machines
+ * (owner request, 26 Nov 2026). The screen shows one drawer at a time:
+ * standing in Machines you see machines, not refnuts or boards.
+ *
+ * Blank is allowed and means nobody has sorted the item yet. Those are
+ * gathered under "Not sorted yet" rather than hidden -- 19 Nov taught us
+ * what a silent filter does to a list.
+ */
+const ITEM_GROUPS = Object.freeze(['Machines', 'Piping & Refnuts', 'PCB', 'Permanent Stock']);
+/*
+ * A split is sold as a set -- "1 split indoor needs 1 outdoor" -- so the
+ * two halves are shelved apart and the screen pairs them back up through
+ * fitsItemIds. Hence Split Indoor and Split Outdoor rather than one
+ * "Split" shelf: without the distinction there is no way to count sets.
+ */
+const MACHINE_SUBGROUPS = Object.freeze([
+  'Indoor', 'Outdoor', 'Panels', 'Remote', 'Split Indoor', 'Split Outdoor',
+]);
+
+function validateItemGroup(value) {
+  const v = String(value === undefined || value === null ? '' : value).trim();
+  if (v && !ITEM_GROUPS.includes(v)) {
+    throw new ServiceError(`Group must be one of ${ITEM_GROUPS.join(', ')}.`, 'VALIDATION_ERROR', 400);
+  }
+  return v;
+}
+
+/**
+ * A shelf only exists inside Machines. Asking for "Indoor" on a PCB is a
+ * mistake worth refusing rather than quietly dropping, because the item
+ * would then sit in a drawer the owner never meant.
+ */
+function validateSubGroup(value, group) {
+  const v = String(value === undefined || value === null ? '' : value).trim();
+  if (!v) return '';
+  if (!MACHINE_SUBGROUPS.includes(v)) {
+    throw new ServiceError(`Sub-group must be one of ${MACHINE_SUBGROUPS.join(', ')}.`, 'VALIDATION_ERROR', 400);
+  }
+  if (group !== 'Machines') {
+    throw new ServiceError('Only an item in Machines can have a sub-group.', 'VALIDATION_ERROR', 400);
+  }
+  return v;
+}
+
+/**
+ * Which units a part fits. Every id must be this company's own item, and
+ * an item cannot be said to fit itself.
+ */
+async function readFitsItemIds(value, companyId, selfId, deps) {
+  if (value === undefined || value === null) return [];
+  const list = Array.isArray(value) ? value : [value];
+  const ids = [];
+  for (const raw of list) {
+    const id = String(raw || '').trim();
+    if (!id) continue;
+    if (selfId && String(selfId) === id) {
+      throw new ServiceError('An item cannot fit itself.', 'VALIDATION_ERROR', 400);
+    }
+    if (ids.includes(id)) continue;
+    const other = await deps.inventoryItemRepo.findById(companyId, id);
+    if (!other) throw new ServiceError('One of the units chosen is not on file.', 'NOT_FOUND', 404);
+    ids.push(id);
+  }
+  if (ids.length > 50) {
+    throw new ServiceError('That is more units than one part can list.', 'VALIDATION_ERROR', 400);
+  }
+  return ids;
+}
+
 async function createItem(input, actorAuth, deps) {
   assertCompanyContext(actorAuth);
   assertCanManageInventory(actorAuth, 'create an Inventory item');
@@ -354,6 +424,18 @@ async function createItem(input, actorAuth, deps) {
   if (typeof openingStockInput !== 'object') {
     openingStockInput = src.openingLocationId ? { [src.openingLocationId]: openingStockInput } : {};
   }
+  // Which drawer it belongs in, and -- for a machine -- which shelf.
+  const group = validateItemGroup(src.group);
+  const subGroup = validateSubGroup(src.subGroup, group);
+  const fitsItemIds = await readFitsItemIds(src.fitsItemIds, actorAuth.companyId, null, deps);
+  /*
+   * Permanent Stock IS the returnable drawer -- that is what the owner
+   * asked for ("can be used on site and again return back to office"),
+   * so choosing it decides `returnable` rather than leaving two switches
+   * that can disagree with each other.
+   */
+  const returnable = group === 'Permanent Stock' ? true : !!src.returnable;
+
   const stockByLocation = {};
   for (const [locId, qty] of Object.entries(openingStockInput)) {
     const n = toNum(qty);
@@ -373,10 +455,13 @@ async function createItem(input, actorAuth, deps) {
         name,
         categoryId,
         unit,
-        returnable: !!src.returnable,
+        returnable,
         minimumStockLevel: toNum(src.minimumStockLevel),
         ratePerUnit: toNum(src.ratePerUnit),
         division: validateItemDivision(src.division),
+        group,
+        subGroup,
+        fitsItemIds,
         stockByLocation,
       },
       session
@@ -437,6 +522,19 @@ async function updateItem(id, input, actorAuth, deps) {
   }
   if (src.returnable !== undefined) patch.returnable = !!src.returnable;
   if (src.division !== undefined) patch.division = validateItemDivision(src.division);
+  // The drawer, the shelf, and the units a part fits. The sub-group is
+  // checked against the group the item will END UP with, not the one it
+  // had, so moving a machine out of Machines clears its shelf with it.
+  const nextGroup = src.group !== undefined ? validateItemGroup(src.group) : (item.group || '');
+  if (src.group !== undefined) {
+    patch.group = nextGroup;
+    if (nextGroup !== 'Machines') patch.subGroup = '';
+    if (nextGroup === 'Permanent Stock') patch.returnable = true;
+  }
+  if (src.subGroup !== undefined) patch.subGroup = validateSubGroup(src.subGroup, nextGroup);
+  if (src.fitsItemIds !== undefined) {
+    patch.fitsItemIds = await readFitsItemIds(src.fitsItemIds, actorAuth.companyId, id, deps);
+  }
   if (src.minimumStockLevel !== undefined) patch.minimumStockLevel = toNum(src.minimumStockLevel);
   if (src.ratePerUnit !== undefined) patch.ratePerUnit = toNum(src.ratePerUnit);
   return deps.inventoryItemRepo.update(actorAuth.companyId, id, patch);
@@ -1130,7 +1228,9 @@ async function exportStockCsv(actorAuth, deps) {
   ]);
   const locations = maps.locations;
   // 'Division' joined the item on 24 Nov 2026 — HVAC, Solar, MEP or Common.
-  const header = ['Code', 'Name', 'Category', 'Division', 'Unit', ...locations.map((l) => l.name), 'Total Stock', 'With Staff', 'Min Level', 'Status', 'Stock Value'];
+  // 'Group'/'Sub-group' joined on 26 Nov 2026 — the Stock screen's drawers.
+  const itemName = new Map(items.map((i) => [String(i.id), i.name]));
+  const header = ['Code', 'Name', 'Category', 'Division', 'Group', 'Sub-group', 'Fits', 'Unit', ...locations.map((l) => l.name), 'Total Stock', 'With Staff', 'Min Level', 'Status', 'Stock Value'];
   const lines = [header.map(csvEscape).join(',')];
   let grandValue = 0;
   for (const item of items) {
@@ -1143,6 +1243,9 @@ async function exportStockCsv(actorAuth, deps) {
       item.name,
       maps.catName.get(String(item.categoryId)) || '',
       item.division || '',
+      item.group || '',
+      item.subGroup || '',
+      (item.fitsItemIds || []).map((x) => itemName.get(String(x)) || '').filter(Boolean).join('; '),
       item.unit,
       ...locations.map((l) => stockAtLocation(item, l.id)),
       totQty(item),
@@ -1288,6 +1391,8 @@ async function listRecipientCandidates(actorAuth, deps) {
 
 module.exports = {
   ITEM_DIVISIONS,
+  ITEM_GROUPS,
+  MACHINE_SUBGROUPS,
   MANAGE_ROLES,
   STOCK_REPORT_ROLES,
   ISSUED_REPORT_ROLES,

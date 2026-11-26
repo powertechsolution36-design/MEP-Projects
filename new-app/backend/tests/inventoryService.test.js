@@ -574,7 +574,7 @@ test('canViewStock — dlStock/dlIssued reachable by broader Stock-screen roles,
   await seedItemWithStock(store, a, { openingQty: 100 });
   const pmAuth = auth({ userId: 'u_pm', role: 'hvac_pm' });
   const csv = await service.exportStockCsv(pmAuth, store);
-  assert.match(csv, /Code,Name,Category,Division,Unit/); // Division joined the header 24 Nov 2026
+  assert.match(csv, /Code,Name,Category,Division,Group,Sub-group,Fits,Unit/); // Division joined the header 24 Nov 2026
   await assert.rejects(() => service.exportStockCsv(auth({ role: 'sales' }), store), /FORBIDDEN|not permitted/);
 });
 
@@ -584,7 +584,7 @@ test('FIX-3.6-01 — exportStockCsv is reachable by hvac_pm/solar_pm/service_mgr
   await seedItemWithStock(store, a, { openingQty: 100 });
   for (const role of ['hvac_pm', 'solar_pm', 'service_mgr']) {
     const csv = await service.exportStockCsv(auth({ userId: `u_${role}`, role }), store);
-    assert.match(csv, /Code,Name,Category,Division,Unit/); // Division joined the header 24 Nov 2026
+    assert.match(csv, /Code,Name,Category,Division,Group,Sub-group,Fits,Unit/); // Division joined the header 24 Nov 2026
   }
   await assert.rejects(
     () => service.exportStockCsv(auth({ userId: 'u_mep', role: 'mep_pm' }), store),
@@ -823,7 +823,113 @@ test('an item carries its division, Common included, and refuses anything else',
 
   // And it reaches the stock report.
   const csv = await service.exportStockCsv(a, store);
-  assert.match(csv.split('\n')[0], /Code,Name,Category,Division,Unit/);
+  assert.match(csv.split('\n')[0], /Code,Name,Category,Division,Group,Sub-group,Fits,Unit/);
   assert.ok(csv.includes('Copper pipe'));
   assert.ok(csv.split('\n').some((l) => l.includes('Drill machine') && l.includes('Common')));
+});
+
+/*
+ * Owner request (26 Nov 2026): the Stock screen is drawers — Machines,
+ * Piping & Refnuts, PCB, Permanent Stock — and "if I am on Machines I
+ * will only see machines". Machines has shelves of its own: Indoor,
+ * Outdoor, Panels, Remote, Split.
+ */
+test('an item says which drawer it lives in, and only a machine has a shelf', async () => {
+  const store = baseStore();
+  const a = auth();
+  const { category } = await seedCategoryAndLocation(store, a);
+
+  const odu = await service.createItem(
+    { name: '(ODU) Side Discharge 10 HP', categoryId: category.id, division: 'HVAC',
+      group: 'Machines', subGroup: 'Outdoor' }, a, store
+  );
+  assert.equal(odu.group, 'Machines');
+  assert.equal(odu.subGroup, 'Outdoor');
+
+  const refnut = await service.createItem(
+    { name: 'Refnut 2812', categoryId: category.id, group: 'Piping & Refnuts' }, a, store
+  );
+  assert.equal(refnut.group, 'Piping & Refnuts');
+  assert.equal(refnut.subGroup, '');
+
+  // Nobody has sorted this one — it belongs to "Not sorted yet", not to nowhere.
+  const unsorted = await service.createItem({ name: 'Old stock', categoryId: category.id }, a, store);
+  assert.equal(unsorted.group, '');
+
+  await assert.rejects(
+    () => service.createItem({ name: 'Bad', categoryId: category.id, group: 'Spares' }, a, store),
+    /Group must be one of/
+  );
+  // A shelf outside Machines is a mistake, not something to drop quietly.
+  await assert.rejects(
+    () => service.createItem(
+      { name: 'Board', categoryId: category.id, group: 'PCB', subGroup: 'Indoor' }, a, store
+    ),
+    /Only an item in Machines can have a sub-group/
+  );
+
+  // Moving a machine out of Machines takes its shelf with it.
+  const moved = await service.updateItem(odu.id, { group: 'Permanent Stock' }, a, store);
+  assert.equal(moved.subGroup, '');
+});
+
+/*
+ * Permanent Stock IS the returnable drawer — "which can be used on site
+ * and again return back to office". One switch, not two that disagree.
+ */
+test('putting an item in Permanent Stock makes it returnable', async () => {
+  const store = baseStore();
+  const a = auth();
+  const { category } = await seedCategoryAndLocation(store, a);
+
+  const drill = await service.createItem(
+    { name: 'Drill machine', categoryId: category.id, division: 'Common', group: 'Permanent Stock' },
+    a, store
+  );
+  assert.equal(drill.returnable, true);
+
+  const pipe = await service.createItem(
+    { name: 'Copper pipe', categoryId: category.id, group: 'Piping & Refnuts' }, a, store
+  );
+  assert.equal(pipe.returnable, false);
+  const promoted = await service.updateItem(pipe.id, { group: 'Permanent Stock' }, a, store);
+  assert.equal(promoted.returnable, true);
+});
+
+/*
+ * Owner request (26 Nov 2026): "I can select a dropdown option in PCB
+ * that this PCB belongs to this Indoor from stock." A board points at
+ * the units it serves.
+ */
+test('a PCB says which units it fits, and cannot fit itself', async () => {
+  const store = baseStore();
+  const a = auth();
+  const { category } = await seedCategoryAndLocation(store, a);
+
+  const indoor = await service.createItem(
+    { name: '4 Way Cassette S 3.2 TR', categoryId: category.id, group: 'Machines', subGroup: 'Indoor' },
+    a, store
+  );
+  const other = await service.createItem(
+    { name: 'Slim 1 way cassette 2 TR', categoryId: category.id, group: 'Machines', subGroup: 'Indoor' },
+    a, store
+  );
+  const board = await service.createItem(
+    { name: 'Indoor Main PCB', code: 'DB41-01466B', categoryId: category.id, group: 'PCB',
+      fitsItemIds: [indoor.id, other.id] }, a, store
+  );
+  assert.deepEqual((board.fitsItemIds || []).map(String), [String(indoor.id), String(other.id)]);
+
+  await assert.rejects(
+    () => service.updateItem(board.id, { fitsItemIds: [board.id] }, a, store),
+    /cannot fit itself/
+  );
+  await assert.rejects(
+    () => service.updateItem(board.id, { fitsItemIds: ['64b000000000000000000000'] }, a, store),
+    /not on file/
+  );
+
+  // It reaches the stock report by name, so the sheet reads without ids.
+  const csv = await service.exportStockCsv(a, store);
+  assert.ok(csv.split('\n').some((l) => l.includes('DB41-01466B') && l.includes('4 Way Cassette S 3.2 TR')));
 });

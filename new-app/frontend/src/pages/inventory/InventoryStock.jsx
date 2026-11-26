@@ -26,6 +26,47 @@ const UNITS = ['Nos', 'Mtr', 'Kg', 'Set', 'Box', 'Roll', 'Ltr'];
 const ITEM_DIVISIONS = ['HVAC', 'Solar', 'MEP', 'Common'];
 const ADJUSTMENT_TYPES = ['Purchase In', 'Opening Stock', 'Damage / Write-off', 'Adjustment'];
 
+/* Owner request (26 Nov 2026): the Stock screen is drawers, and you see
+   one at a time -- "if I am on Machines I will only see machines". */
+const ITEM_GROUPS = ['Machines', 'Piping & Refnuts', 'PCB', 'Permanent Stock'];
+const UNSORTED = 'Not sorted yet';
+/* The shelves inside Machines. A split is shelved in two halves because
+   it is sold as a set -- see the Split tab below. */
+const MACHINE_SUBGROUPS = ['Indoor', 'Outdoor', 'Panels', 'Remote', 'Split Indoor', 'Split Outdoor'];
+const SUB_TABS = ['Indoor', 'Outdoor', 'Panels', 'Remote', 'Split'];
+const UNSHELVED = 'Not shelved yet';
+/* A login tied to one division works in that division only -- the same
+   table the client list and the AMC form use. */
+const PM_DIVISION = { hvac_pm: 'HVAC', solar_pm: 'Solar', mep_pm: 'MEP' };
+
+/* Remembered choices, so the screen opens where you left it (the owner
+   asked for this on the AMC sort: "keep it till I change it"). */
+function readStored(key, fallback) {
+  try {
+    const v = localStorage.getItem(key);
+    return v === null ? fallback : v;
+  } catch { return fallback; }
+}
+function writeStored(key, value) {
+  try { localStorage.setItem(key, value); } catch { /* private window */ }
+}
+
+/* Blank division means nobody has said yet. Those items show under every
+   division rather than vanishing -- 19 Nov taught us what a silent
+   filter does to a list. "Common" is the deliberate version of the same. */
+function inDivision(item, division) {
+  const d = item.division || '';
+  return !d || d === 'Common' || d === division;
+}
+function groupOf(item) {
+  return ITEM_GROUPS.includes(item.group) ? item.group : UNSORTED;
+}
+function subTabOf(item) {
+  const sg = item.subGroup || '';
+  if (sg === 'Split Indoor' || sg === 'Split Outdoor') return 'Split';
+  return SUB_TABS.includes(sg) ? sg : UNSHELVED;
+}
+
 function totQty(item) {
   if (!item?.stockByLocation) return 0;
   const entries = item.stockByLocation instanceof Map
@@ -52,6 +93,15 @@ export default function InventoryStock() {
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
 
+  /* Which drawer is open, and in which division. Remembered. */
+  const myDivision = PM_DIVISION[user?.role] || '';
+  const [division, setDivision] = useState(() => myDivision || readStored('mep_stock_division', 'HVAC'));
+  const [group, setGroup] = useState(() => readStored('mep_stock_group', 'Machines'));
+  const [subTab, setSubTab] = useState(() => readStored('mep_stock_sub', 'Indoor'));
+  function pickDivision(d) { setDivision(d); writeStored('mep_stock_division', d); }
+  function pickGroup(g) { setGroup(g); writeStored('mep_stock_group', g); }
+  function pickSubTab(t) { setSubTab(t); writeStored('mep_stock_sub', t); }
+
   /* Modals */
   const [showCreate, setShowCreate] = useState(false);
   const [showEdit, setShowEdit] = useState(null);
@@ -61,12 +111,14 @@ export default function InventoryStock() {
   /* Create form */
   const [createForm, setCreateForm] = useState({
     code: '', name: '', categoryId: '', unit: 'Nos', returnable: false, division: '',
+    group: '', subGroup: '', fitsItemIds: [],
     minimumStockLevel: '', ratePerUnit: '', openingStock: '', openingLocationId: '',
   });
 
   /* Edit form */
   const [editForm, setEditForm] = useState({
     code: '', name: '', categoryId: '', unit: 'Nos', returnable: false, division: '',
+    group: '', subGroup: '', fitsItemIds: [],
     minimumStockLevel: '', ratePerUnit: '',
   });
 
@@ -111,13 +163,120 @@ export default function InventoryStock() {
     return l ? l.name : String(id);
   }
 
+  function itemById(id) {
+    const key = String(id);
+    return items.find(x => String(x.id || x._id) === key) || null;
+  }
+
   /* Search filter (client-side) */
-  const filtered = search
+  const searched = search
     ? items.filter(i => {
         const blob = [i.code, i.name, catName(i.categoryId), i.unit].join(' ').toLowerCase();
         return blob.includes(search.toLowerCase());
       })
     : items;
+
+  /* One division, then one drawer, then -- inside Machines -- one shelf.
+     Counts are taken at each step from what the step above left, so the
+     numbers on the tabs are the numbers you will actually see. */
+  const divisionItems = searched.filter(i => inDivision(i, division));
+  const groupCounts = {};
+  for (const g of [...ITEM_GROUPS, UNSORTED]) groupCounts[g] = 0;
+  for (const i of divisionItems) groupCounts[groupOf(i)] += 1;
+  const groupItems = divisionItems.filter(i => groupOf(i) === group);
+  const subCounts = {};
+  for (const t of [...SUB_TABS, UNSHELVED]) subCounts[t] = 0;
+  if (group === 'Machines') for (const i of groupItems) subCounts[subTabOf(i)] += 1;
+  const inMachines = group === 'Machines';
+  const showingSplit = inMachines && subTab === 'Split';
+  const filtered = inMachines ? groupItems.filter(i => subTabOf(i) === subTab) : groupItems;
+
+  const divisionsOffered = myDivision ? [myDivision] : ['HVAC', 'Solar', 'MEP'];
+  function divisionCount(d) { return searched.filter(i => inDivision(i, d)).length; }
+
+  /* The Split tab counts sets, not pieces: one indoor needs one outdoor,
+     so an indoor is paired with whichever outdoor it was linked to and
+     the set count is the smaller of the two. An unpaired half is shown
+     on its own, because that is the number that otherwise stays hidden
+     until an engineer is on site holding half a machine. */
+  const splitIndoors = inMachines ? groupItems.filter(i => i.subGroup === 'Split Indoor') : [];
+  const splitOutdoors = inMachines ? groupItems.filter(i => i.subGroup === 'Split Outdoor') : [];
+  const pairedOutdoorIds = new Set();
+  const splitPairs = splitIndoors.map(indoor => {
+    const partner = (indoor.fitsItemIds || [])
+      .map(id => itemById(id))
+      .find(x => x && x.subGroup === 'Split Outdoor') || null;
+    if (partner) pairedOutdoorIds.add(String(partner.id || partner._id));
+    const qi = totQty(indoor);
+    const qo = partner ? totQty(partner) : 0;
+    return { indoor, partner, qi, qo, sets: partner ? Math.min(qi, qo) : 0 };
+  });
+  const lonelyOutdoors = splitOutdoors.filter(o => !pairedOutdoorIds.has(String(o.id || o._id)));
+  const totalSets = splitPairs.reduce((n, p) => n + p.sets, 0);
+
+
+  /* The drawer, the shelf, and -- for a board or a split half -- the
+     units it goes with. Shown the same way on Create and on Edit. */
+  function groupFields(form, setForm) {
+    const machines = items.filter(i => groupOf(i) === 'Machines');
+    const wantsFits = form.group === 'PCB'
+      || form.subGroup === 'Split Indoor' || form.subGroup === 'Split Outdoor';
+    return (
+      <>
+        <div className="filter-field"><label>Group</label>
+          <select
+            value={form.group}
+            onChange={e => setForm(p => ({
+              ...p,
+              group: e.target.value,
+              subGroup: e.target.value === 'Machines' ? p.subGroup : '',
+              // Permanent Stock is the returnable drawer -- it goes to
+              // site and comes back. The server decides the same way.
+              returnable: e.target.value === 'Permanent Stock' ? true : p.returnable,
+            }))}
+          >
+            <option value="">— not sorted yet —</option>
+            {ITEM_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
+          </select>
+        </div>
+        {form.group === 'Machines' && (
+          <div className="filter-field"><label>Shelf</label>
+            <select value={form.subGroup} onChange={e => setForm(p => ({ ...p, subGroup: e.target.value }))}>
+              <option value="">— not shelved yet —</option>
+              {MACHINE_SUBGROUPS.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        )}
+        {wantsFits && (
+          <div className="filter-field" style={{ gridColumn: '1 / -1' }}>
+            <label>
+              {form.group === 'PCB'
+                ? 'Fits these units (hold Ctrl to pick more than one)'
+                : 'Its other half (hold Ctrl to pick more than one)'}
+            </label>
+            <select
+              multiple
+              size={6}
+              value={form.fitsItemIds}
+              onChange={e => setForm(p => ({
+                ...p,
+                fitsItemIds: Array.from(e.target.selectedOptions, o => o.value),
+              }))}
+            >
+              {machines.map(m => (
+                <option key={m.id || m._id} value={String(m.id || m._id)}>
+                  {m.name}{m.code ? ` — ${m.code}` : ''}{m.subGroup ? ` (${m.subGroup})` : ''}
+                </option>
+              ))}
+            </select>
+            {machines.length === 0 && (
+              <span className="muted">No machines on file yet to point at.</span>
+            )}
+          </div>
+        )}
+      </>
+    );
+  }
 
   /* ---- Create Item ---- */
   async function handleCreate(e) {
@@ -137,6 +296,10 @@ export default function InventoryStock() {
         returnable: createForm.returnable,
         // Which side of the business it belongs to (24 Nov 2026).
         division: createForm.division,
+        // Which drawer and shelf it belongs in (26 Nov 2026).
+        group: createForm.group,
+        subGroup: createForm.group === 'Machines' ? createForm.subGroup : '',
+        fitsItemIds: createForm.fitsItemIds,
         minimumStockLevel: createForm.minimumStockLevel ? Number(createForm.minimumStockLevel) : undefined,
         ratePerUnit: createForm.ratePerUnit ? Number(createForm.ratePerUnit) : undefined,
         // Backend contract: { <locationId>: qty } (PWA per-location opening entry).
@@ -145,7 +308,7 @@ export default function InventoryStock() {
           : undefined,
       });
       setShowCreate(false);
-      setCreateForm({ code: '', name: '', categoryId: '', unit: 'Nos', returnable: false, division: '', minimumStockLevel: '', ratePerUnit: '', openingStock: '', openingLocationId: '' });
+      setCreateForm({ code: '', name: '', categoryId: '', unit: 'Nos', returnable: false, division: '', group: '', subGroup: '', fitsItemIds: [], minimumStockLevel: '', ratePerUnit: '', openingStock: '', openingLocationId: '' });
       await load();
     } catch (err) {
       setError(err.message);
@@ -163,6 +326,9 @@ export default function InventoryStock() {
       unit: item.unit || 'Nos',
       returnable: !!item.returnable,
       division: item.division || '',
+      group: item.group || '',
+      subGroup: item.subGroup || '',
+      fitsItemIds: (item.fitsItemIds || []).map(String),
       minimumStockLevel: item.minimumStockLevel != null ? String(item.minimumStockLevel) : '',
       ratePerUnit: item.ratePerUnit != null ? String(item.ratePerUnit) : '',
     });
@@ -182,6 +348,9 @@ export default function InventoryStock() {
         unit: editForm.unit,
         returnable: editForm.returnable,
         division: editForm.division,
+        group: editForm.group,
+        subGroup: editForm.group === 'Machines' ? editForm.subGroup : '',
+        fitsItemIds: editForm.fitsItemIds,
         minimumStockLevel: editForm.minimumStockLevel ? Number(editForm.minimumStockLevel) : undefined,
         ratePerUnit: editForm.ratePerUnit ? Number(editForm.ratePerUnit) : undefined,
       });
@@ -279,6 +448,50 @@ export default function InventoryStock() {
         </div>
       )}
 
+      {/* Owner request (26 Nov 2026): three buttons, then the drawers. A
+          login tied to one division is only offered its own. */}
+      <div className="stock-divisions">
+        {divisionsOffered.map(d => (
+          <button
+            key={d}
+            type="button"
+            className={`stock-div-btn${division === d ? ' on' : ''}`}
+            onClick={() => pickDivision(d)}
+          >
+            <b>{d}</b>
+            <span>{divisionCount(d)} item{divisionCount(d) === 1 ? '' : 's'}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="stock-tabs">
+        {[...ITEM_GROUPS, UNSORTED].map(g => (
+          <button
+            key={g}
+            type="button"
+            className={`stock-tab${group === g ? ' on' : ''}`}
+            onClick={() => pickGroup(g)}
+          >
+            {g}<i>{groupCounts[g]}</i>
+          </button>
+        ))}
+      </div>
+
+      {inMachines && (
+        <div className="stock-subtabs">
+          {[...SUB_TABS, UNSHELVED].map(t => (
+            <button
+              key={t}
+              type="button"
+              className={`stock-subtab${subTab === t ? ' on' : ''}`}
+              onClick={() => pickSubTab(t)}
+            >
+              {t}<i>{subCounts[t]}</i>
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="search-bar">
         <input type="text" placeholder="Search items..." value={search} onChange={e => setSearch(e.target.value)} />
       </div>
@@ -286,7 +499,75 @@ export default function InventoryStock() {
       {error && <p style={{ color: 'red' }}>{error}</p>}
       {loading && <p className="muted">Loading...</p>}
 
-      {!loading && !error && (
+      {/* One indoor needs one outdoor, so this tab is counted in sets. */}
+      {!loading && !error && showingSplit && (
+        <div className="table-wrap">
+          <p className="muted" style={{ margin: '0 0 8px' }}>
+            <b>{totalSets}</b> complete set{totalSets === 1 ? '' : 's'} on hand.
+            A set is one indoor and its outdoor; link them on the indoor's Edit form.
+          </p>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Indoor</th>
+                <th>In</th>
+                <th>Outdoor</th>
+                <th>Out</th>
+                <th>Sets</th>
+                <th>Match</th>
+                {canManage && <th>Actions</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {splitPairs.length === 0 && lonelyOutdoors.length === 0 && (
+                <tr><td colSpan={canManage ? 7 : 6} className="muted">No splits in this division yet.</td></tr>
+              )}
+              {splitPairs.map(p => (
+                <tr key={p.indoor.id || p.indoor._id}>
+                  <td>{p.indoor.name}<div className="muted">{p.indoor.code || '—'}</div></td>
+                  <td>{p.qi}</td>
+                  <td>
+                    {p.partner
+                      ? <>{p.partner.name}<div className="muted">{p.partner.code || '—'}</div></>
+                      : <span className="muted">not linked yet</span>}
+                  </td>
+                  <td>{p.partner ? p.qo : '—'}</td>
+                  <td><b>{p.sets}</b></td>
+                  <td>
+                    {!p.partner
+                      ? <span className="status-badge status-pending">no outdoor linked</span>
+                      : p.qi === p.qo
+                        ? <span className="status-badge status-open">balanced</span>
+                        : <span className="status-badge status-pending">
+                            {Math.abs(p.qi - p.qo)} spare {p.qi > p.qo ? 'indoor' : 'outdoor'}
+                          </span>}
+                  </td>
+                  {canManage && (
+                    <td>
+                      <button className="btn sec sm" onClick={() => openEdit(p.indoor)}>Edit</button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+              {lonelyOutdoors.map(o => (
+                <tr key={o.id || o._id}>
+                  <td className="muted">— no indoor linked —</td>
+                  <td>—</td>
+                  <td>{o.name}<div className="muted">{o.code || '—'}</div></td>
+                  <td>{totQty(o)}</td>
+                  <td><b>0</b></td>
+                  <td><span className="status-badge status-pending">outdoor on its own</span></td>
+                  {canManage && (
+                    <td><button className="btn sec sm" onClick={() => openEdit(o)}>Edit</button></td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!loading && !error && !showingSplit && (
         <div className="table-wrap">
           <table className="data-table">
             <thead>
@@ -295,6 +576,7 @@ export default function InventoryStock() {
                 <th>Name</th>
                 <th>Category</th>
                 <th>Division</th>
+                {group === 'PCB' && <th>Fits</th>}
                 <th>Unit</th>
                 <th>Qty</th>
                 <th>Rate</th>
@@ -305,7 +587,7 @@ export default function InventoryStock() {
             </thead>
             <tbody>
               {filtered.length === 0 && (
-                <tr><td colSpan={canManage ? 10 : 9} className="muted">No items found.</td></tr>
+                <tr><td colSpan={(canManage ? 10 : 9) + (group === 'PCB' ? 1 : 0)} className="muted">Nothing in this drawer yet.</td></tr>
               )}
               {filtered.map(item => {
                 const qty = totQty(item);
@@ -317,6 +599,17 @@ export default function InventoryStock() {
                     <td>{item.name}</td>
                     <td>{catName(item.categoryId)}</td>
                     <td>{item.division || <span className="muted">—</span>}</td>
+                    {group === 'PCB' && (
+                      <td>
+                        {(item.fitsItemIds || []).length === 0
+                          ? <span className="muted">—</span>
+                          : (item.fitsItemIds || [])
+                              .map(id => itemById(id))
+                              .filter(Boolean)
+                              .map(x => x.name)
+                              .join(', ')}
+                      </td>
+                    )}
                     <td>{item.unit}</td>
                     <td>{qty}</td>
                     <td>{money(item.ratePerUnit)}</td>
@@ -363,6 +656,7 @@ export default function InventoryStock() {
                     {ITEM_DIVISIONS.map(d => <option key={d} value={d}>{d === 'Common' ? 'Common (all divisions)' : d}</option>)}
                   </select>
                 </div>
+                {groupFields(createForm, setCreateForm)}
                 <div className="filter-field"><label>Min Stock Level</label><input type="number" value={createForm.minimumStockLevel} onChange={e => setCreateForm(p => ({ ...p, minimumStockLevel: e.target.value }))} /></div>
                 <div className="filter-field"><label>Rate/Unit</label><input type="number" value={createForm.ratePerUnit} onChange={e => setCreateForm(p => ({ ...p, ratePerUnit: e.target.value }))} /></div>
                 <div className="filter-field"><label>Opening Stock</label><input type="number" value={createForm.openingStock} onChange={e => setCreateForm(p => ({ ...p, openingStock: e.target.value }))} /></div>
@@ -412,6 +706,7 @@ export default function InventoryStock() {
                     {ITEM_DIVISIONS.map(d => <option key={d} value={d}>{d === 'Common' ? 'Common (all divisions)' : d}</option>)}
                   </select>
                 </div>
+                {groupFields(editForm, setEditForm)}
                 <div className="filter-field"><label>Min Stock Level</label><input type="number" value={editForm.minimumStockLevel} onChange={e => setEditForm(p => ({ ...p, minimumStockLevel: e.target.value }))} /></div>
                 <div className="filter-field"><label>Rate/Unit</label><input type="number" value={editForm.ratePerUnit} onChange={e => setEditForm(p => ({ ...p, ratePerUnit: e.target.value }))} /></div>
                 <div className="filter-field" style={{ alignItems: 'center', flexDirection: 'row', gap: 8 }}>

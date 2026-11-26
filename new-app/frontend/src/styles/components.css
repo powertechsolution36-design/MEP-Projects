@@ -2593,3 +2593,83 @@
   .sort-select { width: 100%; margin-left: 0; }
   .sort-select select { flex: 1; min-width: 0; }
 }
+
+/* ------------------------------------------------------------------
+   Stock drawers — owner request, 26 Nov 2026.
+   Three division buttons, then the drawers, then (inside Machines) the
+   shelves. One drawer shows at a time: "if I am on Machines I will only
+   see machines."
+   ------------------------------------------------------------------ */
+.stock-divisions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0 0 14px;
+}
+.stock-div-btn {
+  flex: 1 1 150px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 11px 14px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.stock-div-btn:hover { background: var(--surface-hover); }
+.stock-div-btn b { display: block; font-size: 15px; }
+.stock-div-btn span { font-size: 12px; color: var(--text-muted); }
+.stock-div-btn.on { border-color: var(--primary); box-shadow: 0 0 0 2px var(--brand-50); }
+.stock-div-btn.on b { color: var(--primary); }
+
+.stock-tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 0;
+}
+.stock-tab {
+  padding: 9px 14px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--text-muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+}
+.stock-tab.on { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+.stock-tab i,
+.stock-subtab i {
+  font-style: normal;
+  background: var(--surface-sunken);
+  border-radius: 9px;
+  padding: 1px 7px;
+  font-size: 11px;
+  margin-left: 6px;
+  color: var(--text-muted);
+}
+.stock-tab.on i { background: var(--brand-50); color: var(--primary); }
+
+.stock-subtabs {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  padding: 11px 2px;
+}
+.stock-subtab {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 5px 13px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text);
+}
+.stock-subtab:hover { background: var(--surface-hover); }
+.stock-subtab.on { background: var(--n-900); color: #fff; border-color: transparent; }
+.stock-subtab.on i { background: rgba(255, 255, 255, .18); color: #fff; }
