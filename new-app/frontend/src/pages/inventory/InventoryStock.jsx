@@ -98,6 +98,10 @@ export default function InventoryStock() {
   const [division, setDivision] = useState(() => myDivision || readStored('mep_stock_division', 'HVAC'));
   const [group, setGroup] = useState(() => readStored('mep_stock_group', 'Machines'));
   const [subTab, setSubTab] = useState(() => readStored('mep_stock_sub', 'Indoor'));
+  /* Owner request (26 Nov 2026): Adjust / Edit / Delete gathered into one
+     menu per row. Three buttons on every line pushed the code and name
+     columns off the side of the screen. */
+  const [menuFor, setMenuFor] = useState(null);
   function pickDivision(d) { setDivision(d); writeStored('mep_stock_division', d); }
   function pickGroup(g) { setGroup(g); writeStored('mep_stock_group', g); }
   function pickSubTab(t) { setSubTab(t); writeStored('mep_stock_sub', t); }
@@ -152,6 +156,21 @@ export default function InventoryStock() {
   }, [canManage]);
 
   useEffect(() => { load(); }, [load]);
+
+  /* A click anywhere else, or Escape, closes the open row menu. */
+  useEffect(() => {
+    if (!menuFor) return undefined;
+    function away(e) {
+      if (!e.target.closest || !e.target.closest('.row-menu')) setMenuFor(null);
+    }
+    function esc(e) { if (e.key === 'Escape') setMenuFor(null); }
+    document.addEventListener('click', away);
+    document.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('click', away);
+      document.removeEventListener('keydown', esc);
+    };
+  }, [menuFor]);
 
   /* Category/Location name resolution */
   function catName(id) {
@@ -617,9 +636,37 @@ export default function InventoryStock() {
                     <td><span className={`status-badge ${state.cls}`}>{state.label}</span></td>
                     {canManage && (
                       <td>
-                        <button className="btn sec sm" onClick={() => openAdjust(item)} style={{ marginRight: 4 }}>Adjust</button>
-                        <button className="btn sec sm" onClick={() => openEdit(item)} style={{ marginRight: 4 }}>Edit</button>
-                        <button className="btn danger sm" onClick={() => handleDelete(item)}>Delete</button>
+                        <div className="row-menu">
+                          <button
+                            type="button"
+                            className="btn sec sm row-menu-button"
+                            aria-haspopup="menu"
+                            aria-expanded={menuFor?.id === (item.id || item._id)}
+                            aria-label={`Actions for ${item.name}`}
+                            onClick={e => {
+                              const id = item.id || item._id;
+                              if (menuFor?.id === id) { setMenuFor(null); return; }
+                              /* The table scrolls sideways, so a menu drawn
+                                 inside it would be clipped. Pin it to the
+                                 viewport at the button instead. */
+                              const r = e.currentTarget.getBoundingClientRect();
+                              setMenuFor({ id, top: r.bottom + 4, left: r.right });
+                            }}
+                          >
+                            &#8943;
+                          </button>
+                          {menuFor?.id === (item.id || item._id) && (
+                            <div
+                              className="row-menu-list"
+                              role="menu"
+                              style={{ top: menuFor.top, left: menuFor.left }}
+                            >
+                              <button type="button" role="menuitem" onClick={() => { setMenuFor(null); openAdjust(item); }}>Adjust</button>
+                              <button type="button" role="menuitem" onClick={() => { setMenuFor(null); openEdit(item); }}>Edit</button>
+                              <button type="button" role="menuitem" className="danger" onClick={() => { setMenuFor(null); handleDelete(item); }}>Delete</button>
+                            </div>
+                          )}
+                        </div>
                       </td>
                     )}
                   </tr>

@@ -2673,3 +2673,47 @@
 .stock-subtab:hover { background: var(--surface-hover); }
 .stock-subtab.on { background: var(--n-900); color: #fff; border-color: transparent; }
 .stock-subtab.on i { background: rgba(255, 255, 255, .18); color: #fff; }
+
+/* ------------------------------------------------------------------
+   One menu per row instead of three buttons — owner request, 26 Nov
+   2026. Adjust / Edit / Delete on every line were pushing the code and
+   name columns off the side of the screen.
+   ------------------------------------------------------------------ */
+.row-menu { position: relative; display: inline-block; }
+.row-menu-button {
+  min-width: 34px;
+  line-height: 1;
+  font-size: 18px;
+  letter-spacing: 1px;
+  padding: 2px 8px 6px;
+}
+.row-menu-list {
+  /* Pinned to the viewport, not the row: the table scrolls sideways and
+     would otherwise clip the menu. The page sets top/left from the
+     button's position. */
+  position: fixed;
+  transform: translateX(-100%);
+  z-index: 40;
+  min-width: 132px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(16, 24, 40, .14);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+.row-menu-list button {
+  text-align: left;
+  background: none;
+  border: none;
+  font: inherit;
+  color: inherit;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.row-menu-list button:hover { background: var(--surface-hover); }
+.row-menu-list button.danger { color: var(--primary); }
+.row-menu-list button.danger:hover { background: var(--brand-50); }
