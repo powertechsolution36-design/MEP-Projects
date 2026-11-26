@@ -112,6 +112,11 @@ export default function InventoryStock() {
   const [menuFor, setMenuFor] = useState(null);
   // Owner request (26 Nov 2026): the same sort as the other registers.
   const [sort, setSort] = useSort('stock');
+  /* Owner request (26 Nov 2026): three quick filters beside the search --
+     in stock, low, out. Deliberately NOT remembered between visits: a
+     sort that sticks is helpful, a filter that sticks has people asking
+     where their items went. */
+  const [stockFilter, setStockFilter] = useState('');
   /* Owner request (26 Nov 2026): inside Split, the two halves get their
      own sections under the names the trade uses -- IDU for the indoor
      unit, ODU for the outdoor one. */
@@ -227,8 +232,16 @@ export default function InventoryStock() {
   if (group === 'Machines') for (const i of groupItems) subCounts[subTabOf(i)] += 1;
   const inMachines = group === 'Machines';
   const showingSplit = inMachines && subTab === 'Split';
+  const shelfItems = inMachines ? groupItems.filter(i => subTabOf(i) === subTab) : groupItems;
+  /* The three quick filters, counted on exactly the rows they would show. */
+  const stateKey = i => {
+    const l = stockState(i).label;
+    return l === 'In Stock' ? 'in' : l === 'Low Stock' ? 'low' : 'out';
+  };
+  const stateCounts = { in: 0, low: 0, out: 0 };
+  for (const i of shelfItems) stateCounts[stateKey(i)] += 1;
   const filtered = sortRows(
-    inMachines ? groupItems.filter(i => subTabOf(i) === subTab) : groupItems,
+    stockFilter ? shelfItems.filter(i => stateKey(i) === stockFilter) : shelfItems,
     sort,
   );
 
@@ -572,6 +585,21 @@ export default function InventoryStock() {
 
       <div className="search-bar">
         <input type="text" placeholder="Search items..." value={search} onChange={e => setSearch(e.target.value)} />
+        {/* Owner request (26 Nov 2026). Clicking the one already chosen
+            clears it, so there is always a way back to everything. */}
+        <div className="stock-quick">
+          {[['in', 'In stock'], ['low', 'Low stock'], ['out', 'Out of stock']].map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              className={`stock-quick-btn ${key}${stockFilter === key ? ' on' : ''}`}
+              aria-pressed={stockFilter === key}
+              onClick={() => setStockFilter(stockFilter === key ? '' : key)}
+            >
+              {label}<i>{stateCounts[key]}</i>
+            </button>
+          ))}
+        </div>
       </div>
 
       {error && <p style={{ color: 'red' }}>{error}</p>}
