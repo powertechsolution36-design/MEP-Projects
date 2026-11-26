@@ -35,8 +35,11 @@ export default function InventoryCategories() {
 
   const canManage = MANAGE_ROLES.includes(user?.role);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  /* A reload after a save is quiet -- the rows stay on screen rather
+     than being replaced by a spinner, which otherwise collapses the page
+     and throws the reader back to the top (owner, 26 Nov 2026). */
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
     setError(null);
     try {
       const [catData, locData] = await Promise.all([
@@ -48,7 +51,7 @@ export default function InventoryCategories() {
     } catch (err) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, []);
 
@@ -68,7 +71,7 @@ export default function InventoryCategories() {
       await api.post('/api/inventory/categories', { name: catName });
       setShowCreateCat(false);
       setCatName('');
-      await load();
+      await load(true);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -84,7 +87,7 @@ export default function InventoryCategories() {
       const id = editCat.id || editCat._id;
       await apiPut(`/api/inventory/categories/${id}`, { name: editCatName });
       setEditCat(null);
-      await load();
+      await load(true);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -96,7 +99,7 @@ export default function InventoryCategories() {
     if (!window.confirm(`Delete category "${cat.name}"?`)) return;
     try {
       await api.delete(`/api/inventory/categories/${cat.id || cat._id}`);
-      await load();
+      await load(true);
     } catch (err) {
       setError(err.message);
     }
@@ -111,7 +114,7 @@ export default function InventoryCategories() {
       await api.post('/api/inventory/locations', { name: locName });
       setShowCreateLoc(false);
       setLocName('');
-      await load();
+      await load(true);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -127,7 +130,7 @@ export default function InventoryCategories() {
       const id = editLoc.id || editLoc._id;
       await apiPut(`/api/inventory/locations/${id}`, { name: editLocName });
       setEditLoc(null);
-      await load();
+      await load(true);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -139,7 +142,7 @@ export default function InventoryCategories() {
     if (!window.confirm(`Delete location "${loc.name}"?`)) return;
     try {
       await api.delete(`/api/inventory/locations/${loc.id || loc._id}`);
-      await load();
+      await load(true);
     } catch (err) {
       setError(err.message);
     }

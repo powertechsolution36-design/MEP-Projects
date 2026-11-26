@@ -73,8 +73,11 @@ export default function ClientList() {
      falling back to the person when a client has no firm. */
   const shown = sortRows(clients, sort, { name: (c) => c.companyName || c.clientName });
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  /* A reload after a save is quiet -- the rows stay on screen rather
+     than being replaced by a spinner, which otherwise collapses the page
+     and throws the reader back to the top (owner, 26 Nov 2026). */
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
     setError('');
     try {
       const d = await api.get(`/api/clients${search ? `?search=${encodeURIComponent(search)}` : ''}`);
@@ -82,7 +85,7 @@ export default function ClientList() {
     } catch (err) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, [search]);
 
@@ -110,7 +113,7 @@ export default function ClientList() {
         setImportNote('');
       }
       setForm(null);
-      await load();
+      await load(true);
     } catch (err) {
       alert(err.message);
     } finally {
@@ -123,7 +126,7 @@ export default function ClientList() {
     setBusy(true);
     try {
       await api.del(`/api/clients/${c.id}`);
-      await load();
+      await load(true);
     } catch (err) {
       alert(err.message);
     } finally {

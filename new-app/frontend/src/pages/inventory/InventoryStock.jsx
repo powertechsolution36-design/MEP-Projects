@@ -177,8 +177,18 @@ export default function InventoryStock() {
   const canManage = MANAGE_ROLES.includes(user?.role);
   const canExport = STOCK_REPORT_ROLES.includes(user?.role);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  /*
+   * Owner request (26 Nov 2026): "after every edit I save, I am going to
+   * the top of the screen -- I don't want it."
+   *
+   * The cause: every save reloaded with the spinner up, which took the
+   * table off the page for a moment. With nothing tall left to scroll,
+   * the browser put him back at the top, and the row he had just edited
+   * was gone from view. A reload after a save is now quiet: the rows
+   * stay where they are and are replaced when the new ones arrive.
+   */
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
     setError(null);
     try {
       const [itemsData, catData, locData, dashData] = await Promise.all([
@@ -194,7 +204,7 @@ export default function InventoryStock() {
     } catch (err) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, [canManage]);
 
@@ -398,7 +408,7 @@ export default function InventoryStock() {
       });
       setShowCreate(false);
       setCreateForm({ code: '', name: '', categoryId: '', unit: 'Nos', returnable: false, division: '', group: '', subGroup: '', fitsItemIds: [], minimumStockLevel: '', ratePerUnit: '', openingStock: '', openingLocationId: '' });
-      await load();
+      await load(true);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -445,7 +455,7 @@ export default function InventoryStock() {
         ratePerUnit: editForm.ratePerUnit ? Number(editForm.ratePerUnit) : undefined,
       });
       setShowEdit(null);
-      await load();
+      await load(true);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -458,7 +468,7 @@ export default function InventoryStock() {
     if (!window.confirm(`Delete item "${item.name}"? This cannot be undone.`)) return;
     try {
       await api.delete(`/api/inventory/items/${item.id || item._id}`);
-      await load();
+      await load(true);
     } catch (err) {
       setError(err.message);
     }
@@ -509,7 +519,7 @@ export default function InventoryStock() {
         remark: adjustForm.remark || undefined,
       });
       setShowAdjust(null);
-      await load();
+      await load(true);
     } catch (err) {
       setError(err.message);
     } finally {

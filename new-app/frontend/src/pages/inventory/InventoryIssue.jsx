@@ -45,8 +45,11 @@ export default function InventoryIssue() {
 
   const canManage = MANAGE_ROLES.includes(user?.role);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  /* A reload after a save is quiet -- the rows stay on screen rather
+     than being replaced by a spinner, which otherwise collapses the page
+     and throws the reader back to the top (owner, 26 Nov 2026). */
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
     setError(null);
     try {
       const [itemsData, locData, issData, staffData, siteData] = await Promise.all([
@@ -64,7 +67,7 @@ export default function InventoryIssue() {
     } catch (err) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, []);
 
@@ -108,7 +111,7 @@ export default function InventoryIssue() {
         remark: issueForm.remark || undefined,
       });
       setShowIssue(false);
-      await load();
+      await load(true);
     } catch (err) {
       setError(err.message);
     } finally {

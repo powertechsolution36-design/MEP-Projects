@@ -77,8 +77,11 @@ export default function ContractList() {
   // limited it to that division, so the control would do nothing.
   const [division, setDivision] = useState('');
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  /* A reload after a save is quiet -- the rows stay on screen rather
+     than being replaced by a spinner, which otherwise collapses the page
+     and throws the reader back to the top (owner, 26 Nov 2026). */
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams();
@@ -90,7 +93,7 @@ export default function ContractList() {
     } catch (err) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, [search, division]);
 
@@ -177,7 +180,7 @@ export default function ContractList() {
       const kept = res && res.serviceCallsKept
         ? ` ${res.serviceCallsKept} service call${res.serviceCallsKept === 1 ? '' : 's'} kept.`
         : '';
-      await load();
+      await load(true);
       setError('');
       window.alert(`Deleted.${kept}`);
     } catch (err) {
