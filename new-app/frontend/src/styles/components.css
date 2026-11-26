@@ -2756,3 +2756,10 @@
 .stock-quick-btn.in.on { background: #1b7a36; }
 .stock-quick-btn.low.on { background: #9a5b00; }
 .stock-quick-btn.out.on { background: var(--primary); }
+
+/* The pipe-size chart under Joints and Copper Piping (owner, 26 Nov
+   2026). Sizes nothing is held in stay, as they do on his sheet, but
+   step back so the sizes you actually hold are the ones that read. */
+.size-chart .muted-row td { color: var(--text-muted); }
+.size-chart td:first-child,
+.size-chart th:first-child { white-space: nowrap; }

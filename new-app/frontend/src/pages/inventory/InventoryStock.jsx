@@ -5,6 +5,7 @@ import { API_BASE_URL } from '../../config';
 import { useAuth } from '../../auth/AuthContext';
 import { money } from '../../utils/format';
 import SortSelect, { useSort, sortRows } from '../../components/SortSelect';
+import PipeSizeTable from './PipeSizeTable';
 
 /**
  * Inventory Stock — PWA `vStock()` exact reproduction.
@@ -857,6 +858,14 @@ export default function InventoryStock() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* Owner request (26 Nov 2026): his own size chart under Joints and
+          Copper Piping, with the blank Elbow and Socket columns filled in
+          from what is on the shelf. */}
+      {!loading && !error && group === 'Piping & Refnuts'
+        && (subTab === 'Joints' || subTab === 'Copper Piping') && (
+        <PipeSizeTable items={shelfItems} shelf={subTab} />
       )}
 
       {/* Create Item Modal */}
