@@ -102,6 +102,11 @@ export default function InventoryStock() {
      menu per row. Three buttons on every line pushed the code and name
      columns off the side of the screen. */
   const [menuFor, setMenuFor] = useState(null);
+  /* Owner request (26 Nov 2026): inside Split, the two halves get their
+     own sections under the names the trade uses -- IDU for the indoor
+     unit, ODU for the outdoor one. */
+  const [splitSide, setSplitSide] = useState(() => readStored('mep_stock_split_side', 'IDU'));
+  function pickSplitSide(v) { setSplitSide(v); writeStored('mep_stock_split_side', v); }
   function pickDivision(d) { setDivision(d); writeStored('mep_stock_division', d); }
   function pickGroup(g) { setGroup(g); writeStored('mep_stock_group', g); }
   function pickSubTab(t) { setSubTab(t); writeStored('mep_stock_sub', t); }
@@ -266,7 +271,12 @@ export default function InventoryStock() {
           <div className="filter-field"><label>Shelf</label>
             <select value={form.subGroup} onChange={e => setForm(p => ({ ...p, subGroup: e.target.value }))}>
               <option value="">— not shelved yet —</option>
-              {MACHINE_SUBGROUPS.map(t => <option key={t} value={t}>{t}</option>)}
+              {MACHINE_SUBGROUPS.map(t => (
+                <option key={t} value={t}>
+                  {t === 'Split Indoor' ? 'Split Indoor (IDU)'
+                    : t === 'Split Outdoor' ? 'Split Outdoor (ODU)' : t}
+                </option>
+              ))}
             </select>
           </div>
         )}
@@ -548,72 +558,141 @@ export default function InventoryStock() {
       {error && <p style={{ color: 'red' }}>{error}</p>}
       {loading && <p className="muted">Loading...</p>}
 
-      {/* One indoor needs one outdoor, so this tab is counted in sets. */}
+      {/* One indoor needs one outdoor, so this tab is counted in sets.
+          Inside it the two halves have their own sections, under the
+          names the trade uses: IDU and ODU (owner, 26 Nov 2026). */}
       {!loading && !error && showingSplit && (
-        <div className="table-wrap">
-          <p className="muted" style={{ margin: '0 0 8px' }}>
-            <b>{totalSets}</b> complete set{totalSets === 1 ? '' : 's'} on hand.
-            A set is one indoor and its outdoor; link them on the indoor's Edit form.
-          </p>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Indoor</th>
-                <th>In</th>
-                <th>Outdoor</th>
-                <th>Out</th>
-                <th>Sets</th>
-                <th>Match</th>
-                {canManage && <th>Actions</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {splitPairs.length === 0 && lonelyOutdoors.length === 0 && (
-                <tr><td colSpan={canManage ? 7 : 6} className="muted">No splits in this division yet.</td></tr>
-              )}
-              {splitPairs.map(p => (
-                <tr key={p.indoor.id || p.indoor._id}>
-                  <td>{p.indoor.name}<div className="muted">{p.indoor.code || '—'}</div></td>
-                  <td>{p.qi}</td>
-                  <td>
-                    {p.partner
-                      ? <>{p.partner.name}<div className="muted">{p.partner.code || '—'}</div></>
-                      : <span className="muted">not linked yet</span>}
-                  </td>
-                  <td>{p.partner ? p.qo : '—'}</td>
-                  <td><b>{p.sets}</b></td>
-                  <td>
-                    {!p.partner
-                      ? <span className="status-badge status-pending">no outdoor linked</span>
-                      : p.qi === p.qo
-                        ? <span className="status-badge status-open">balanced</span>
-                        : <span className="status-badge status-pending">
-                            {Math.abs(p.qi - p.qo)} spare {p.qi > p.qo ? 'indoor' : 'outdoor'}
-                          </span>}
-                  </td>
-                  {canManage && (
-                    <td>
-                      <button className="btn sec sm" onClick={() => openEdit(p.indoor)}>Edit</button>
-                    </td>
+        <>
+          <div className="stock-subtabs">
+            <button
+              type="button"
+              className={`stock-subtab${splitSide === 'IDU' ? ' on' : ''}`}
+              onClick={() => pickSplitSide('IDU')}
+            >
+              IDU — indoor<i>{splitIndoors.length}</i>
+            </button>
+            <button
+              type="button"
+              className={`stock-subtab${splitSide === 'ODU' ? ' on' : ''}`}
+              onClick={() => pickSplitSide('ODU')}
+            >
+              ODU — outdoor<i>{splitOutdoors.length}</i>
+            </button>
+          </div>
+
+          <div className="table-wrap">
+            <p className="muted" style={{ margin: '0 0 8px' }}>
+              <b>{totalSets}</b> complete set{totalSets === 1 ? '' : 's'} on hand.
+              A set is one IDU and its ODU; link them on the IDU's Edit form.
+            </p>
+
+            {splitSide === 'IDU' && (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Code</th>
+                    <th>Name</th>
+                    <th>Qty</th>
+                    <th>Rate</th>
+                    <th>Its ODU</th>
+                    <th>ODU qty</th>
+                    <th>Sets</th>
+                    <th>Match</th>
+                    {canManage && <th>Actions</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {splitPairs.length === 0 && (
+                    <tr><td colSpan={canManage ? 9 : 8} className="muted">No indoor halves in this division yet.</td></tr>
                   )}
-                </tr>
-              ))}
-              {lonelyOutdoors.map(o => (
-                <tr key={o.id || o._id}>
-                  <td className="muted">— no indoor linked —</td>
-                  <td>—</td>
-                  <td>{o.name}<div className="muted">{o.code || '—'}</div></td>
-                  <td>{totQty(o)}</td>
-                  <td><b>0</b></td>
-                  <td><span className="status-badge status-pending">outdoor on its own</span></td>
-                  {canManage && (
-                    <td><button className="btn sec sm" onClick={() => openEdit(o)}>Edit</button></td>
+                  {splitPairs.map(p => (
+                    <tr key={p.indoor.id || p.indoor._id}>
+                      <td>{p.indoor.code || '—'}</td>
+                      <td>{p.indoor.name}</td>
+                      <td>{p.qi}</td>
+                      <td>{money(p.indoor.ratePerUnit)}</td>
+                      <td>
+                        {p.partner
+                          ? <>{p.partner.name}<div className="muted">{p.partner.code || '—'}</div></>
+                          : <span className="muted">not linked yet</span>}
+                      </td>
+                      <td>{p.partner ? p.qo : '—'}</td>
+                      <td><b>{p.sets}</b></td>
+                      <td>
+                        {!p.partner
+                          ? <span className="status-badge status-pending">no ODU linked</span>
+                          : p.qi === p.qo
+                            ? <span className="status-badge status-open">balanced</span>
+                            : <span className="status-badge status-pending">
+                                {Math.abs(p.qi - p.qo)} spare {p.qi > p.qo ? 'IDU' : 'ODU'}
+                              </span>}
+                      </td>
+                      {canManage && (
+                        <td>
+                          <button className="btn sec sm" onClick={() => openAdjust(p.indoor)} style={{ marginRight: 4 }}>Adjust</button>
+                          <button className="btn sec sm" onClick={() => openEdit(p.indoor)}>Edit</button>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            {splitSide === 'ODU' && (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Code</th>
+                    <th>Name</th>
+                    <th>Qty</th>
+                    <th>Rate</th>
+                    <th>Its IDU</th>
+                    <th>Status</th>
+                    {canManage && <th>Actions</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {splitOutdoors.length === 0 && (
+                    <tr><td colSpan={canManage ? 7 : 6} className="muted">No outdoor halves in this division yet.</td></tr>
                   )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  {splitOutdoors.map(o => {
+                    const mate = splitPairs.find(p => p.partner
+                      && String(p.partner.id || p.partner._id) === String(o.id || o._id));
+                    return (
+                      <tr key={o.id || o._id}>
+                        <td>{o.code || '—'}</td>
+                        <td>{o.name}</td>
+                        <td>{totQty(o)}</td>
+                        <td>{money(o.ratePerUnit)}</td>
+                        <td>
+                          {mate
+                            ? <>{mate.indoor.name}<div className="muted">{mate.indoor.code || '—'}</div></>
+                            : <span className="muted">not linked yet</span>}
+                        </td>
+                        <td>
+                          {!mate
+                            ? <span className="status-badge status-pending">on its own</span>
+                            : mate.qi === mate.qo
+                              ? <span className="status-badge status-open">balanced</span>
+                              : <span className="status-badge status-pending">
+                                  {Math.abs(mate.qi - mate.qo)} spare {mate.qi > mate.qo ? 'IDU' : 'ODU'}
+                                </span>}
+                        </td>
+                        {canManage && (
+                          <td>
+                            <button className="btn sec sm" onClick={() => openAdjust(o)} style={{ marginRight: 4 }}>Adjust</button>
+                            <button className="btn sec sm" onClick={() => openEdit(o)}>Edit</button>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </>
       )}
 
       {!loading && !error && !showingSplit && (
