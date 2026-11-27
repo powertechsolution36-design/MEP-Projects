@@ -2730,32 +2730,10 @@
   margin-bottom: 14px;
 }
 
-/* Three quick filters beside the Stock search — in, low, out (owner,
-   26 Nov 2026). They carry the same colours as the status badges in the
-   table, so the chip and the rows it leaves behind read as one thing. */
-.stock-quick { display: flex; gap: 6px; flex-wrap: wrap; }
-.stock-quick-btn {
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text);
-  border-radius: 16px;
-  padding: 5px 12px;
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
-.stock-quick-btn:hover { background: var(--surface-hover); }
-.stock-quick-btn i {
-  font-style: normal;
-  margin-left: 6px;
-  font-size: 11.5px;
-  opacity: .7;
-}
-.stock-quick-btn.on { color: #fff; border-color: transparent; }
-.stock-quick-btn.on i { opacity: .85; }
-.stock-quick-btn.in.on { background: #1b7a36; }
-.stock-quick-btn.low.on { background: #9a5b00; }
-.stock-quick-btn.out.on { background: var(--primary); }
+/* The stock-level dropdown beside the Stock search was three chips
+   until 27 Nov 2026, when the owner asked for one dropdown instead; it
+   now borrows the sort control's own styling, so the two read as a
+   pair.*/
 
 /* The pipe-size chart under Joints and Copper Piping (owner, 26 Nov
    2026). Sizes nothing is held in stay, as they do on his sheet, but

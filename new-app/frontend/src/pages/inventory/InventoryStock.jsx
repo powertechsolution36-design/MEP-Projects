@@ -640,21 +640,22 @@ export default function InventoryStock() {
 
       <div className="search-bar">
         <input type="text" placeholder="Search items..." value={search} onChange={e => setSearch(e.target.value)} />
-        {/* Owner request (26 Nov 2026). Clicking the one already chosen
-            clears it, so there is always a way back to everything. */}
-        <div className="stock-quick">
-          {[['in', 'In stock'], ['low', 'Low stock'], ['out', 'Out of stock']].map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              className={`stock-quick-btn ${key}${stockFilter === key ? ' on' : ''}`}
-              aria-pressed={stockFilter === key}
-              onClick={() => setStockFilter(stockFilter === key ? '' : key)}
-            >
-              {label}<i>{stateCounts[key]}</i>
-            </button>
-          ))}
-        </div>
+        {/* Owner request (27 Nov 2026): the three as one dropdown rather
+            than three buttons. Each choice carries its count, so the
+            list it would give is known before it is chosen. */}
+        <label className="sort-select">
+          <span className="sort-select-label">Show</span>
+          <select
+            value={stockFilter}
+            onChange={e => setStockFilter(e.target.value)}
+            aria-label="Filter by stock level"
+          >
+            <option value="">All stock ({shelfItems.length})</option>
+            <option value="in">In stock ({stateCounts.in})</option>
+            <option value="low">Low stock ({stateCounts.low})</option>
+            <option value="out">Out of stock ({stateCounts.out})</option>
+          </select>
+        </label>
       </div>
 
       {error && <p style={{ color: 'red' }}>{error}</p>}
